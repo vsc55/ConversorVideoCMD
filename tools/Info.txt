@@ -1,0 +1,3 @@
+Version:
+ffmpeg-20181018-f72b990-win32-static
+ffmpeg-20181018-f72b990-win64-static
