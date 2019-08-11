@@ -1,9 +1,13 @@
 @echo off
 cls
 setlocal ENABLEDELAYEDEXPANSION
-title Conversor 4.4
+title Conversor 4.5
 
 rem *********************************** CONVERSION DE FORMATOS MULTIMEDIA ***********************************
+rem **                                                                                                     **
+rem **  VERSION 4.5 - 08/01/2019                                                                           **
+rem **  - NEW: A๑adir resolucion de aspecto 1.85:1, actualmente solo para 1080p.                           **
+rem **                                                                                                     **
 rem **                                                                                                     **
 rem **  VERSION 4.4 - 27/10/2018                                                                           **
 rem **  - FIX: Corriguir error en relacion de aspecto 2.35.                                                **
@@ -350,14 +354,16 @@ echo     บ บ      1.    4:3  (1,33)                                             
 echo     บ บ      2.   12:5  (2,40) - (Panoramico - Normal en Peliculas)                  บ บ
 echo     บ บ  [*] 3.   16:9  (1,78) - (Panoramico - Normal en Series)                     บ บ
 echo     บ บ      4. 2.35:1  (2,35) - (Super35 - Peliculas usado en el CINE)              บ บ
+echo     บ บ      5. 1.85:1  (1,85) - ()                                                  บ บ
 echo     บ บ                                                                              บ บ
-echo     บ บ      5. ABORTAR / SALIR                                                      บ บ
+echo     บ บ      6. ABORTAR / SALIR                                                      บ บ
 echo     บ บ                                                                              บ บ
 echo     บ ศออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออผ บ
 echo     ศออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออผ
 echo.
-@CHOICE /C:12345 /N
-IF "%ERRORLEVEL%"=="5" GOTO SEC_PROCESS_ABORT
+@CHOICE /C:123456 /N
+IF "%ERRORLEVEL%"=="6" GOTO SEC_PROCESS_ABORT
+IF "%ERRORLEVEL%"=="5" GOTO SELECTVIDEOASPECTO_OPT5
 IF "%ERRORLEVEL%"=="4" GOTO SELECTVIDEOASPECTO_OPT4
 IF "%ERRORLEVEL%"=="3" GOTO SELECTVIDEOASPECTO_OPT3
 IF "%ERRORLEVEL%"=="2" GOTO SELECTVIDEOASPECTO_OPT2
@@ -380,6 +386,10 @@ GOTO SEC_PROCESS_ABORT
 	set OutputVideoAspect=2.35
 	GOTO SELECTVIDEOASPECTO_END
 	
+:SELECTVIDEOASPECTO_OPT5
+	set OutputVideoAspect=1.85
+	GOTO SELECTVIDEOASPECTO_END
+	
 :SELECTVIDEOASPECTO_END
 color 1e
 
@@ -392,27 +402,27 @@ echo.
 echo     ษอออออออออออออป
 echo     บ ษอออออออออออผ
 echo     บ บ CONFIGURADO PARA RECODIFICACION A: %OutputVideoAspect%
-echo     บ ศออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออป
-echo     บ ษออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออป บ
-echo     บ บ                                                                              บ บ
-echo     บ บ                      CONVERSION DE FORMATOS MULTIMEDIA                       บ บ
-echo     บ บ                                                                              บ บ
-echo     บ ฬออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออน บ
-echo     บ ฬออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออน บ
-echo     บ บ                                                                              บ บ
-echo     บ บ  RESOLUCION:                                                                 บ บ
-echo     บ บ                                                                              บ บ
-echo     บ บ      1.             - 640x268   (12:5)   640x360  (16:9)   640x480 (4:3)     บ บ
-echo     บ บ      2. DVD/SD/NTSC - 720x304   (12:5)   720x480  (16:9)   720x576 (4:3)     บ บ
-echo     บ บ      3.             - 1024x428  (12:5)  1024x576  (16:9)  1024x768 (4:3)     บ บ
-echo     บ บ  [*] 4. HD Ready    - 1280x536  (12:5)  1280x720  (16:9)  1280x544 (2.35:1)  บ บ
-echo     บ บ      5. FullHD      - 1920x800  (12:5)  1920x1080 (16:9)  1920x816 (2.35:1)  บ บ
-echo     บ บ      6. 4K          - 3840x2880 (12:5)  3840x2160 (16:9)                     บ บ
-echo     บ บ                                                                              บ บ
-echo     บ บ      7. ABORTAR / SALIR                                                      บ บ
-echo     บ บ                                                                              บ บ
-echo     บ ศออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออผ บ
-echo     ศออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออผ
+echo     บ ศออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออป
+echo     บ ษออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออป บ
+echo     บ บ                                                                                                  บ บ
+echo     บ บ                      CONVERSION DE FORMATOS MULTIMEDIA                                           บ บ
+echo     บ บ                                                                                                  บ บ
+echo     บ ฬออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออน บ
+echo     บ ฬออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออน บ
+echo     บ บ                                                                                                  บ บ
+echo     บ บ  RESOLUCION:                                                                                     บ บ
+echo     บ บ                                                                                                  บ บ
+echo     บ บ      1.             - 640x268   (12:5)   640x360  (16:9)   640x480 (4:3)                         บ บ
+echo     บ บ      2. DVD/SD/NTSC - 720x304   (12:5)   720x480  (16:9)   720x576 (4:3)                         บ บ
+echo     บ บ      3.             - 1024x428  (12:5)  1024x576  (16:9)  1024x768 (4:3)                         บ บ
+echo     บ บ  [*] 4. HD Ready    - 1280x536  (12:5)  1280x720  (16:9)  1280x544 (2.35:1)                      บ บ
+echo     บ บ      5. FullHD      - 1920x800  (12:5)  1920x1080 (16:9)  1920x816 (2.35:1)  1920x1040 (1.85:1)  บ บ
+echo     บ บ      6. 4K          - 3840x2880 (12:5)  3840x2160 (16:9)                                         บ บ
+echo     บ บ                                                                                                  บ บ
+echo     บ บ      7. ABORTAR / SALIR                                                                          บ บ
+echo     บ บ                                                                                                  บ บ
+echo     บ ศออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออผ บ
+echo     ศออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออผ
 echo.
 @CHOICE /C:1234567 /N
 IF "%ERRORLEVEL%"=="7" GOTO SEC_PROCESS_ABORT
@@ -469,6 +479,7 @@ GOTO SEC_PROCESS_ABORT
 		rem set OutputVideoAspect=16:9
 		REM ************************************************************************************************************************ MODIFICADO LINEA ANTERIOR PARA EVITAR ERROR, HAY QUE MODIFICAR ASPECTO DESPUES DE RECODIFICAR.
 	)
+
 	GOTO SELECTVIDEORESOLUCION_END
 	
 	
@@ -479,7 +490,10 @@ GOTO SEC_PROCESS_ABORT
 		set OutputVideoSize=1920x1080
 	) else if /i "%OutputVideoAspect%" equ "2.35" (
 		set OutputVideoSize=1920x816
+	) else if /i "%OutputVideoAspect%" equ "1.85" (
+		set OutputVideoSize=1920x1040
 	)
+	set OutputVideoSize=1920:-1
 	GOTO SELECTVIDEORESOLUCION_END
 	
 
@@ -530,8 +544,8 @@ echo     บ บ  CODEC DE RECODIFICACION:                                          
 echo     บ บ                                                                              บ บ
 echo     บ บ      1. CPU (libx264)                                                        บ บ
 echo     บ บ  [*] 2. GPU (NVIDIA, h264_nvenc)                                             บ บ
-rem echo     บ บ      3. CPU (libx265)                                                        บ บ
-rem echo     บ บ      4. GPU (NVIDIA, h265_nvenc)                                             บ บ
+echo     บ บ      3. CPU (libx265)                                                        บ บ
+echo     บ บ      4. GPU (NVIDIA, h265_nvenc)                                             บ บ
 echo     บ บ                                                                              บ บ
 echo     บ บ      5. ABORTAR / SALIR                                                      บ บ
 echo     บ บ                                                                              บ บ
@@ -541,7 +555,7 @@ echo     บ บ  [*] EN 10 SEG. SE AUTO SELECCIONARA
 echo     บ ศออออออออออออออออออออออออออออออออออออออป
 echo     ศออออออออออออออออออออออออออออออออออออออออผ
 echo. 
-@CHOICE /C:125 /N /t 10 /d 2
+@CHOICE /C:12345 /N /t 10 /d 2
 IF "%ERRORLEVEL%"=="5" GOTO SEC_PROCESS_ABORT
 IF "%ERRORLEVEL%"=="4" GOTO SELECTGPUOCPU_OPT4
 IF "%ERRORLEVEL%"=="3" GOTO SELECTGPUOCPU_OPT3
@@ -824,7 +838,7 @@ echo ณ   ณ     ภฤฤฤฤดณ CONVIERTIENDO AUDIO !VarCheck:~2! ^(pista !VarCheck:~,1!^
 						findstr.exe  /i /c:"Parsed_ashowinfo" !tProcFInfoE! | findstr.exe /i /c:"pts_time" > !tProcFInfoF!
 					
 						set /p tProcFixInitTime=<!tProcFInfoF!
-						for /f %%i in ('cscript /nologo AudioGetInitTime.vbs "!tProcFixInitTime!"') do set tProcFixInitTime=%%i
+						for /f %%i in ('cscript /nologo AudioGetInitTimeOld.vbs "!tProcFixInitTime!"') do set tProcFixInitTime=%%i
 						echo !tProcFixInitTime! > !tProcFInfoF!
 						
 						
@@ -921,6 +935,8 @@ echo ณ   ณ           ภฤฤฤฤดณ COPIANDO ...
 					) else (
 echo ณ   ณ           รฤฤฤฤดณ PASADA 1/2
 						if /i "%OutputCodec%" equ "h264" (
+							echo %tPathffmpeg% -i "%%~fi" -i !tProcFAudi! -map 0:!VarCheck! -map 1:0 -y -threads %ffmpeg_threads% -pass 1 -s %OutputVideoSize% -aspect %OutputVideoAspect% -r %OutputVideoFPS% -vb %OutputVideoBitrate%k -c:v %ffmpeg_cv% -acodec copy !tProcFConv!
+							pause
 							start "" /wait /min %tPathffmpeg% -i "%%~fi" -i !tProcFAudi! -map 0:!VarCheck! -map 1:0 -y -threads %ffmpeg_threads% -pass 1 -s %OutputVideoSize% -aspect %OutputVideoAspect% -r %OutputVideoFPS% -vb %OutputVideoBitrate%k -c:v %ffmpeg_cv% -acodec copy !tProcFConv!
 							
 						)
