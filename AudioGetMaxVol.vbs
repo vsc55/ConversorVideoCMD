@@ -23,18 +23,17 @@ end if
 Set objInfoFile = objFSO.OpenTextFile(sPathFileInfo, ForReading)
 While Not objInfoFile.AtEndOfStream 
 	str1 = objInfoFile.Readline
-	If InStr(str1, "Parsed_ashowinfo_") > 0 Then
-		If InStr(str1, "pts_time:") > 0 Then
-				
-			s=Split(str1," ")
-			For i=LBound(s) To UBound(s)
-				b=Split(s(i),":")
-				if b(0) = "pts_time" then
-					DebugWrite str1
-					iReturn = trim(b(1))
-				end if
-			Next
-			
+	If InStr(str1, "Parsed_volumedetect_") > 0 Then
+		If InStr(str1, "max_volume:") > 0 Then
+			DebugWrite str1
+			s=Split(str1,":")			
+			If UBound(s) = 1 then
+				iReturn = trim(s(UBound(s)))
+				s=Split(iReturn," ")
+				If UBound(s) = 1 then
+					iReturn=Trim(s(0))
+				End If
+			End If
 		End If
 	End If
 Wend 
@@ -44,12 +43,20 @@ if IsEmpty(iReturn) = true then
 	iReturn = 0
 elseif IsNumeric(iReturn) = false then
 	iReturn = 0
-else
-	'TENEMOS QUE DIVIDIR EL TIEMPO A LA MITAD PARA QUE EL AUDIO ESTE SINCRONIZADO, EN TIEMPOS ALTOS ESTO FALLA
-	'TODO: PENDIENTE MIRAR POR QUE SUCEDE ESTO
-	'!!!!!!INFO!!!!!!: ESTE PROBLEMA ERA DEVIDO AL RECODIFICAR CON EL CODEC AAC Y AÑADIR LA PISTA DEL SILENCIO ENTRE DICHAS PISTAS DE AUDIO AÑADIA UNOS SEGUNDOS O MILISEGUNDOS PRODUCIENDO LOS DESFASES.
-	'                  ANULAMOS ESTA DIVISON YA QUE AHORA SE GENERA UN WEV QUE NO SUBRE ESA DESINCRONIZACION.
-	'iReturn=Replace((Cdbl(Replace(iReturn,".",",")) / 2),",",".")
+elseif iReturn = "0.0" then
+	iReturn = 0
+end if
+
+
+
+if iReturn > 0 then
+	'si el valor es positivo quiere decir que el volumen esta por encima del nivel vase, por lo que lo dejamos en 0
+	'para omitir el aumento de volumen.
+	iReturn = 0
+else 
+	'eliminamos el simbolo - para combertir el valor en numero positivo. No usamos "iReturn * -1" ya que se come los decimales.
+	'iReturn = Right(iReturn, len(iReturn) -1)
+	iReturn=Replace((Cdbl(Replace(iReturn,".",",")) * -1),",",".")
 end if
 
 
