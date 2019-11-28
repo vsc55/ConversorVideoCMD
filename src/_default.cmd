@@ -22,7 +22,7 @@ call :%*
 goto :END
 
 
-:: - FUNCINES.................
+:: - FUNCIONES.................
 
 
 :END

@@ -72,9 +72,10 @@ goto :END
 
 :SELECT_PROFILE_CLEAN
 	if "!all_profile!" NEQ "" (
-		echo [GLOBAL] - BORRANDO AJUSTES
-		echo.
+		SET _show_msg=YES
+		echo|set /p="[GLOBAL] - BORRANDO AJUSTES DE CODIFICACION..."
 	)
+	
 	set all_profile=
 	set ffmpeg_cv=
 	set all_v_profile=
@@ -85,6 +86,12 @@ goto :END
 	set all_detect_borde=
 	set all_change_size=
 	set all_a_bitrate=
+	
+	if DEFINED _show_msg (
+		echo|set /p="  [OK]"
+		echo.
+		(SET _show_msg=)
+	)
 	goto:eof
 
 :SELECT_PROFILE_00
