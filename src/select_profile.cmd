@@ -32,7 +32,7 @@ goto :END
 	echo บ                                                              บ
 	echo บ   USAR PERFIL:                                               บ
 	echo บ                                                              บ
-	echo บ   [*] 1. A: 192K, V: COPY                                    บ
+	echo บ       1. A: 192K, V: COPY                                    บ
 	echo บ                                                              บ
 	echo บ       2. A: 192K, V: h265[NV]/M10/L5/Q(1-23)                 บ
 	echo บ       3. A: 192K, V: h265[NV]/M10/L5/Q(1-23)/DETECT BORDE    บ
@@ -45,9 +45,8 @@ goto :END
 	echo บ                                                              บ
 	echo บ       0. Custom                                              บ
 	echo บ                                                              บ
-	echo บ                          [*] EN 10 SEG. SE AUTO SELECCIONARA บ
 	echo ศออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออออผ
-	@CHOICE /C:01234567 /N /t 10 /d 1 /M "[GLOBAL] - [PROFILE] - OPCION NUMERO:"
+	@CHOICE /C:01234567 /N /M "[GLOBAL] - [PROFILE] - OPCION NUMERO:"
 	IF Errorlevel 8 GOTO SELECT_PROFILE_07
 	IF Errorlevel 7 GOTO SELECT_PROFILE_06
 	IF Errorlevel 6 GOTO SELECT_PROFILE_05

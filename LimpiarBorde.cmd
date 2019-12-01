@@ -1,10 +1,18 @@
 @echo off
 cls
 setlocal enabledelayedexpansion
-title ClearBorde 2.0
+title ClearBorde 2.1
 
 
 rem *********************************** CONVERSION DE FORMATOS MULTIMEDIA ***********************************
+rem **                                                                                                     **
+rem **  VERSION 2.1 - 01/12/2019                                                                           **
+rem **  - NEW:                                                                                             **
+rem **       - CREAR FUNCION PARA DESCARGAR ARCHIVOS DE INTERNET                                           **
+rem **       - AL ARRANCAR COMPRUEBA SI EXISTEN LOS EJECUTABLES NECESARIOS Y SI ALGUNO NO EXISTE LO        **
+rem **         DESCARGA DE INTERNET.                                                                       **
+rem **                                                                                                     **
+rem ** ----------------------------------------------------------------------------------------------------**
 rem **                                                                                                     **
 rem **  VERSION 2.0 - 28/11/2019                                                                           **
 rem **  - NEW:                                                                                             **
@@ -200,6 +208,7 @@ rem ****************************************************************************
 
 
 
+:: _stage > C = Config, G = Global, F = File
 :VARIABLES
 set _HACK_CHEKC_=1987
 set _os_bitness=
@@ -257,10 +266,6 @@ If %_os_bitness% == 32 (
 	set ffmpeg_bits=x86
 ) ELSE If %_os_bitness% == 64 (
 	set ffmpeg_bits=x64
-) ELSE (
-	echo "ERROR 1!"
-	pause
-	exit
 )
 
 
@@ -288,15 +293,53 @@ set tPath=%~dp0
 set tPathOrige=%~dp0Original
 set tPathProce=%~dp0Proceso
 set tPathConve=%~dp0Convertido
-set tPathffmpeg="%~dp0tools\%ffmpeg_bits%\ffmpeg.exe"
-set tPathffprobe="%~dp0tools\%ffmpeg_bits%\ffprobe.exe"
-set tPathffplay="%~dp0tools\%ffmpeg_bits%\ffplay.exe"
-set tPathaacgain="%~dp0tools\aacgain.exe"
+set tPathTools=%~dp0tools
+set tPathFF=%tPathTools%\%ffmpeg_bits%
+set tPathffmpeg="%tPathFF%\ffmpeg.exe"
+set tPathffprobe="%tPathFF%\ffprobe.exe"
+set tPathffplay="%tPathFF%\ffplay.exe"
+set tPathaacgain="%tPathTools%\aacgain.exe"
 
 
 If not exist "%tPathProce%" (mkdir "%tPathProce%")
 If not exist "%tPathConve%" (mkdir "%tPathConve%")
+If not exist "%tPathTools%" (mkdir "%tPathTools%")
+If not exist "%tPathFF%" (mkdir "%tPathFF%")
 
+@call src\gen_func.cmd CHECK_EXIST_AND_DOWNLOAD "%tPathffmpeg%" "https://raw.githubusercontent.com/vsc55/ConversorVideoCMD/master/tools/%ffmpeg_bits%/ffmpeg.exe" _checkExist
+if "!_checkExist!" == "NO" (
+	echo ERROR: No se ha localizado el programa FFMPEG [%ffmpeg_bits%]^^!
+	set _error_falta_algo=YES
+)
+(set _checkExist=)
+
+@call src\gen_func.cmd CHECK_EXIST_AND_DOWNLOAD "%tPathffprobe%" "https://raw.githubusercontent.com/vsc55/ConversorVideoCMD/master/tools/%ffmpeg_bits%/ffprobe.exe" _checkExist
+if "!_checkExist!" == "NO" (
+	echo ERROR: No se ha localizado el programa FFPROBE [%ffmpeg_bits%]^^!
+	set _error_falta_algo=YES
+)
+(set _checkExist=)
+
+@call src\gen_func.cmd CHECK_EXIST_AND_DOWNLOAD "%tPathffprobe%" "https://raw.githubusercontent.com/vsc55/ConversorVideoCMD/master/tools/%ffmpeg_bits%/ffplay.exe" _checkExist
+if "!_checkExist!" == "NO" (
+	echo ERROR: No se ha localizado el programa FFPLAY [%ffmpeg_bits%]^^!
+	set _error_falta_algo=YES
+)
+(set _checkExist=)
+
+@call src\gen_func.cmd CHECK_EXIST_AND_DOWNLOAD "%tPathaacgain%" "https://raw.githubusercontent.com/vsc55/ConversorVideoCMD/master/tools/aacgain.exe" _checkExist
+if "!_checkExist!" == "NO" (
+	echo ERROR: No se ha localizado el programa AACGAIN^^!
+	set _error_falta_algo=YES
+)
+(set _checkExist=)
+
+if DEFINED _error_falta_algo (
+	echo.
+	echo *** EXIT: ERROR CODE 2^!
+	pause
+	exit /b 2
+)
 
 
 
@@ -330,6 +373,19 @@ set tPathFileConvrt=
 set tFileName=
 
 
+:: GLOBALES - AJUESTES DE RECODIFICACION
+:: ffmpeg_cv = [copy|hevc_nvenc|libx265|h264_nvenc|libx264]
+:: all_v_profile = [baseline|main|main10|etc...]
+:: all_v_level = [4|5|5.2|etc...]
+:: all_qmin = 0    q minimo -> nvenc
+:: all_qmax = 23   q maximo -> nvenc
+:: all_crv= 23      -> libx265 y libx264
+:: all_detect_borde = [NO|YES]
+:: all_change_size = [NO|1920:-1|1280:-1]
+:: all_a_bitrate = [96K|192K|lo que quieras]
+:: TODO: all_a_hz, all_v_encoder que remplace a ffmpeg_cv
+
+set all_v_encoder=
 set all_qmin=
 set all_qmax=
 set all_crv=

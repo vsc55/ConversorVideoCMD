@@ -190,6 +190,32 @@ goto :END
 	goto:eof
 
 
+:CHECK_EXIST_AND_DOWNLOAD
+	:: @call src\gen_func.cmd CHECK_EXIST_AND_DOWNLOAD "path_file" "url" is_exist
+	:: https://stackoverflow.com/questions/4619088/windows-batch-file-file-download-from-a-url
+	:: https://superuser.com/questions/25538/how-to-download-files-from-command-line-in-windows-like-wget-or-curl
+	:: https://idiallo.com/blog/download-file-in-windows-command-line
+
+	set t_file=%~1
+	set t_url=%2
+
+	set t_return=NO
+	If exist !t_file! (
+		set t_return=YES
+	) else (
+		::TODO Pendiente comprobar si url no esta vacia.
+		if "!t_url!" neq "" (
+			echo Descargando:
+			echo - !t_url!
+			curl -f -# !t_url! -o !t_file!
+			If exist !t_file! (
+				set t_return=DOWNLOAD_YES
+			)
+		)
+	)
+	SET "%~3=!t_return!"
+	goto:eof
+
 
 :END
 exit /b 0
