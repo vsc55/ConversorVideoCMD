@@ -1,10 +1,21 @@
 @echo off
 cls
 setlocal enabledelayedexpansion
-title ClearBorde 2.1
+title ClearBorde 2.2
 
 
 rem *********************************** CONVERSION DE FORMATOS MULTIMEDIA ***********************************
+rem **                                                                                                     **
+rem **  VERSION 2.2 - 02/12/2019                                                                           **
+rem **  - NEW:                                                                                             **
+rem **       - CREAR FUNCION "CHECK_DIR_AND_CREATE" COMPROBAR SI EXISTEN LOS DIRECTORIO Y CREARLOS SI      **
+rem **         NO EXISTEN.                                                                                 **
+rem **       - CREAR FUNCION "CHECK_FILE_AND_FIX" PARA ELIMINAR CODIGO DUPLICADO                           **
+rem **                                                                                                     **
+rem **  - UPDATE:                                                                                          **
+rem **       - IMPLEMENTAR "CHECK_DIR_AND_CREATE" Y "CHECK_FILE_AND_FIX" PARA LIMPIAR CODIGO               **
+rem **                                                                                                     **
+rem ** ----------------------------------------------------------------------------------------------------**
 rem **                                                                                                     **
 rem **  VERSION 2.1 - 01/12/2019                                                                           **
 rem **  - NEW:                                                                                             **
@@ -300,40 +311,24 @@ set tPathffprobe="%tPathFF%\ffprobe.exe"
 set tPathffplay="%tPathFF%\ffplay.exe"
 set tPathaacgain="%tPathTools%\aacgain.exe"
 
+set tURLBaseTools=https://raw.githubusercontent.com/vsc55/ConversorVideoCMD/master/tools
 
-If not exist "%tPathProce%" (mkdir "%tPathProce%")
-If not exist "%tPathConve%" (mkdir "%tPathConve%")
-If not exist "%tPathTools%" (mkdir "%tPathTools%")
-If not exist "%tPathFF%" (mkdir "%tPathFF%")
 
-@call src\gen_func.cmd CHECK_EXIST_AND_DOWNLOAD "%tPathffmpeg%" "https://raw.githubusercontent.com/vsc55/ConversorVideoCMD/master/tools/%ffmpeg_bits%/ffmpeg.exe" _checkExist
-if "!_checkExist!" == "NO" (
-	echo ERROR: No se ha localizado el programa FFMPEG [%ffmpeg_bits%]^^!
-	set _error_falta_algo=YES
+@call src\gen_func.cmd CHECK_DIR_AND_CREATE "%tPathProce%" _error_falta_algo
+@call src\gen_func.cmd CHECK_DIR_AND_CREATE "%tPathConve%" _error_falta_algo
+@call src\gen_func.cmd CHECK_DIR_AND_CREATE "%tPathTools%" _error_falta_algo
+@call src\gen_func.cmd CHECK_DIR_AND_CREATE "%tPathFF%" _error_falta_algo
+if DEFINED _error_falta_algo (
+	echo.
+	echo *** EXIT: ERROR CODE 1^!
+	pause
+	exit /b 1
 )
-(set _checkExist=)
 
-@call src\gen_func.cmd CHECK_EXIST_AND_DOWNLOAD "%tPathffprobe%" "https://raw.githubusercontent.com/vsc55/ConversorVideoCMD/master/tools/%ffmpeg_bits%/ffprobe.exe" _checkExist
-if "!_checkExist!" == "NO" (
-	echo ERROR: No se ha localizado el programa FFPROBE [%ffmpeg_bits%]^^!
-	set _error_falta_algo=YES
-)
-(set _checkExist=)
-
-@call src\gen_func.cmd CHECK_EXIST_AND_DOWNLOAD "%tPathffprobe%" "https://raw.githubusercontent.com/vsc55/ConversorVideoCMD/master/tools/%ffmpeg_bits%/ffplay.exe" _checkExist
-if "!_checkExist!" == "NO" (
-	echo ERROR: No se ha localizado el programa FFPLAY [%ffmpeg_bits%]^^!
-	set _error_falta_algo=YES
-)
-(set _checkExist=)
-
-@call src\gen_func.cmd CHECK_EXIST_AND_DOWNLOAD "%tPathaacgain%" "https://raw.githubusercontent.com/vsc55/ConversorVideoCMD/master/tools/aacgain.exe" _checkExist
-if "!_checkExist!" == "NO" (
-	echo ERROR: No se ha localizado el programa AACGAIN^^!
-	set _error_falta_algo=YES
-)
-(set _checkExist=)
-
+@call src\gen_func.cmd CHECK_FILE_AND_FIX "%tPathffmpeg%" "%tURLBaseTools%/%ffmpeg_bits%/ffmpeg.exe" "ERROR: No se ha localizado el programa FFMPEG ^(%ffmpeg_bits%^)^^^^^^^!" _error_falta_algo
+@call src\gen_func.cmd CHECK_FILE_AND_FIX "%tPathffprobe%" "%tURLBaseTools%/%ffmpeg_bits%/ffprobe.exe" "ERROR: No se ha localizado el programa FFPROBE ^(%ffmpeg_bits%^)^^^^^^^!" _error_falta_algo
+@call src\gen_func.cmd CHECK_FILE_AND_FIX "%tPathffplay%" "%tURLBaseTools%/%ffmpeg_bits%/ffplay.exe" "ERROR: No se ha localizado el programa FFPLAY ^(%ffmpeg_bits%^)^^^^^^^!" _error_falta_algo
+@call src\gen_func.cmd CHECK_FILE_AND_FIX "%tPathaacgain%" "%tURLBaseTools%/aacgain.exe" "No se ha localizado el programa AACGAIN^^^^^^^!" _error_falta_algo
 if DEFINED _error_falta_algo (
 	echo.
 	echo *** EXIT: ERROR CODE 2^!
