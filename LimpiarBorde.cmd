@@ -408,8 +408,6 @@ if "!all_profile!" == "" (
 
 
 
-
-
 for %%i in ("%tPathOrige%\*.avi" "%tPathOrige%\*.flv" "%tPathOrige%\*.mkv" "%tPathOrige%\*.mp4") do (
 	
 	set _stage=F

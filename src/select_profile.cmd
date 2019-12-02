@@ -8,20 +8,18 @@
 If /i "%_HACK_CHEKC_%" neq "1987" (
 	echo Process Abort 500
 	pause
-	exit
+	exit /b 500
+)
+if "%1" == "" (
+	echo El archivo se ejecuto independientemente o desde cmd sin argumentos.
+	pause
+	exit /b 200
 )
 
-if "%1" == "" (
-	echo The file was either run regardless or from cmd without arguments. 
-	pause
-	exit /b 2
-)
 
 :: This portion will use the paramter sent from cmd window.
 call :%*
-goto :END
-
-
+exit /b 0
 
 
 :SELECT_PROFILE
@@ -55,7 +53,7 @@ goto :END
 	IF Errorlevel 3 GOTO SELECT_PROFILE_02
 	IF Errorlevel 2 GOTO SELECT_PROFILE_01
 	IF Errorlevel 1 GOTO SELECT_PROFILE_00
-	GOTO SELECT_PROFILE_MENU
+	GOTO SELECT_PROFILE
 
 
 :: ffmpeg_cv = [copy|hevc_nvenc|libx265|h264_nvenc|libx264]
@@ -186,8 +184,6 @@ goto :END
 	GOTO SELECT_PROFILE_END
 
 
-	
-
 :SELECT_PROFILE_END
 	if "!all_profile!" == "" (
 		call :SELECT_PROFILE_CLEAN
@@ -202,7 +198,6 @@ goto :END
 		if "!all_a_hz!" == ""   (set all_a_hz=!default_a_hz!)
 	)
 	goto:eof
-	
 	
 	
 :PRINT_CONFIG_GLOBAL
@@ -233,7 +228,3 @@ goto :END
 	echo [GLOBAL] - [INFO] - [AUDIO] - BITRATE: !all_a_bitrate!
 	echo [GLOBAL] - [INFO] - [AUDIO] - HZ: !all_a_hz!
 	goto:eof
-	
-
-:END
-exit /b 0

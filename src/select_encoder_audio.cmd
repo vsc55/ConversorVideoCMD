@@ -8,18 +8,17 @@
 If /i "%_HACK_CHEKC_%" neq "1987" (
 	echo Process Abort 500
 	pause
-	exit
+	exit /b 500
 )
-
 if "%1" == "" (
-	echo The file was either run regardless or from cmd without arguments. 
+	echo El archivo se ejecuto independientemente o desde cmd sin argumentos.
 	pause
-	exit /b 2
+	exit /b 200
 )
 
 :: This portion will use the paramter sent from cmd window.
 call :%*
-goto :END
+exit /b 0
 
 
 
@@ -92,8 +91,3 @@ goto :END
 	
 	set "%~2=!tmp_audio_bitrate!"
 	goto:eof
-
-
-
-:END
-exit /b 0
