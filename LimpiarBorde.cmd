@@ -15,6 +15,9 @@ rem **                                                                          
 rem **  - UPDATE:                                                                                          **
 rem **       - IMPLEMENTAR "CHECK_DIR_AND_CREATE" Y "CHECK_FILE_AND_FIX" PARA LIMPIAR CODIGO               **
 rem **                                                                                                     **
+rem **  - FIX:                                                                                             **
+rem **       - FUNCION GetWidthByResolution NO PROCESA BIEN LOS DATOS, NO RETORNA NUNCA NADA, SOLUCIONADO  **
+rem **                                                                                                     **
 rem ** ----------------------------------------------------------------------------------------------------**
 rem **                                                                                                     **
 rem **  VERSION 2.1 - 01/12/2019                                                                           **
@@ -763,8 +766,8 @@ REM ***************************************************
 	set tDetectStar=%ffmpeg_border_detect_star%
 	set tDetectDura=%ffmpeg_border_detect_dura%
 	
-	@call src\gen_func.cmd GetWidthByResolution x %tSizeOrig_size% tWidthOrig
 	
+	@call src\gen_func.cmd GetWidthByResolution x %tSizeOrig_size% tWidthOrig
 	
 	:DETECT_BORDER_INIT_SCAN
 	set tDetectNewScan=NONE

@@ -1,4 +1,5 @@
 @echo off
+setlocal enabledelayedexpansion
 
 :: *********************************** CONVERSION DE FORMATOS MULTIMEDIA ***********************************
 :: **                                                                                                     **
@@ -21,25 +22,30 @@ if "%1" == "" (
 :: FIX: Hay que crear una var con los argumentos recibidos para no perder simbolos especiales en los string
 ::      como por ejemplo "ERROR: Algo ^(x68^)^^^^^^^!", si no se hace obtendriamos "ERROR: Algo ^(x68^)^^".
 ::		https://superuser.com/questions/1292476/call-subroutine-where-parameter-contains-ampersand-in-batch-file
-setlocal
-	set "CallArgsFix=%*"
-	call :!CallArgsFix!
-endlocal
+set "CallArgsFix=%*"
+call :!CallArgsFix!
+(set CallArgsFix=)
 exit /b 0
 
 
 :GetWidthByResolution
 	:: @call src\gen_func.cmd GetWidthByResolution : %tSizeReal_crop% tWidthOrig
-	REM
-	REM %~1 es el separador entre ancho y alto
-	REM %~2 es la variable que tiene el valor del que deseamos obtener la anchura.
-	REM %~3 es la variable donde se va a guardar la anchura obtenida.
+	::
+	:: %~1 es el separador entre ancho y alto
+	:: %~2 es la variable que tiene el valor del que deseamos obtener la anchura.
+	:: %~3 es la variable donde se va a guardar la anchura obtenida.
 	
-	for /f "delims=%~1" %%A in ("%~2") do (
-		set "%~3=%%~A"
+	setlocal
+		set t_delims=%~1
+		set t_value=%~2
+		for /f "delims=%t_delims%" %%A in ("%t_value%") do (
+			set t_return=%%~A
+		)
+	endlocal&(
+		set _t_return=%t_return%
 	)
+	SET "%~3=!_t_return!"
 	goto:eof
-
 
 
 :RUN_EXE

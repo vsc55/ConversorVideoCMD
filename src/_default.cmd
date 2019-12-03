@@ -21,10 +21,9 @@ if "%1" == "" (
 :: FIX: Hay que crear una var con los argumentos recibidos para no perder simbolos especiales en los string
 ::      como por ejemplo "ERROR: Algo ^(x68^)^^^^^^^!", si no se hace obtendriamos "ERROR: Algo ^(x68^)^^".
 ::		https://superuser.com/questions/1292476/call-subroutine-where-parameter-contains-ampersand-in-batch-file
-setlocal
-	set "CallArgsFix=%*"
-	call :!CallArgsFix!
-endlocal
+set "CallArgsFix=%*"
+call :!CallArgsFix!
+(set CallArgsFix=)
 exit /b 0
 
 
