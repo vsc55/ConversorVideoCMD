@@ -1,4 +1,6 @@
 @echo off
+::setlocal enabledelayedexpansion
+::SI ACTIVAMOS enabledelayedexpansion AL NO RETORNA CORRECTAMENTE LOS DATOS LAS FUNCIONES.
 
 :: *********************************** CONVERSION DE FORMATOS MULTIMEDIA ***********************************
 :: **                                                                                                     **
@@ -24,6 +26,7 @@ if "%1" == "" (
 set "CallArgsFix=%*"
 call :!CallArgsFix!
 (set CallArgsFix=)
+::call :%*
 exit /b 0
 
 
