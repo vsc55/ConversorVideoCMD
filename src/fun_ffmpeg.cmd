@@ -1,6 +1,4 @@
 @echo off
-::setlocal enabledelayedexpansion
-::SI ACTIVAMOS enabledelayedexpansion AL NO RETORNA CORRECTAMENTE LOS DATOS LAS FUNCIONES.
 
 :: *********************************** CONVERSION DE FORMATOS MULTIMEDIA ***********************************
 :: **                                                                                                     **
@@ -18,18 +16,28 @@ if "%1" == "" (
 	exit /b 200
 )
 
-
 :: This portion will use the paramter sent from cmd window.
-:: FIX: Hay que crear una var con los argumentos recibidos para no perder simbolos especiales en los string
-::      como por ejemplo "ERROR: Algo ^(x68^)^^^^^^^!", si no se hace obtendriamos "ERROR: Algo ^(x68^)^^".
-::		https://superuser.com/questions/1292476/call-subroutine-where-parameter-contains-ampersand-in-batch-file
-set "CallArgsFix=%*"
-call :!CallArgsFix!
-(set CallArgsFix=)
-::call :%*
+call :%*
 exit /b 0
 
 
-:: :FUNCTION
-::  ... CODE ...
-::  goto:eof
+
+
+:GET_INFO
+	:: @call src\fun_ffmpeg.cmd GET_INFO "path_movie" "path_file_save_value"
+	SETLOCAL
+		set t_file_read=%~1
+		set t_file_save=%~2
+		
+		if exist "%t_file_read%" (
+			set RunFunction=%tPathffmpeg% -i "%t_file_read%"
+			@call src\gen_func.cmd RUN_EXE 2 "%t_file_save%"
+			(set RunFunction=)
+		)
+	ENDLOCAL
+	goto:eof
+
+
+
+
+

@@ -6,12 +6,12 @@
 :: *********************************************************************************************************
 
 If /i "%_HACK_CHEKC_%" neq "1987" (
-	echo Process Abort 500
+	echo ERROR 500!!
 	pause
 	exit /b 500
 )
 if "%1" == "" (
-	echo El archivo se ejecuto independientemente o desde cmd sin argumentos.
+	echo ERROR: El archivo se ejecuto independientemente o desde cmd sin argumentos!!
 	pause
 	exit /b 200
 )
@@ -38,6 +38,7 @@ exit /b 0
 	echo º                                                                º
 	echo º  BITRATE AUDIO:                                                º
 	echo º                                                                º
+	echo º    0. AUDIO Copy                                               º
 	echo º    1. AUDIO 128 kbps                                           º
 	echo º    2. AUDIO 160 kbps                                           º
 	echo º    3. AUDIO 192 kbps                                           º
@@ -56,13 +57,14 @@ exit /b 0
 		type !tfStreamA_A!
 		echo.
 	)
-	@CHOICE /C:123456 /N /M !txt_msg!
-	IF Errorlevel 6 SET bt_custom=ON
-	IF Errorlevel 5 SET tmp_audio_bitrate=320k
-	IF Errorlevel 4 SET tmp_audio_bitrate=256k
-	IF Errorlevel 3 SET tmp_audio_bitrate=192k
-	IF Errorlevel 2 SET tmp_audio_bitrate=160k
-	IF Errorlevel 1 SET tmp_audio_bitrate=128k
+	@CHOICE /C:0123456 /N /M !txt_msg!
+	IF Errorlevel 7 SET bt_custom=ON
+	IF Errorlevel 6 SET tmp_audio_bitrate=320k
+	IF Errorlevel 5 SET tmp_audio_bitrate=256k
+	IF Errorlevel 4 SET tmp_audio_bitrate=192k
+	IF Errorlevel 3 SET tmp_audio_bitrate=160k
+	IF Errorlevel 2 SET tmp_audio_bitrate=128k
+	IF Errorlevel 1 SET bt_custom=COPY
 	if "!bt_custom!" == "ON" ( 
 		if "%_stage%" == "G" (
 			set txt_msg="[GLOBAL] - [AUDIO] - SELECCIONAR CUSTOM BITRATE [DEFAULT !tmp_audio_bitrate!]:"
@@ -87,6 +89,10 @@ exit /b 0
 				)
 			)
 		)
+	)
+	if "!bt_custom!" == "COPY" (
+		set tmp_audio_bitrate=0
+		echo [GLOBAL] - [AUDIO] - COPY
 	)
 	
 	set "%~2=!tmp_audio_bitrate!"

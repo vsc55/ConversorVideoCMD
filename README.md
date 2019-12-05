@@ -1,6 +1,6 @@
 # ConversorVideoCMD
 
-## Proceso [es]:
+## Proceso [es]
   1. Copia el archivo original dentro de la carpeta `Original`.
   2. Ejecuta el script `Conversor.cmd` o `LimpiarBorde.cmd` y ajusta los valores de configuración que deseas.
   3. Cuando termine el proceso, podrás obtener el archivo recodificado de la carpeta `Convertido`.

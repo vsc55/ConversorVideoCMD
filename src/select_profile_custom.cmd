@@ -6,16 +6,15 @@
 :: *********************************************************************************************************
 
 If /i "%_HACK_CHEKC_%" neq "1987" (
-	echo Process Abort 500
+	echo ERROR 500!!
 	pause
 	exit /b 500
 )
 if "%1" == "" (
-	echo El archivo se ejecuto independientemente o desde cmd sin argumentos.
+	echo ERROR: El archivo se ejecuto independientemente o desde cmd sin argumentos!!
 	pause
 	exit /b 200
 )
-
 
 :: This portion will use the paramter sent from cmd window.
 call :%*
