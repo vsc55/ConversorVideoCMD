@@ -121,7 +121,7 @@ exit /b 0
 			)
 		)
 	)
-	set RunFunction=
+	(set RunFunction=)
 	goto:eof
 
 
@@ -293,3 +293,123 @@ exit /b 0
 	)
 	if DEFINED _t_return ( SET "%~2=!_t_return!" )
 	goto:eof
+
+
+
+:RUN_SUB_EXE
+	:: RunExternal=echo Hola Mundo
+	:: @call src\gen_func.cmd RUN_SUB_EXE [type_std(0|1|2|3)] [path_file_out] _var_return [type_win(MIN|MAX)]
+	REM **
+	REM **** TYPES_STD
+	REM ****** 0 = NULL
+	REM ****** 1 = STDOUT = Text output
+	REM ****** 2 = STDERR = Error text output
+	REM ****** 3 = STDOUT + STDERR (DEFAULT)
+	REM https://support.microsoft.com/es-es/help/110930/redirecting-error-messages-from-command-prompt-stderr-stdout
+	
+	SETLOCAL
+		set t_type_out=%~1
+		set t_path_out=%~2
+		set t_type_win=%~4
+		set t_cmd=!RunExternal!
+
+		if defined t_type_win (
+			if "!t_type_win!" == "MIN" (
+				set t_type_win=/MIN
+			) else if "!t_type_win!" == "MAX" (
+				set t_type_win=/MAX
+			) else (
+				(set t_type_win=)
+			)
+		)
+
+		if not defined t_type_out (
+			set t_type_out=0
+			set t_path_out=nul
+		)
+
+		if not defined t_path_out (
+			set t_type_out=0
+			set t_path_out=nul
+		) else (
+			if not defined t_type_out (
+				set t_type_out=3
+			) else (
+				if !t_type_out! LSS 0 (
+					set t_type_out=3
+				) 
+				if !t_type_out! GTR 3 (
+					set t_type_out=3
+				)
+			)
+		)
+
+		if defined t_cmd (
+			if not "!t_cmd!" == "" (
+				if "%_debug%" == "YES" (
+					echo.
+					echo [DEBUG] ************** DEBUG - INI **************
+					echo [DEBUG]
+					echo [DEBUG] - RUN      ^=^> !t_cmd!
+					if not "!t_path_out!" == "" (echo [DEBUG] - OUT      ^=^> !t_path_out!)
+					if not "!t_type_out!" == "" (echo [DEBUG] - TYPEOUT  ^=^> !t_type_out!)
+					if not "!t_type_win!" == "" (echo [DEBUG] - TYPEWIN  ^=^> !t_type_win!)
+					echo [DEBUG]
+					echo [DEBUG]   ...PRESION UNA TECLA PARA EJECUTAR...
+					pause > NUL
+					if "!t_type_out!" == "1" (
+						%t_cmd% > "!t_path_out!"
+					) else if "!t_type_out!" == "2" (
+						%t_cmd% 2> "!t_path_out!"
+					) else if "!t_type_out!" == "3" (
+						%t_cmd%  > "!t_path_out!" 2>&1
+					) else (
+						%t_cmd%
+					)
+					echo [DEBUG]
+					echo [DEBUG] ************** DEBUG - END **************
+					echo.
+					pause
+				) else (
+					if "!t_type_out!" == "1" (
+						start "" /wait !t_type_win! cmd /c ^(!t_cmd! ^> "!t_path_out!"^)
+					) else if "!t_type_out!" == "2" (
+						start "" /wait !t_type_win! cmd /c ^(!t_cmd! 2^> "!t_path_out!"^)
+					) else if "!t_type_out!" == "3" (
+						start "" /wait !t_type_win! cmd /c ^(!t_cmd! ^> "!t_path_out!" 2^>^&1^)
+					) else (
+						start "" /wait !t_type_win! !t_cmd!
+					)
+				)
+
+				if defined t_path_out (
+					if not "!t_path_out!" == "nul" (
+						if exist "!t_path_out!" (
+							set /p t_return=<"!t_path_out!"
+						)
+					)
+				)
+			)
+		)
+	ENDLOCAL & (
+		if not "%~3" == "" ( set "%~3=%t_return%" )
+	)
+	(set RunExternal=)
+	goto:eof
+
+
+
+
+:FILE_SIZE
+	:: @call src\gen_func.cmd FILE_SIZE _return_size "C:\file.log"
+	SETLOCAL
+		set size=%~z2
+		if not defined size (
+			set size=0
+		)
+
+	ENDLOCAL & (
+		set "%~1=%size%"
+	)
+	goto :eof
+

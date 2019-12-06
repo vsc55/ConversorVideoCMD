@@ -39,5 +39,32 @@ exit /b 0
 
 
 
+:COUNT_STREAM
+	:: @call src\fun_ffmpeg.cmd COUNT_STREAM "path file" "path_save_count" "Audio" return_count
+	SETLOCAL
+		set t_file_read=%~1
+		set t_file_save=%~2
+		set t_type=%~3
+
+		if exist !t_file_read! (
+			set RunExternal=%tPathffmpeg% -i "!t_file_read!" 2^>^&1 ^| findstr /R /C:"Stream " ^| findstr /R /C:" !t_type!: " ^| find /c /v ""
+			call src\gen_func.cmd RUN_SUB_EXE 3 "!t_file_save!" t_count
+		)
+		if not defined t_count ( 
+			set t_count=0 
+		) else (
+			REM FUENTE DE LA FUNCION: https://superuser.com/questions/404338/check-for-only-numerical-input-in-batch-file
+			echo !t_count!|findstr /xr "[1-9][0-9]* 0" >nul && (
+				REM ES UN NUMERO, NO HACEMOS NADA
+			) || (
+				set t_count=0
+			)
+		)
+	ENDLOCAL & (
+		if not "%~4" == "" ( set "%~4=%t_count%" )
+	)
+	goto:eof
+
+
 
 

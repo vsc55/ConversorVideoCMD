@@ -25,20 +25,20 @@ exit /b 0
 
 
 :INIT_SELECT_ENCODER_VIDEO
-@call src\select_encoder_video.cmd SELECT_ENCODER ffmpeg_cv
+@call src\select_encoder_video.cmd SELECT_ENCODER all_v_encoder
 
 
 :INIT_SELECT_ENCODER_VIDEO_OPTIONS
 
-if "!ffmpeg_cv!" == "copy" ( GOTO SKIP_SELECT_ENCODER_VIDEO_OPTIONS )
+if "!all_v_encoder!" == "copy" ( GOTO SKIP_SELECT_ENCODER_VIDEO_OPTIONS )
 
 @call src\select_encoder_video.cmd DETECTAR_BORDES all_detect_borde
 @call src\select_encoder_video.cmd CAMBIAR_SIZE all_change_size
 
-if "!ffmpeg_cv!" == "libx264" 	 ( goto INIT_SELECT_ENCODER_VIDEO_OPTIONS_H264 )
-if "!ffmpeg_cv!" == "h264_nvenc" ( goto INIT_SELECT_ENCODER_VIDEO_OPTIONS_H264 )
-if "!ffmpeg_cv!" == "libx265" 	 ( goto INIT_SELECT_ENCODER_VIDEO_OPTIONS_H265 )
-if "!ffmpeg_cv!" == "hevc_nvenc" ( goto INIT_SELECT_ENCODER_VIDEO_OPTIONS_H265 )
+if "!all_v_encoder!" == "libx264" 	 ( goto INIT_SELECT_ENCODER_VIDEO_OPTIONS_H264 )
+if "!all_v_encoder!" == "h264_nvenc" ( goto INIT_SELECT_ENCODER_VIDEO_OPTIONS_H264 )
+if "!all_v_encoder!" == "libx265" 	 ( goto INIT_SELECT_ENCODER_VIDEO_OPTIONS_H265 )
+if "!all_v_encoder!" == "hevc_nvenc" ( goto INIT_SELECT_ENCODER_VIDEO_OPTIONS_H265 )
 GOTO SKIP_SELECT_ENCODER_VIDEO_OPTIONS
 
 
@@ -47,8 +47,8 @@ GOTO SKIP_SELECT_ENCODER_VIDEO_OPTIONS
 REM **** H264 CONFIG - INIT ****
 
 :INIT_SELECT_ENCODER_VIDEO_OPTIONS_H264
-if "!ffmpeg_cv!" == "libx264" 	 ( goto INIT_SELECT_ENCODER_VIDEO_OPTIONS_H264_PROFILE_LEVEL )
-if "!ffmpeg_cv!" == "h264_nvenc" ( goto INIT_SELECT_ENCODER_VIDEO_OPTIONS_H264_PROFILE_LEVEL )
+if "!all_v_encoder!" == "libx264" 	 ( goto INIT_SELECT_ENCODER_VIDEO_OPTIONS_H264_PROFILE_LEVEL )
+if "!all_v_encoder!" == "h264_nvenc" ( goto INIT_SELECT_ENCODER_VIDEO_OPTIONS_H264_PROFILE_LEVEL )
 goto SKIP_SELECT_ENCODER_VIDEO_OPTIONS_H264
 
 
@@ -79,8 +79,8 @@ REM **** H264 CONFIG - END ****
 REM **** H265 CONFIG - INIT ****
 
 :INIT_SELECT_ENCODER_VIDEO_OPTIONS_H265
-if "!ffmpeg_cv!" == "libx265" 	 ( goto INIT_SELECT_ENCODER_VIDEO_OPTIONS_H265_PROFILE_LEVEL )
-if "!ffmpeg_cv!" == "hevc_nvenc" ( goto INIT_SELECT_ENCODER_VIDEO_OPTIONS_H265_PROFILE_LEVEL )
+if "!all_v_encoder!" == "libx265" 	 ( goto INIT_SELECT_ENCODER_VIDEO_OPTIONS_H265_PROFILE_LEVEL )
+if "!all_v_encoder!" == "hevc_nvenc" ( goto INIT_SELECT_ENCODER_VIDEO_OPTIONS_H265_PROFILE_LEVEL )
 goto SKIP_SELECT_ENCODER_VIDEO_OPTIONS_H265
 
 
@@ -111,8 +111,9 @@ REM **** H265 CONFIG - END ****
 
 
 
+
 :INIT_SELECT_ENCODER_AUDIO
-@call src\select_encoder_audio.cmd SELECT_BITRATE %default_a_br% all_a_bitrate
+@call src\select_encoder_audio.cmd SELECT_BITRATE %default_a_br% all_a_bitrate all_a_encoder
 echo.
 :SKIP_SELECT_ENCODER_AUDIO
 

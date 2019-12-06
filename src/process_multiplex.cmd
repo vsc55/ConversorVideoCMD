@@ -47,12 +47,13 @@ exit /b 0
 	echo [MULTIPLEX] - PROGRESO INICIANDO...
 	SETLOCAL
 		CALL :FILES_NAME_SET_ALL "%~1"
-		:: ******** DEBUG!!!!!!!!!!!!!!!!
+
+		REM ******** DEBUG!!!!!!!!!!!!!!!!
 		if "!_debug_sa!" == "YES" (
 			CALL :PRINT_DEBUG_INFO
 			goto:eof
 		)
-		:: ******** DEBUG!!!!!!!!!!!!!!!!
+		REM ******** DEBUG!!!!!!!!!!!!!!!!
 
 		CALL :START_PROCESS_CHECK _skip_process_run
 		if not defined _skip_process_run ( call :START_PROCESS_RUN %* )
@@ -84,41 +85,37 @@ REM	)
 		set metadata_v=
 		set metadata_a=
 		set metadata_s=
-		
-		set RunFunction=%tPathffmpeg% -hide_banner -y -threads %ffmpeg_threads%
-		
-		if not "%t_file_video%" == "" (
-			If exist "%t_file_video%" (
-				set _vsource=%t_file_video%
-			)	
+		set _v_source=
+		set _a_source=
+		set _s_source=
+		set _count_subtit=
+
+		call src\fun_ffmpeg.cmd COUNT_STREAM "!t_file_orig!" !tfStreamCountS! "Subtitle" _count_subtit
+ 		rem call src\fun_ffmpeg.cmd COUNT_STREAM "!t_file_orig!" !tfStreamCountA! "Audio" _count_steam_audio
+		rem call src\fun_ffmpeg.cmd COUNT_STREAM "!t_file_orig!" !tfStreamCountV! "Video" _count_steam_video
+
+ 		if defined t_file_video (
+ 			If exist "!t_file_video!" (
+				set _v_source=!t_file_video!
+ 			)
 		)
-		if not defined _vsource ( set _vsource=%t_file_orig% )
-		set _asource=%t_file_audio%
-
-
-		set RunFunction=!RunFunction! -i "%_vsource%"
-		set RunFunction=!RunFunction! -i "%_asource%"
+		if not defined _v_source ( set _v_source=!t_file_orig! )
 		
-rem		if "%tfStreamS_NULL%" == "NO" (
-rem			If exist !tfProcesVideo! (
-rem				set RunFunction=!RunFunction! -i !tPathFileOrig!
-rem			)
-rem		)
+		set _a_source=!t_file_audio!
+		set _s_source=!t_file_orig!
 		
 		
 		
 		set map_ord=!map_ord! -map 0:0
 		set map_ord=!map_ord! -map 1:a:0
-rem		if "%tfStreamS_NULL%" == "NO" (
-rem			rem set map_ord=!map_ord! -map 0:m:language:spa
-rem			If exist !tfProcesVideo! (
-rem				set map_ord=!map_ord! -map 2:s
-rem			) else (
-rem				set map_ord=!map_ord! -map 0:s
-rem			)
-rem		)
-		
-		
+		if not "!_count_steam_sub!" == "0" (
+					rem set map_ord=!map_ord! -map 0:m:language:spa
+		rem			If exist !tfProcesVideo! (
+		rem				set map_ord=!map_ord! -map 2:s
+		rem			) else (
+		rem				set map_ord=!map_ord! -map 0:s
+		rem			)
+		)
 		
 		rem **** este ejemplo seria para solo la pista 0 de audio
 		rem set metadata_s=!metadata_s! -metadata:s:a:0 title=""
@@ -131,17 +128,23 @@ rem		)
 		set metadata_a=!metadata_a! -metadata:s:a title=""
 		set metadata_a=!metadata_a! -metadata:s:a language=spa
 		
-rem		if "%tfStreamS_NULL%" == "NO" (
-rem			set metadata_s=!metadata_s! -metadata:s:s title=""
-rem			set metadata_s=!metadata_s! -metadata:s:s language=spa
-rem		)
-		
+		if not "!_count_steam_sub!" == "0" (
+			REM TODO: PENDIENTE DETECTAR PISTA DE SUB FORZADA Y PONERLE TITULO DE "FORZADOS"
+			REM TODO: PENDIENTE FILTRAR SOLO SUBS EN CASTELLANO
+			set metadata_s=!metadata_s! -metadata:s:s title=""
+			set metadata_s=!metadata_s! -metadata:s:s language=spa
+		)
+
 		echo [MULTIPLEX] - PROCESANDO....
+		set RunExternal=%tPathffmpeg% -hide_banner -y -threads %ffmpeg_threads% -i "!_v_source!" -i "!_a_source!"
+		if not "!_count_steam_sub!" == "0" (
+			set RunExternal=!RunExternal! -i "!_s_source!"
+		)
+		set RunExternal=!RunExternal! !metadata_all! !metadata_a! !metadata_v! !metadata_s! !map_ord! -c:v copy -c:s copy -c:a copy -f %OutputVideoFormat% "%t_file_dest%"
+		@call src\gen_func.cmd RUN_SUB_EXE 0 NUL NUL MIN
+
 		
-		set RunFunction=!RunFunction! !metadata_all! !metadata_a! !metadata_v! !metadata_s! !map_ord! -c:v copy -c:s copy -c:a copy -f %OutputVideoFormat% "%t_file_dest%"
-		@call src\gen_func.cmd RUN_EXE
-		(set RunFunction=)
-		
+		CALL :PRINT_INFO_FILE_CREATE "%t_file_dest%"
 	ENDLOCAL
 	echo [MULTIPLEX] - [FINALIZADO]
 	goto:eof
@@ -187,10 +190,29 @@ rem		)
 
 :: **** FUNCTIONS
 :PRINT_DEBUG_INFO
-	echo [SUBS] - tPathFileOrig:          %tPathFileOrig%
-	echo [SUBS] - tPathFileConvrt:        %tPathFileConvrt%
-	echo [SUBS] - tFileName:              %tFileName%
-	echo [SUBS] - tfInfoffmpeg:           %tfInfoffmpeg%
+	echo [MULTIPLEX] - tPathFileOrig:    %tPathFileOrig%
+	echo [MULTIPLEX] - tPathFileConvrt:  %tPathFileConvrt%
+	echo [MULTIPLEX] - tFileName:        %tFileName%
+	echo [MULTIPLEX] - tfInfoffmpeg:     %tfInfoffmpeg%
+
+	echo [MULTIPLEX] - _count_subtit:    %_count_subtit%
+	echo [MULTIPLEX] - _v_source:        %_v_source%
+	echo [MULTIPLEX] - _a_source:        %_a_source%
+	echo [MULTIPLEX] - RunFunction:      %RunFunction%
+
 	echo.
 	pause
+	goto:eof
+
+:PRINT_INFO_FILE_CREATE
+	SETLOCAL
+		set t_file=%~1
+
+		@call src\gen_func.cmd FILE_SIZE _SizeByte "!t_file!"
+		set /A _SizeMB=%_SizeByte:~0,-3%/1024
+
+		echo [MULTIPLEX] - [INFO] - ARCHIVO PROCESADO:
+		echo [MULTIPLEX] - [INFO]   - FILE: !t_file!
+		echo [MULTIPLEX] - [INFO]   - SIZE: !_SizeMB! MB
+	ENDLOCAL
 	goto:eof

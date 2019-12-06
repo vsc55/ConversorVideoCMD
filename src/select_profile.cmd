@@ -55,7 +55,8 @@ exit /b 0
 	GOTO SELECT_PROFILE
 
 
-:: ffmpeg_cv = [copy|hevc_nvenc|libx265|h264_nvenc|libx264]
+:: all_v_encoder = [copy|hevc_nvenc|libx265|h264_nvenc|libx264]
+:: all_a_encoder = [copy|aac_coder]
 :: all_v_profile = [baseline|main|main10|etc...]
 :: all_v_level = [4|5|5.2|etc...]
 :: all_qmin = 0    q minimo -> nvenc
@@ -73,7 +74,8 @@ exit /b 0
 	)
 	
 	set all_profile=
-	set ffmpeg_cv=
+	set all_v_encoder=
+	set all_a_encoder=
 	set all_v_profile=
 	set all_v_level=
 	set all_qmin=
@@ -100,14 +102,16 @@ exit /b 0
 :SELECT_PROFILE_01
 	:: A: 192K, V: COPY
 	set all_profile=1
-	set ffmpeg_cv=copy
+	set all_v_encoder=copy
+	set all_a_encoder=aac_coder
 	set all_a_bitrate=192k
 	GOTO SELECT_PROFILE_END
 
 :SELECT_PROFILE_02
 	:: A: 192K, V: h265[NV]/M10/L5/Q(1-23)
 	set all_profile=2
-	set ffmpeg_cv=hevc_nvenc
+	set all_v_encoder=hevc_nvenc
+	set all_a_encoder=aac_coder
 	set all_v_profile=main10
 	set all_v_level=5
 	set all_qmin=1
@@ -120,20 +124,22 @@ exit /b 0
 :SELECT_PROFILE_03
 	:: A: 192K, V: h265[NV]/M10/L5/Q(1-23)/DETECT BORDE
 	set all_profile=3
-	set ffmpeg_cv=hevc_nvenc
+	set all_v_encoder=hevc_nvenc
 	set all_v_profile=main10
 	set all_v_level=5
 	set all_qmin=1
 	set all_qmax=23
 	set all_detect_borde=YES
 	set all_change_size=
+	set all_a_encoder=aac_coder
 	set all_a_bitrate=192k
 	GOTO SELECT_PROFILE_END
 	
 :SELECT_PROFILE_04
 	:: A: 192K, V: h265[NV]/M10/L5/Q(AUTO)
 	set all_profile=4
-	set ffmpeg_cv=hevc_nvenc
+	set all_v_encoder=hevc_nvenc
+	set all_a_encoder=aac_coder
 	set all_v_profile=main10
 	set all_v_level=5
 	set all_qmin=
@@ -146,7 +152,8 @@ exit /b 0
 :SELECT_PROFILE_05
 	:: A: 192K, V: h265[NV]/M10/L5/Q(AUTO)/DETECT BORDE
 	set all_profile=5
-	set ffmpeg_cv=hevc_nvenc
+	set all_v_encoder=hevc_nvenc
+	set all_a_encoder=aac_coder
 	set all_v_profile=main10
 	set all_v_level=5
 	set all_qmin=
@@ -159,7 +166,8 @@ exit /b 0
 :SELECT_PROFILE_06
 	:: A: 192K, V: h265[NV]/M10/L5/Q(1-23)/RESIZE 1080P
 	set all_profile=6
-	set ffmpeg_cv=hevc_nvenc
+	set all_v_encoder=hevc_nvenc
+	set all_a_encoder=aac_coder
 	set all_v_profile=main10
 	set all_v_level=5
 	set all_qmin=1
@@ -172,7 +180,8 @@ exit /b 0
 :SELECT_PROFILE_07
 	:: A: 192K, V: h264[NV]/L5/Q(1-23)
 	set all_profile=7
-	set ffmpeg_cv=h264_nvenc
+	set all_v_encoder=h264_nvenc
+	set all_a_encoder=aac_coder
 	set all_v_profile=
 	set all_v_level=5
 	set all_qmin=1
@@ -189,9 +198,9 @@ exit /b 0
 	) else (
 		REM if "!all_qmin!" == "" 	   ( set all_qmin=0 )
 		REM if "!all_qmax!" == ""      ( set all_qmax=0 )
-		if "!all_v_profile!" == "" (set all_v_profile=SKIPSELECT)
-		if "!all_v_level!" == ""   (set all_v_level=SKIPSELECT)
-		if "!all_change_size!" == ""   (set all_change_size=NO)
+		if "!all_v_profile!" == "" 		(set all_v_profile=SKIPSELECT)
+		if "!all_v_level!" == ""   		(set all_v_level=SKIPSELECT)
+		if "!all_change_size!" == ""   	(set all_change_size=NO)
 		
 		:: TODO: Pendiente crear menu para poder configurar este valor
 		if "!all_a_hz!" == ""   (set all_a_hz=!default_a_hz!)
@@ -201,11 +210,10 @@ exit /b 0
 	
 :PRINT_CONFIG_GLOBAL
 	:: @call src\select_profile.cmd PRINT_CONFIG_GLOBAL
-	
-	if "!ffmpeg_cv!" == "copy" (
+	if "!all_v_encoder!" == "copy" (
 		echo [GLOBAL] - [INFO] - [VIDEO] - ENCODER: COPY
 	) else (
-		echo [GLOBAL] - [INFO] - [VIDEO] - ENCODER: !ffmpeg_cv!
+		echo [GLOBAL] - [INFO] - [VIDEO] - ENCODER: !all_v_encoder!
 		if "!all_v_profile!" NEQ "SKIPSELECT" (
 			echo [GLOBAL] - [INFO] - [VIDEO] - PROFILE: !all_v_profile!
 		)
@@ -224,6 +232,11 @@ exit /b 0
 		echo [GLOBAL] - [INFO] - [VIDEO] - DETECTAR BORDE: !all_detect_borde!
 		echo [GLOBAL] - [INFO] - [VIDEO] - NUEVO SIZE: !all_change_size!
 	)
-	echo [GLOBAL] - [INFO] - [AUDIO] - BITRATE: !all_a_bitrate!
-	echo [GLOBAL] - [INFO] - [AUDIO] - HZ: !all_a_hz!
+	if "!all_a_encoder!" == "copy" (
+		echo [GLOBAL] - [INFO] - [AUDIO] - ENCODER: COPY
+	) else (
+		echo [GLOBAL] - [INFO] - [AUDIO] - ENCODER: !all_a_encoder!
+		echo [GLOBAL] - [INFO] - [AUDIO] - BITRATE: !all_a_bitrate!
+		echo [GLOBAL] - [INFO] - [AUDIO] - HZ: !all_a_hz!
+	)
 	goto:eof

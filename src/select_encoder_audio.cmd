@@ -65,7 +65,7 @@ exit /b 0
 	IF Errorlevel 3 SET tmp_audio_bitrate=160k
 	IF Errorlevel 2 SET tmp_audio_bitrate=128k
 	IF Errorlevel 1 SET bt_custom=COPY
-	if "!bt_custom!" == "ON" ( 
+	if "!bt_custom!" == "ON" (
 		if "%_stage%" == "G" (
 			set txt_msg="[GLOBAL] - [AUDIO] - SELECCIONAR CUSTOM BITRATE [DEFAULT !tmp_audio_bitrate!]:"
 		) else (
@@ -91,9 +91,12 @@ exit /b 0
 		)
 	)
 	if "!bt_custom!" == "COPY" (
-		set tmp_audio_bitrate=0
 		echo [GLOBAL] - [AUDIO] - COPY
+		set _encode_audio=copy
+	) else (
+		set _encode_audio=aac_coder
 	)
 	
 	set "%~2=!tmp_audio_bitrate!"
+	set "%~3=!_encode_audio!"
 	goto:eof

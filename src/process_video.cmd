@@ -69,7 +69,7 @@ exit /b 0
 	)
 
 	REM ** SI SE DEFINE COPY NO HAY QUE HACER NADA CON EL VIDEO, POR LO QUE SALTAMOS A LA EJECUCION DE FFMPEG **
-	if "%ffmpeg_cv%" == "copy" ( 
+	if "%all_v_encoder%" == "copy" ( 
 		echo [VIDEO] - [SKIP] - SE COPIAR LA PISTA ORIGINAL^^!
 		set "%~1=SKIP"
 		GOTO :eof
@@ -246,18 +246,17 @@ exit /b 0
 	
 	if not "!tSizeReal_crop!"  == "" (
 		echo [VIDEO] - [TEST] - PLAY VERSION ORIGNAL....
-		set RunFunction=%tPathffplay% !tPathFileOrig!
-		@call src\gen_func.cmd RUN_EXE
-		set RunFunction=
+		set RunExternal=%tPathffplay% !tPathFileOrig!
+		call src\gen_func.cmd RUN_SUB_EXE 3 !tfInfoTestPlay!
+
 		
 		echo [VIDEO] - [TEST] - PLAY VERSION RECORTADA....
-		set RunFunction=%tPathffplay% -vf crop=!tSizeReal_crop! !tPathFileOrig!
+		set RunExternal=%tPathffplay% -vf crop=!tSizeReal_crop! !tPathFileOrig!
 		if "%_debug%" == "YES" (
-			@call src\gen_func.cmd RUN_EXE
+			@call src\gen_func.cmd RUN_SUB_EXE
 		) else (
-			@call src\gen_func.cmd RUN_EXE 3 !tfInfoTestPlay!
+			@call src\gen_func.cmd RUN_SUB_EXE 3 !tfInfoTestPlay!
 		)
-		set RunFunction=
 	)
 	
 	REM **************************************************************
@@ -333,7 +332,7 @@ exit /b 0
 	)
 	if not "!video_f!" == "" (set video_f=-vf !video_f!)
 	
-	if "%ffmpeg_cv%" == "h264_nvenc" (
+	if "%all_v_encoder%" == "h264_nvenc" (
 	
 		REM ****** H264 - GPU ******
 		REM ****** VERSION POR COMPRESION CONSTANT RATE FACTOR (CRF)
@@ -359,7 +358,7 @@ exit /b 0
 		set opt_v_qmax=%all_qmax%
 		if "!opt_v_qmin!" == "!opt_v_qmax!" (set opt_v_q=!opt_v_qmax!)
 		
-		set video_e=-c:v %ffmpeg_cv%
+		set video_e=-c:v %all_v_encoder%
 		set video_e=!video_e! -pix_fmt yuv420p 
 		set video_e=!video_e! -preset slow
 		
@@ -377,15 +376,15 @@ exit /b 0
 		
 		set OutputVideoFormat="avc"
 		
-rem 	set video_e=-c:v %ffmpeg_cv% -preset llhq
+rem 	set video_e=-c:v %all_v_encoder% -preset llhq
 rem		if not "!opt_v_profile!" == "" (set video_e=!video_e! -profile:v !opt_v_profile!)
 rem		if not "!opt_v_level!" == ""   (set video_e=!video_e! -level:v !opt_v_level!)
 		
 		
-		rem set video_e=-c:v %ffmpeg_cv% -preset llhq -profile:v !opt_v_profile! -level !opt_v_level! -rc-lookahead:v 32 -refs %ffmpeg_refs% -movflags +faststart -qmin !opt_v_qmin! -qmax !opt_v_qmax!
-		rem set video_e=-c:v %ffmpeg_cv% -preset llhq -rc-lookahead:v 32 -refs %ffmpeg_refs% -movflags +faststart -qmin !opt_v_qmin! -qmax !opt_v_qmax!
+		rem set video_e=-c:v %all_v_encoder% -preset llhq -profile:v !opt_v_profile! -level !opt_v_level! -rc-lookahead:v 32 -refs %ffmpeg_refs% -movflags +faststart -qmin !opt_v_qmin! -qmax !opt_v_qmax!
+		rem set video_e=-c:v %all_v_encoder% -preset llhq -rc-lookahead:v 32 -refs %ffmpeg_refs% -movflags +faststart -qmin !opt_v_qmin! -qmax !opt_v_qmax!
 		
-	) else if "%ffmpeg_cv%" == "hevc_nvenc" (
+	) else if "%all_v_encoder%" == "hevc_nvenc" (
 	
 		REM ****** H265 - GPU ******
 		REM ****** VERSION POR COMPRESION CONSTANT RATE FACTOR (CRF)
@@ -410,7 +409,7 @@ rem		if not "!opt_v_level!" == ""   (set video_e=!video_e! -level:v !opt_v_level
 		set opt_v_qmax=%all_qmax%
 		if "!opt_v_qmin!" == "!opt_v_qmax!" (set opt_v_q=!opt_v_qmax!)
 		
-		set video_e=-c:v %ffmpeg_cv%
+		set video_e=-c:v %all_v_encoder%
 		set video_e=!video_e! -tier high
 		
 		if "%all_v_profile%" == "main10" (
@@ -438,16 +437,16 @@ rem		if not "!opt_v_level!" == ""   (set video_e=!video_e! -level:v !opt_v_level
 		
 		set OutputVideoFormat="hevc"
 		
-rem		set video_e=-c:v %ffmpeg_cv% -preset llhq
+rem		set video_e=-c:v %all_v_encoder% -preset llhq
 		
 		
 		
 		REM !!!!!!!!!!!!!! PENDIENTE AFINAR QMAX PARA QUE NO OCUPEN TANTO LOS VIDEOS!!!!!!!!!!!!! qmin 16 - qmax 23
 		REM set opt_v_profile=main
 		REM set opt_v_level=4.1
-		REM set video_e=-c:v %ffmpeg_cv% -preset llhq -profile:v !opt_v_profile! -level !opt_v_level! -rc-lookahead:v 32 -refs %ffmpeg_refs% -movflags +faststart -qmin !opt_v_qmin! -qmax !opt_v_qmax!
+		REM set video_e=-c:v %all_v_encoder% -preset llhq -profile:v !opt_v_profile! -level !opt_v_level! -rc-lookahead:v 32 -refs %ffmpeg_refs% -movflags +faststart -qmin !opt_v_qmin! -qmax !opt_v_qmax!
 		
-	) else if "%ffmpeg_cv%" == "libx264" (
+	) else if "%all_v_encoder%" == "libx264" (
 	
 		REM **** CPU - H264
 		REM ****** VERSION POR COMPRESION CONSTANT RATE FACTOR (CRF)
@@ -455,9 +454,9 @@ rem		set video_e=-c:v %ffmpeg_cv% -preset llhq
 		REM ****** INFO -> ffmpeg -hide_banner -h encoder=libx264
 		set OutputVideoFormat="avc"
 		set opt_v_CRF=%default_crf%
-		set video_e=-c:v %ffmpeg_cv% -pix_fmt yuv420p -crf !opt_v_CRF! -preset slow -refs %ffmpeg_refs% -r %ffmpeg_fps% -movflags +faststart
+		set video_e=-c:v %all_v_encoder% -pix_fmt yuv420p -crf !opt_v_CRF! -preset slow -refs %ffmpeg_refs% -r %ffmpeg_fps% -movflags +faststart
 		
-	) else if "%ffmpeg_cv%" == "libx265" (
+	) else if "%all_v_encoder%" == "libx265" (
 	
 		REM **** CPU - H265
 		REM ****** VERSION POR COMPRESION CONSTANT RATE FACTOR (CRF)
@@ -467,7 +466,7 @@ rem		set video_e=-c:v %ffmpeg_cv% -preset llhq
 rem		set opt_v_CRF=%default_crf%
 		set opt_v_CRF=%all_qmin%
 
-		set video_e=-c:v %ffmpeg_cv% -pix_fmt yuv420p
+		set video_e=-c:v %all_v_encoder% -pix_fmt yuv420p
 		
 		if not "!opt_v_CRF!" == "" (
 			set video_e=!video_e! -crf !opt_v_CRF!
@@ -510,7 +509,7 @@ rem		set opt_v_CRF=%default_crf%
 	echo [VIDEO] - [INFO] -- TAMA¥O INICIAL: !tSizeReal_size!
 	echo [VIDEO] - [INFO]
 	echo [VIDEO] - [INFO] - OUT:
-	echo [VIDEO] - [INFO] -- ENCODING: %ffmpeg_cv%
+	echo [VIDEO] - [INFO] -- ENCODING: %all_v_encoder%
 	echo [VIDEO] - [INFO] -- FORMATO SALIDA: %OutputVideoFormat% [%OutputVideoType%]
 	if not "!tSizeReal_crop!" == "" (
 		echo [VIDEO] - [INFO] -- RECORTAR A: !tSizeReal_crop!

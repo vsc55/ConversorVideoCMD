@@ -38,12 +38,13 @@ exit /b 0
 	echo [AUDIO] - PROCESO INICIANDO...
 	SETLOCAL
 		CALL :FILES_NAME_SET_ALL "%~1"
-		:: ******** DEBUG!!!!!!!!!!!!!!!!
+
+		REM ******** DEBUG!!!!!!!!!!!!!!!!
 		if "!_debug_sa!" == "YES" (
 			CALL :PRINT_DEBUG_INFO
 			goto:eof
 		)
-		:: ******** DEBUG!!!!!!!!!!!!!!!!
+		REM ******** DEBUG!!!!!!!!!!!!!!!!
 
 		call :READ_STREAM "%~1" _read_stream
 		if "!_read_stream!" == "1" (
@@ -70,18 +71,20 @@ exit /b 0
 		)
 		CALL src\gen_func.cmd FUN_FILE_DELETE_FILE !tfProcesAudio!
 	)
-	if "%all_a_bitrate%" == "0" ( 
-		echo [AUDIO] - [SKIP] - SE COPIAR LA PISTA ORIGINAL^^!^^!
-		set "%~1=SKIP"
-		GOTO :eof
-	)
+	if not "%all_a_encoder%" == "copy" (
+		if "%all_a_bitrate%" == "0" ( 
+			echo [AUDIO] - [SKIP] - SE COPIAR LA PISTA ORIGINAL^^!^^!
+			set "%~1=SKIP"
+			GOTO :eof
+		)
 
-	if "!all_a_bitrate!" == "" (
-		echo [AUDIO] - [RECODIFICAR] - [SKIP] - NO SE HA DEFINIDO BITRATE^^!^^!
-		set "%~1=SKIP"
-		GOTO :eof
+		if "!all_a_bitrate!" == "" (
+			echo [AUDIO] - [RECODIFICAR] - [SKIP] - NO SE HA DEFINIDO BITRATE^^!^^!
+			set "%~1=SKIP"
+			GOTO :eof
+		)
 	)
-	:: TODO: PENDIENTE VALIDAR SI TODOS LOS PARAMETROS GLOBALES SE HAN DEFINIDO Y SON CORRECTOS.
+	REM TODO: PENDIENTE VALIDAR SI TODOS LOS PARAMETROS GLOBALES SE HAN DEFINIDO Y SON CORRECTOS.
 	goto:eof
 
 
@@ -90,9 +93,9 @@ exit /b 0
 		set t_file=%~1
 		CALL :FILES_REMOVE_TEMP
 
-		:: ***************************
-		:: *** BUSCAMOS PISTA DE AUDIO
-		:: ***************************
+		REM ***************************
+		REM *** BUSCAMOS PISTA DE AUDIO
+		REM ***************************
 		set t_audio_id_pista=
 		cscript /nologo src/AudioGetID.vbs !tfStreamA! !tfStreamA_A! !tfStreamA_I!
 		set /p t_audio_id_pista=<!tfStreamA_I!
@@ -103,9 +106,9 @@ exit /b 0
 		)
 
 
-		:: *********************************************
-		:: *** COMPROBAMOS SI EL AUDIO ESTA SINCRONIZADO
-		:: *********************************************
+		REM *********************************************
+		REM *** COMPROBAMOS SI EL AUDIO ESTA SINCRONIZADO
+		REM *********************************************
 		echo|set /p="[AUDIO] - [SYNC] - [SCAN] - COMPROBANDO SI EL AUDIO Y EL VIDEO INICIAN A LA VEZ... "
 
 		set t_sync_v_a=
@@ -129,79 +132,79 @@ exit /b 0
 		)
 		echo.
 
+		if "%all_a_encoder%" == "copy" (
+			REM TODO: PENDIENTE IMPLEMENTAR COPY ******************************************
+			echo [AUDIO] - [COPY] - PENDIENTE DE IMPLEMENTAR...
+		) else (
+			if "!t_sync_v_a_status!" == "NO" (
+				call :SELECT_SYNC_SEG !t_sync_v_a! t_sync_v_a
+				if /i "!t_sync_v_a!" == "0" (
+					set t_sync_v_a_status=OK
+				) else (
+					echo [AUDIO] - [SYNC] - [FIX] - SE A¥ADIRA AL INICIO UN SILENCIO DE: !t_sync_v_a! SEG
 
+					REM ***** INI - CODIGO DE PRUEBAS - NO ES NECESARIO YA QUE EL SILENCIO SE GENERA DIRECTAMENTE AL EXTRAER LA PISTA DE AUDIO *****
+					echo|set /p="[AUDIO] - [SYNC] - [FIX] - GENERANDO SILENCIO..."
+					set RunFunction=%tPathffmpeg% -hide_banner -y -threads %ffmpeg_threads% -y
+					set RunFunction=!RunFunction! -filter_complex "aevalsrc=0:d=!t_sync_v_a!:sample_rate=!all_a_hz!:channel_layout=stereo"
+					set RunFunction=!RunFunction! !tfProcesAudioSilencio!
+					@call src\gen_func.cmd RUN_EXE
+					(set RunFunction=)
 
-		if /i "!t_sync_v_a_status!"=="NO" (
-
-			call :SELECT_SYNC_SEG !t_sync_v_a! t_sync_v_a
-			if /i "!t_sync_v_a!" == "0" (
-				set t_sync_v_a_status=OK
-			) else (
-				echo [AUDIO] - [SYNC] - [FIX] - SE A¥ADIRA AL INICIO UN SILENCIO DE: !t_sync_v_a! SEG
-
-				REM ***** INI - CODIGO DE PRUEBAS - NO ES NECESARIO YA QUE EL SILENCIO SE GENERA DIRECTAMENTE AL EXTRAER LA PISTA DE AUDIO *****
-				echo|set /p="[AUDIO] - [SYNC] - [FIX] - GENERANDO SILENCIO..."
-				set RunFunction=%tPathffmpeg% -hide_banner -y -threads %ffmpeg_threads% -y
-				set RunFunction=!RunFunction! -filter_complex "aevalsrc=0:d=!t_sync_v_a!:sample_rate=!all_a_hz!:channel_layout=stereo"
-				set RunFunction=!RunFunction! !tfProcesAudioSilencio!
-				@call src\gen_func.cmd RUN_EXE
-				(set RunFunction=)
-
-				echo|set /p="  [OK]"
-				echo.
-				REM ***** END - CODIGO DE PRUEBAS - NO ES NECESARIO YA QUE EL SILENCIO SE GENERA DIRECTAMENTE AL EXTRAER LA PISTA DE AUDIO *****
-
-
-
-				REM ***** AVISO!!!! ****** TENEMOS QUE GENERAR PRIMERO EL WAV YA QUE SI LO GENERAMOS DIRECTAMENTE EN AAC EN LA UNION DEL SILENCION CON 
-				REM                        LA PISTA DE AUDIO A¥ADE UNOS SEGUNDOS MAS DE TIEMPO Y SE DESINCRONIZA.
-
-				echo|set /p="[AUDIO] - [SYNC] - [FIX] - A¥ADIENDO SILENCIO A LA PISTA DE AUDIO..."
-				
-				set RunFunction=%tPathffmpeg% -hide_banner -y -threads %ffmpeg_threads% -y
-				set RunFunction=!RunFunction! -i !tPathFileOrig! -vn -sn -map_chapters -1
-				set RunFunction=!RunFunction! -filter_complex "aevalsrc=0|:d=!t_sync_v_a!:sample_rate=!all_a_hz!:channel_layout=stereo[silence];[silence][0:a]concat=n=2:v=0:a=!t_audio_id_pista![out]" -map [out]
-				set RunFunction=!RunFunction! !tfProcesAudioConcat!
-				@call src\gen_func.cmd RUN_EXE
-				(set RunFunction=)
-
-				If exist !tfProcesAudioConcat! (
 					echo|set /p="  [OK]"
 					echo.
-				) else (
-					echo|set /p="  [ERR^!^!]"
-					echo.
-					CALL :FILES_REMOVE
-					GOTO :eof
+					REM ***** END - CODIGO DE PRUEBAS - NO ES NECESARIO YA QUE EL SILENCIO SE GENERA DIRECTAMENTE AL EXTRAER LA PISTA DE AUDIO *****
+
+
+
+					REM ***** AVISO!!!! ****** TENEMOS QUE GENERAR PRIMERO EL WAV YA QUE SI LO GENERAMOS DIRECTAMENTE EN AAC EN LA UNION DEL SILENCION CON 
+					REM                        LA PISTA DE AUDIO A¥ADE UNOS SEGUNDOS MAS DE TIEMPO Y SE DESINCRONIZA.
+
+					echo|set /p="[AUDIO] - [SYNC] - [FIX] - A¥ADIENDO SILENCIO A LA PISTA DE AUDIO..."
+					
+					set RunFunction=%tPathffmpeg% -hide_banner -y -threads %ffmpeg_threads% -y
+					set RunFunction=!RunFunction! -i !tPathFileOrig! -vn -sn -map_chapters -1
+					set RunFunction=!RunFunction! -filter_complex "aevalsrc=0|:d=!t_sync_v_a!:sample_rate=!all_a_hz!:channel_layout=stereo[silence];[silence][0:a]concat=n=2:v=0:a=!t_audio_id_pista![out]" -map [out]
+					set RunFunction=!RunFunction! !tfProcesAudioConcat!
+					@call src\gen_func.cmd RUN_EXE
+					(set RunFunction=)
+
+					If exist !tfProcesAudioConcat! (
+						echo|set /p="  [OK]"
+						echo.
+					) else (
+						echo|set /p="  [ERR^!^!]"
+						echo.
+						CALL :FILES_REMOVE
+						GOTO :eof
+					)
+					REM *****************************
 				)
-				REM *****************************
+
 			)
 
+
+			REM ******************************************
+			REM ******************************************
+			REM ******************************************
+			REM TODO: Pendiente configurar numero de canales
+
+			set t_audio_ccanales=
+			findstr.exe /i /c:"5.1" !tfStreamA_A! >nul
+			if not errorlevel 1 (
+				set t_audio_ccanales=5.1 A STEREO
+			) else (
+				set t_audio_ccanales=STEREO
+			)
+
+			set t_audio_fix_vol=
+			set t_audio_fix_vol_status=
+			IF "%default_a_process%" == "ACCGAIN" ( 
+				call :FIX_VOLUMEN_AACGAIN "!t_audio_id_pista!" "!all_a_bitrate!" "!all_a_hz!" "!t_audio_ccanales!" t_audio_fix_vol t_audio_fix_vol_status
+			) else (
+				call :FIX_VOLUMEN_FFMPEG "!t_audio_id_pista!" "!all_a_bitrate!" "!all_a_hz!" "!t_audio_ccanales!" t_audio_fix_vol t_audio_fix_vol_status
+			)
 		)
-
-
-		:: ******************************************
-		:: ******************************************
-		:: ******************************************
-		:: TODO: Pendiente configurar numero de canales
-		
-		set t_audio_ccanales=
-		findstr.exe /i /c:"5.1" !tfStreamA_A! >nul
-		if not errorlevel 1 (
-			set t_audio_ccanales=5.1 A STEREO
-		) else (
-			set t_audio_ccanales=STEREO
-		)
-
-
-		set t_audio_fix_vol=
-		set t_audio_fix_vol_status=
-		IF "%default_a_process%" == "ACCGAIN" ( 
-			call :FIX_VOLUMEN_AACGAIN "!t_audio_id_pista!" "!all_a_bitrate!" "!all_a_hz!" "!t_audio_ccanales!" t_audio_fix_vol t_audio_fix_vol_status
-		) else (
-			call :FIX_VOLUMEN_FFMPEG "!t_audio_id_pista!" "!all_a_bitrate!" "!all_a_hz!" "!t_audio_ccanales!" t_audio_fix_vol t_audio_fix_vol_status
-		)
-
 	ENDLOCAL
 	echo [AUDIO] - [FINALIZADO]
 	goto:eof
@@ -351,7 +354,7 @@ exit /b 0
 		set t_audio_fix_vol=
 		set t_return=OK
 	
-		echo [AUDIO] - [VOLF] - RECODIFICANDO AUDIO [PISTA !t_id_pista!] !t_ccanales! CON UN BITRATE [!t_bitrate!]...
+		echo [AUDIO] - [VOLF] - [    ] - RECODIFICANDO AUDIO [PISTA !t_id_pista!] !t_ccanales! CON UN BITRATE [!t_bitrate!]...
 
 		set RunFunction=%tPathffmpeg% -hide_banner -y -threads %ffmpeg_threads% -y
 	
@@ -387,7 +390,7 @@ exit /b 0
 		set /p t_audio_fix_vol=<!tfInfoFixVolR!
 	
 		if /i !t_audio_fix_vol! gtr 0 (
-			echo [AUDIO] - [VOLF] - [FIX] - APLICANDO AJUSTE RECOMENDADO [!t_audio_fix_vol!]...
+			echo [AUDIO] - [VOLF] - [FIX ] - APLICANDO AJUSTE RECOMENDADO [!t_audio_fix_vol!]...
 
 			set RunFunction=%tPathaacgain% /r /c /q !tfProcesAudio!
 			@call src\gen_func.cmd RUN_EXE
@@ -487,6 +490,8 @@ exit /b 0
 	echo [AUDIO] - tPathFileOrig:          %tPathFileOrig%
 	echo [AUDIO] - tPathFileConvrt:        %tPathFileConvrt%
 	echo [AUDIO] - tfInfoffmpeg:           %tfInfoffmpeg%
+
+	echo [AUDIO] - all_a_encoder:          %all_a_encoder%
 
 	echo [AUDIO] - tfStreamA:              %tfStreamA%
   	echo [AUDIO] - tfStreamA_A:            %tfStreamA_A%
