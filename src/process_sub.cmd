@@ -23,54 +23,59 @@ exit /b 0
 
 
 :START_PROCESS
+	echo [SUBS] - PROCESO INICIANDO...
 	if "%~1" == "" (
 		echo [SUBS] - [SKIP] - NO SE HA ESPECIFICADO NINGUN ARCHIVO A PREOCESAR^^!^^!
-		echo.
-		goto:eof
-	)
-	If not exist "%~1" (
+	) else If not exist "%~1" (
 		echo [SUBS] - [SKIP] - EL ARCHIVO A PROCESAR YA NO EXISTE^^!^^!
-		echo.
-		goto:eof
+	) else (
+		SETLOCAL
+			CALL :FILES_NAME_SET_ALL "%~1"
+
+			REM ******** DEBUG!!!!!!!!!!!!!!!!
+			if "%_debug%" == "YES" ( CALL :PRINT_DEBUG_INFO )
+			REM ******** DEBUG!!!!!!!!!!!!!!!!
+
+			CALL :START_PROCESS_CHECK _skip_process_run "%~1"
+			if not defined _skip_process_run ( call :START_PROCESS_RUN %* )
+
+			call :FILES_NAME_CLEAN_ALL
+		ENDLOCAL
 	)
-
-	echo [SUBS] - PROCESO INICIANDO...
-	SETLOCAL
-		CALL :FILES_NAME_SET_ALL "%~1"
-		:: ******** DEBUG!!!!!!!!!!!!!!!!
-		if "!_debug_sa!" == "YES" (
-			CALL :PRINT_DEBUG_INFO
-			goto:eof
-		)
-		:: ******** DEBUG!!!!!!!!!!!!!!!!
-
-		call :READ_STREAM "%~1" _read_stream
-		if "!_read_stream!" == "1" (
-			echo [SUBS] - [SKIP] - NO SE HAN DETECTADO NINGUNA PISTA DE SUBTITULOS^^!^^!
-			set _skip_process_run=SKIP
-		) else ( CALL :START_PROCESS_CHECK _skip_process_run )
-		
-		if not defined _skip_process_run ( call :START_PROCESS_RUN %* )
-
-		call :FILES_NAME_CLEAN_ALL
-	ENDLOCAL
 	echo.
 	goto:eof
 
 
 :START_PROCESS_CHECK
-	REM CODIG CHECK, SI NO SE SUPERA Y HAY QUE HACER SKIP USAREMOS >> set "%~1=SKIP"
+	call :READ_STREAM "%~2" _read_stream
+	if "!_read_stream!" == "1" (
+		echo [SUBS] - [SKIP] - NO SE HA DETECTADO NINGUNA PISTA DE SUBTITULOS^^!^^!
+		set "%~1=SKIP"
+		GOTO :eof
+	)
+
+	REM CODIGO PARA VALIDAR SI TODO ESTA CORRECTO PARA PROCESAR, PARA SALTAR EL PROCESADO RETORNAMOS EN %1 SKIP.
 	goto:eof
 
 
 :START_PROCESS_RUN
-	REM CODIGO PROCESS
+	SETLOCAL
+		set t_file=%~1
+		echo [SUBS] - [SKIP] - NO IMPLEMENTADO AUN^^!^^!
+
+		REM *********** CODIGO PROCESS ***********
+		REM *********** CODIGO PROCESS ***********
+		REM *********** CODIGO PROCESS ***********
+
+	ENDLOCAL
+	echo [SUBS] - [FINALIZADO]
 	goto:eof
 
 :: **** ELIMINAR ARCHIVOS
 :FILES_REMOVE
 	if not "%_debug%" == "YES" (
 		@call src\gen_func.cmd FUN_FILE_DELETE_FILE !tfStreamS!
+		@call src\gen_func.cmd FUN_FILE_DELETE_FILE !tfStreamCountS!
 	)
 	goto:eof
 
@@ -91,21 +96,21 @@ exit /b 0
 :FILES_NAME_SET
 	if "%~1" == "" (
 		(set tfStreamS=)
+		(set tfStreamCountS=)
 	) else (
 		set tfStreamS="%tPathProce%\%~n1_info_stream_sub.txt"
+		set tfStreamCountS="%tPathProce%\%~n1_info_stream_count_s.txt"
 	)
 	goto:eof
 
 :: **** FUNCTIONS
 :PRINT_DEBUG_INFO
-	echo [SUBS] - tPathFileOrig:          %tPathFileOrig%
-	echo [SUBS] - tPathFileConvrt:        %tPathFileConvrt%
-	echo [SUBS] - tFileName:              %tFileName%
-	echo [SUBS] - tfInfoffmpeg:           %tfInfoffmpeg%
-
-	echo [SUBS] - tfStreamS:              %tfStreamS%
 	echo.
-	pause
+	echo [SUBS] ********** DEBUG **********
+	echo [SUBS] - tfStreamS:              %tfStreamS%
+	echo [SUBS] - tfStreamCountS:         %tfStreamCountS%
+	echo [SUBS] ********** DEBUG **********
+	echo.
 	goto:eof
 
 :READ_STREAM

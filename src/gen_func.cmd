@@ -306,26 +306,21 @@ exit /b 0
 	REM ****** 2 = STDERR = Error text output
 	REM ****** 3 = STDOUT + STDERR (DEFAULT)
 	REM https://support.microsoft.com/es-es/help/110930/redirecting-error-messages-from-command-prompt-stderr-stdout
-	
+
 	SETLOCAL
 		set t_type_out=%~1
 		set t_path_out=%~2
 		set t_type_win=%~4
 		set t_cmd=!RunExternal!
 
-		if defined t_type_win (
-			if "!t_type_win!" == "MIN" (
-				set t_type_win=/MIN
-			) else if "!t_type_win!" == "MAX" (
-				set t_type_win=/MAX
-			) else (
-				(set t_type_win=)
-			)
-		)
-
-		if not defined t_type_out (
-			set t_type_out=0
-			set t_path_out=nul
+		if "!t_type_win!" == "AUTO" (
+			(set t_type_win=)
+		) else if "!t_type_win!" == "MAX" (
+			set t_type_win=/MAX
+		else if "!t_type_win!" == "MIN" (
+			set t_type_win=/MIN
+		) else (
+			set t_type_win=/MIN
 		)
 
 		if not defined t_path_out (

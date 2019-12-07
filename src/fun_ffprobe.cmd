@@ -29,10 +29,8 @@ exit /b 0
 		set t_file_save=%~2
 		
 		if exist "%t_file_read%" (
-			set RunFunction=%tPathffprobe% -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 "%t_file_read%"
-			@call src\gen_func.cmd RUN_EXE 1 "%t_file_save%"
-			(set RunFunction=)
-			set /p gat_value=<"%t_file_save%"
+			set RunExternal=%tPathffprobe% -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 "%t_file_read%"
+			call src\gen_func.cmd RUN_SUB_EXE 3 "!t_file_save!" gat_value
 		) else (
 			set gat_value=0
 		)
@@ -50,10 +48,8 @@ exit /b 0
 		set t_file_save=%~2
 		
 		if exist "%t_file_read%" (
-			set RunFunction=%tPathffprobe% -v error -show_entries format=duration -sexagesimal -of default=noprint_wrappers=1:nokey=1 "%t_file_read%"
-			@call src\gen_func.cmd RUN_EXE 1 "%t_file_save%"
-			(set RunFunction=)
-			set /p gat_value=<"%t_file_save%"
+			set RunExternal=%tPathffprobe% -v error -show_entries format=duration -sexagesimal -of default=noprint_wrappers=1:nokey=1 "%t_file_read%"
+			call src\gen_func.cmd RUN_SUB_EXE 3 "!t_file_save!" gat_value
 		) else ( 
 			set gat_value=0
 		)

@@ -188,10 +188,9 @@ for %%i in ("%tPathOrige%\*.avi" "%tPathOrige%\*.flv" "%tPathOrige%\*.mkv" "%tPa
 	echo ********************************
 	echo [GLOBAL] - [INFO] - PROCESANDO: !tFileName!
 	REM ******** DEBUG!!!!!!!!!!!!!!!!
-	if "%_debug%" == "YES" (
-		CALL :PRINT_DEBUG_INFO
-	)
+	if "%_debug%" == "YES" ( CALL :PRINT_DEBUG_INFO )
 	REM ******** DEBUG!!!!!!!!!!!!!!!!
+
 
 	If exist !tPathFileConvrt! (
 		echo [GLOBAL] - [SKIP] - YA SE HA PROCESADO^^!^^!
@@ -201,7 +200,9 @@ for %%i in ("%tPathOrige%\*.avi" "%tPathOrige%\*.flv" "%tPathOrige%\*.mkv" "%tPa
 
 		REM GET INFO GENERAL DEL ARCHIVO CON FFMPEG Y OBTENEMOS LOS STREAM
 		@call src\fun_ffmpeg.cmd GET_INFO !tPathFileOrig! !tfInfoffmpeg!
+
 		call :READ_STREAM !tPathFileOrig! _read_stream
+
 		if "!_read_stream!" == "1" (
 			echo [GLOBAL] - [SKIP] - NO SE HAN DETECTADO NINGUNA STREAM EN EL ARCHIVO^^!^^!
 		) else (
@@ -211,19 +212,15 @@ for %%i in ("%tPathOrige%\*.avi" "%tPathOrige%\*.flv" "%tPathOrige%\*.mkv" "%tPa
 			echo [GLOBAL] - [INFO] - DURACION: !tDuration!
 			echo.
 			
-			
-			
-			rem			call src\fun_ffmpeg.cmd COUNT_STREAM !tPathFileOrig! !tfStreamCountS! "Subtitle" _count_steam_sub
-			rem			call src\fun_ffmpeg.cmd COUNT_STREAM !tPathFileOrig! !tfStreamCountA! "Audio" _count_steam_audio
-			rem			call src\fun_ffmpeg.cmd COUNT_STREAM !tPathFileOrig! !tfStreamCountV! "Video" _count_steam_video
-			
-			
-
-
 			@call src\process_sub.cmd FILES_NAME_SET_ALL !tPathFileOrig!
 			@call src\process_audio.cmd FILES_NAME_SET_ALL !tPathFileOrig!
 			@call src\process_video.cmd FILES_NAME_SET_ALL !tPathFileOrig!
 			@call src\process_multiplex.cmd FILES_NAME_SET_ALL !tPathFileOrig!
+
+
+			rem			call src\fun_ffmpeg.cmd COUNT_STREAM !tPathFileOrig! !tfStreamCountS! "Subtitle" _count_steam_sub
+			rem			call src\fun_ffmpeg.cmd COUNT_STREAM !tPathFileOrig! !tfStreamCountA! "Audio" _count_steam_audio
+			rem			call src\fun_ffmpeg.cmd COUNT_STREAM !tPathFileOrig! !tfStreamCountV! "Video" _count_steam_video
 
 
 			set _stage=FS
@@ -231,10 +228,15 @@ for %%i in ("%tPathOrige%\*.avi" "%tPathOrige%\*.flv" "%tPathOrige%\*.mkv" "%tPa
 
 			set _stage=FA
 			@call src\process_audio.cmd START_PROCESS !tPathFileOrig!
+			
 
+			REM :PRUEBOTRAVEZ
 			set _stage=FV
 			@call src\process_video.cmd START_PROCESS !tPathFileOrig!
-			
+			REM PAUSE
+			REM GOTO PRUEBOTRAVEZ
+
+
 			set _stage=FM
 			@call src\process_multiplex.cmd START_PROCESS !tPathFileOrig! !tPathFileConvrt! !tfProcesAudio! !tfProcesVideo!
 
@@ -304,23 +306,17 @@ REM exit /b 0
 		(set tfInfoffmpeg=)
 		(set tfStreamAll=)
 		(set tfInfoDuration=)
-		(set tfStreamCountS=)
-		(set tfStreamCountA=)
-		(set tfStreamCountV=)
 	) else (
 		set tfInfoffmpeg="%tPathProce%\%~n1_info_ffmpeg.txt"
 		set tfStreamAll="%tPathProce%\%~n1_info_stream.txt"
 		set tfInfoDuration="%tPathProce%\%~n1_info_duration.txt"
-		set tfStreamCountS="%tPathProce%\%~n1_info_stream_count_s.txt"
-		set tfStreamCountA="%tPathProce%\%~n1_info_stream_count_a.txt"
-		set tfStreamCountV="%tPathProce%\%~n1_info_stream_count_v.txt"
 	)
 	goto:eof
 
 :: **** FUNCIONES
 :PRINT_DEBUG_INFO
 	echo.
-	echo [********** DEBUG **********
+	echo [GLOBAL] ********** DEBUG **********
 	echo [GLOBAL] - tPathFileOrig -------- ^> %tPathFileOrig%
 	echo [GLOBAL] - tPathFileConvrt ------ ^> %tPathFileConvrt%
 	echo [GLOBAL] - tFileName ------------ ^> %tFileName%
@@ -328,7 +324,7 @@ REM exit /b 0
 	echo [GLOBAL] - tfInfoffmpeg --------- ^> %tfInfoffmpeg%
 	echo [GLOBAL] - tfStreamAll ---------- ^> %tfStreamAll%
 	echo [GLOBAL] - tfInfoDuration ------- ^> %tfInfoDuration%
-	echo [********** DEBUG **********
+	echo [GLOBAL] ********** DEBUG **********
 	echo.
 	goto:eof
 
