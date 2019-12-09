@@ -351,6 +351,8 @@ exit /b 0
 					if not "!t_type_win!" == "" (echo [DEBUG] - TYPEWIN  ^=^> !t_type_win!)
 					echo [DEBUG]
 					echo [DEBUG]   ...PRESION UNA TECLA PARA EJECUTAR...
+					echo [DEBUG] EJECUTANDO...
+					echo [DEBUG]
 					pause > NUL
 					if "!t_type_out!" == "1" (
 						%t_cmd% > "!t_path_out!"

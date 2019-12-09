@@ -22,7 +22,7 @@ exit /b 0
 
 
 :START_PROCESS
-	echo [VIDEO] - [PROGRESS] - INICIANDO...
+	echo [VIDEO] - PROCESO INICIANDO...
 	if "%~1" == "" (
 		echo [VIDEO] - [SKIP] - NO SE HA ESPECIFICADO NINGUN ARCHIVO A PREOCESAR^^!^^!
 	) else If not exist "%~1" (
@@ -105,29 +105,37 @@ exit /b 0
 	
 		if "%all_detect_borde%" == "NO" (
 			echo [VIDEO] - [SKIP] - NO SE EFECTUA DETECCION DE BORDES NEGROS [GLOBAL]
-			goto RESIZE_VIDEO_INIT
 		) else (
-			@CHOICE /C:YN /d Y /t 10 /M "[VIDEO] - ¨DESEAS DETECTAR BORDE NEGRO SUPERIOR HE INFERIOR [AUTO **SI** EN 10 SEG]"
+			@CHOICE /C:YN /d Y /t 10 /M "[VIDEO] - [BORDE] - ¨DESEAS DETECTAR BORDE NEGRO SUPERIOR HE INFERIOR [AUTO **SI** EN 10 SEG]"
 			IF Errorlevel 1 (
-	
-				echo [VIDEO] - [PROGRESS] - DETECTANDO TAMA¥O REAL SIN BORDES...
-				CALL :FIX_CROPDETECT "%ffmpeg_border_detect_star%" "%ffmpeg_border_detect_dura%" tSizeReal_crop
-
-
+				echo [VIDEO] - [BORDE] - DETECTANDO TAMA¥O REAL SIN BORDES...
+				echo [VIDEO] - [BORDE]
+				CALL :FIX_CROPDETECT "!t_file!" "%ffmpeg_border_detect_star%" "%ffmpeg_border_detect_dura%" tSizeReal_crop tStatus_Scan_Borde
+				echo [VIDEO]
+				
+				if not "!tSizeReal_crop" == "" (
+					if not "!all_change_size!"	== "NO" (
+						(set all_change_size=NO)
+						echo [VIDEO] - [RESIZE] - SE HA DESACTIVADO LA OPTION DE RESIZE YA QUE NO SE PUEDE EJECUTAR A LA VEZ QUE DETECTAR BODRES^^!^^!
+					)
+				)
 			)
 		)
 		
 		
+
+
+
+
 		REM *********************************************************
 		REM *** DEFINIMOS SI DESEAMOS CAMBIAR EL TAMA¥O DEL VIDEO ***
 		REM *********************************************************
-		:RESIZE_VIDEO_INIT
 		
-		if not "!tSizeReal_crop!" == "" (
-			@call src\gen_func.cmd GetWidthByResolution : %tSizeReal_crop% tWidthOrig
-		) else (
+		if "!tSizeReal_crop!" == "" (
 			@call src\gen_func.cmd GetWidthByResolution x %tSizeOrig_size% tWidthOrig
 			set tSizeReal_size=%tSizeOrig_size%
+		) else (
+			@call src\gen_func.cmd GetWidthByResolution : %tSizeReal_crop% tWidthOrig
 		)
 		
 		set OutNewSize=
@@ -381,160 +389,196 @@ exit /b 0
 
 
 :FIX_CROPDETECT
-	:: call :FIX_CROPDETECT "%ffmpeg_border_detect_star%" "%ffmpeg_border_detect_dura%" _valur_crop
+	:: call :FIX_CROPDETECT "path file" "%ffmpeg_border_detect_star%" "%ffmpeg_border_detect_dura%" _valur_crop _status_return
 	SETLOCAL
-		set t_t_ss=%~1
-		set t_t_sd=%~2
-		set t_file=%~3
+		set t_file=%~1
+		set t_t_ss=%~2
+		set t_t_sd=%~3
 		
 
-		:FIX_CROPDETECT_INIT_SCAN
+		REM t_return:
+		REM -- NODETECT
+		REM -- ABORTSCAN
+		REM -- NEWSCAN
+		REM -- STARTSACN
+		REM -- OKSCAN
+		REM -- FILENULL
+		REM -- FILEOK
+		REM -- FILENOEXIST
+		REM -- OK
 
-		if defined count_intentos(
-			set /a count_intentos+=1
+		if "!t_file!" == "" (
+			echo [VIDEO] - [BORDE] - [SKIP] - NO SE HA ESPECIFICADO NINGUN ARCHIVO^^!^^!^^!^^!
+			(set t_return=FILENULL)
 		) else (
-			set /a count_intentos=0
-		)
-		(set tSizeReal_crop=)
-		(set tDetectNewScan=)
-		
-		if "!t_t_sd!" == "" (
-			(set t_t_ss=)
-		) else (
-			if "!t_t_ss!" == "" (
-				set t_t_ss=0
+			if exist "!t_file!" (
+				(set t_return=FILEOK)
+			) else (
+				echo [VIDEO] - [BORDE] - [SKIP] - EL ARCHIVO ESPECIFICADO NO EXISTE^^!^^!^^!^^!
+				(set t_return=FILENOEXIST)
 			)
-			set /a t_t_stop=!t_t_ss! + !t_t_sd!
 		)
-
-
-
-		echo [VIDEO] - [PROGRESS] - INICIANDO SCAN DE BORDES DE !t_t_sd! SEGUNDOS EMPEZANDO DESDE EL SEGUNDO !t_t_ss!...
-		set RunExternal=%tPathffmpeg% -ss !t_t_ss! -to !t_t_stop! -i !tPathFileOrig! -vf cropdetect -f null -
-		@call src\gen_func.cmd RUN_SUB_EXE 2 !tfInfoBordeA!
 		
-		echo [VIDEO] - [PROGRESS] - ANALIZANDO RESULTADOS...
-		findstr.exe  /i /c:"Parsed_cropdetect_" !tfInfoBordeA! > !tfInfoBordeE!
-		cscript /nologo src/VideoSizeReal_Crop_ClearLog.vbs !tfInfoBordeE! !tfInfoBordeC!
-		IF errorlevel 3 echo "ERROR 3"
-		IF errorlevel 2 echo "ERROR 2"
-		IF errorlevel 1 echo "ERROR 1"
-				
-		if "%_debug%" == "YES" (
-			echo [VIDEO] - [DEBUG] - STOP DEPUES DE ANALIZAR RESULTADOS ^!^!^!^!
-			PAUSE
-		)
-	
-	
-		for /F "usebackq tokens=*" %%i in (!tfInfoBordeC!) do (
-			FOR /f "tokens=1,2 delims=-" %%a IN ("%%i") do (
-				rem RES: %%a
-				rem count: %%b
-				for /f "delims=:" %%A in ("%%a") do (
-					if %%~A == !tWidthOrig! (
-						if %%b GTR 5 (
-							echo [VIDEO]   -- MUESTRA: %%a  -- REPETIDA: %%b 
-							set tSizeReal_crop=%%a
+		if "!t_return!" == "FILEOK" (
+			CALL src\fun_ffprobe.cmd GET_RESOLUCION "!t_file!" !tfInfoSizeOrig! tSizeOrig
+			
+
+			:FIX_CROPDETECT_INIT_SCAN
+			if defined t_count_intentos ( set /a t_count_intentos+=1 ) else ( set /a t_count_intentos=0 )
+
+			if "!t_t_sd!" == "" (
+				(set t_t_ss=)
+			) else (
+				if "!t_t_ss!" == "" ( set t_t_ss=0 )
+				set /a t_t_stop=!t_t_ss! + !t_t_sd!
+			)
+			if not defined t_t_all ( if "!t_t_ss!" == "" ( (set t_t_all=YES) ) else ( (set t_t_all=NO) ) )
+
+
+			(set t_return=STARTSACN)
+			if "!t_t_all!" == "YES" (
+				echo [VIDEO] - [BORDE] - [SCAN] - INICIANDO SCAN DE BORDES DURANTE TODO EL VIDEO...
+				set RunExternal=%tPathffmpeg% -i "!t_file!" -vf cropdetect -f null -
+			) else (
+				echo [VIDEO] - [BORDE] - [SCAN] - INICIANDO SCAN DE BORDES DE !t_t_sd! SEGUNDOS EMPEZANDO DESDE EL SEGUNDO !t_t_ss!...
+				set RunExternal=%tPathffmpeg% -ss !t_t_ss! -to !t_t_stop! -i "!t_file!" -vf cropdetect -f null -
+			)
+			CALL src\gen_func.cmd RUN_SUB_EXE 2 !tfInfoBordeA!
+			
+			
+			echo [VIDEO] - [BORDE] - [SCAN] - ANALIZANDO RESULTADOS...
+			findstr.exe  /i /c:"Parsed_cropdetect_" !tfInfoBordeA! > !tfInfoBordeE!
+			cscript /nologo src/VideoSizeReal_Crop_ClearLog.vbs !tfInfoBordeE! !tfInfoBordeC!
+			IF errorlevel 3 echo "ERROR 3"
+			IF errorlevel 2 echo "ERROR 2"
+			IF errorlevel 1 echo "ERROR 1"
+					
+			if "%_debug%" == "YES" (
+				echo [VIDEO] - [BORDE] - [SCAN] - [DEBUG] - STOP DEPUES DE ANALIZAR RESULTADOS ^^!^^!^^!^^!
+				PAUSE
+			)
+
+			(set t_SizeReal_crop=)
+			for /F "usebackq tokens=*" %%i in (!tfInfoBordeC!) do (
+				FOR /f "tokens=1,2 delims=-" %%a IN ("%%i") do (
+					rem RES: %%a
+					rem count: %%b
+					for /f "delims=:" %%A in ("%%a") do (
+						if %%~A == !tWidthOrig! (
+							if %%b GTR 5 (
+								echo [VIDEO] - [BORDE] - [SCAN] - MUESTRA: %%a  -- REPETIDA: %%b 
+								set t_SizeReal_crop=%%a
+							) else (
+								if "%_debug%" == "YES" (echo [VIDEO] - [BORDE] - [SCAN] - [DEBUG] - ORIG ^(!tWidthOrig!^) - MUESTRA ^(%%A^) - COUNT ^(%%b^) - MUESTRA_ALL ^(%%i^)   - NO VALIDA^^!^^!^^!^^!)
+							)
 						) else (
-							if "%_debug%" == "YES" (echo [VIDEO] - [DEBUG] - ORIG ^(!tWidthOrig!^) - MUESTRA ^(%%A^) - COUNT ^(%%b^) - MUESTRA_ALL ^(%%i^)   - NO VALIDA^^!^^!^^!^^!)
+							if "%_debug%" == "YES" (echo [VIDEO] - [BORDE] - [SCAN] - [DEBUG] - ORIG ^(!tWidthOrig!^) - MUESTRA ^(%%a^) - MUESTRA_ALL ^(%%i^)   - NO VALIDA^^!^^!^^!^^!)
 						)
-					) else (
-						if "%_debug%" == "YES" (echo [VIDEO] - [DEBUG] - ORIG ^(!tWidthOrig!^) - MUESTRA ^(%%a^) - MUESTRA_ALL ^(%%i^)   - NO VALIDA^^!^^!^^!^^!)
 					)
 				)
 			)
-		)
-		echo.
-				
+			echo [VIDEO] - [BORDE]
+					
 		
-		if "!tSizeReal_crop!" == "" (
-			SET tDetectNewScan=YES
-			echo [VIDEO] - NO SE ENCONTRO NINGUNA MUESTRA VALIDA, A¥ADA NUEVOS DATOS DE MUESTREO:
-		) else (	
-			@CHOICE /C:YN /M "[VIDEO] - ¨DESEAS HACER OTRO MUESTREO CON OTROS VALORES"
-			IF Errorlevel 2 SET tDetectNewScan=NO
-			IF Errorlevel 1 SET tDetectNewScan=YES
-		)
-				
-
-		if "!tDetectNewScan!" == "YES" (
-			set /p InputNewtDetectStar="[VIDEO] - INICIAR SCAN A LOS [!t_t_ss! SEGUDNOS, ALL PARA TODO EL VIDEO]:"
-			if "!InputNewtDetectStar!" == "ALL" (
-				(set t_t_ss=)
+			if "!t_t_all!" == "YES" (
+				if "!t_SizeReal_crop!" == "" (
+					echo [VIDEO] - [BORDE] - [SKIP] - NO SE DETECTO NINGUN BORDE NEGRO EN TODO EL VIDEO^^!^^!^^!^^!
+					(set t_return=NODETECT)
+				)
 			) else (
-				if not "!InputNewtDetectStar!" == "" (
-					set t_t_ss=!InputNewtDetectStar!
-					echo [VIDEO] - [MODIFICADO] INICIARA EL SCAN DESDE EL SEGUNDO: !t_t_ss!
+				if "!t_SizeReal_crop!" == "" (
+					if /i !t_count_intentos! GTR 3 (
+						@CHOICE /C:YN /M "[VIDEO] - [BORDE] - SE HAN DETECTADO VARIOS INTENTOS DE DETECCION DE BORDES. ¨QUIERES INTENTARLO OTRA VEZ?"
+						IF Errorlevel 2 (
+							(set t_return=ABORTSCAN)
+						)
+					)
+					if not "!t_return!" == "ABORTSCAN" (
+						echo [VIDEO] - [BORDE] - NO SE ENCONTRO NINGUNA MUESTRA VALIDA, A¥ADA NUEVOS DATOS DE MUESTREO:
+						(set t_return=NEWSCAN)
+					)
+				) else (	
+					@CHOICE /C:YN /M "[VIDEO] - [BORDE] - ¨DESEAS HACER OTRO MUESTREO CON OTROS VALORES?"
+					IF Errorlevel 2 (set t_return=OKSCAN)
+					IF Errorlevel 1 (set t_return=NEWSCAN)
 				)
 			)
-			(set InputNewtDetectStar=)
-
-			if not "!t_t_ss!" == "" (
-				set /p InputNewtDetectDura="[VIDEO] - DURACION DEL SCAN [!t_t_sd! SEGUNDOS]:"
-				if /i "!InputNewtDetectDura!" neq "" (
-					set t_t_sd=!InputNewtDetectDura!
-					echo [VIDEO] - [MODIFICADO] - LA DURACION DEL SCAN ES AHORA DE: !tDetectDura! SEGUNDOS
+			
+			if "!t_return!" == "OKSCAN" (
+				:FIX_CROPDETECT_SELECT_CROP
+				echo [VIDEO] - [BORDE]
+				REM TODO: PENDIENTE DETECTAR QUE RESULTADO TIENE UN COUNT MAYOUR PARA USAR ESE COMO SELECCION POR DEFECTO.
+				set /p InputNewSize="[VIDEO] - [BORDE] - CONFIRMA QUE EL NUEVO TAMA¥O ES [!t_SizeReal_crop!]:"
+				if /i "!InputNewSize!" neq "" (
+					set t_SizeReal_crop=!InputNewSize!
+					echo [VIDEO] - [BORDE] - [MODIFICADO] - EL NUEVO TAMA¥O SE HA DEFINIDO EN: !t_SizeReal_crop!
 				)
-				(set InputNewtDetectDura=)
+				
+				for /f %%i in ('cscript /nologo src/VideoSizeReal_Size.vbs "!t_SizeReal_crop!"') do (
+					set t_SizeReal=%%i
+				)
+				echo [VIDEO] - [BORDE]
+				
+				if "!t_SizeReal!" == "!tSizeOrig!" (
+					@CHOICE /C:YN /M "[VIDEO] - [BORDE] - EL TAMA¥O ORIGNAL Y EL CROP ESPECIFICADO ES EL MISMO ¨DESEAS ESPECIFICAR OTRO?"
+					IF Errorlevel 2 (
+						GOTO FIX_CROPDETECT_SELECT_CROP
+					)
+					IF Errorlevel 1 (
+						echo [VIDEO] - [BORDE] - [SKIP] EL TAMA¥O ORIGNAL ES EL MISMO QUE EL CROP ESPECIFICADO^^!^^!^^!^^!
+						(set t_return=NODETECT)
+					)
+				)
 			)
-			echo.
-			goto :FIX_CROPDETECT_INIT_SCAN
-		)
-		
+
+			if "!t_return!" == "OKSCAN" (
+				CALL :PLAY_TEST "!t_file!" "!t_SizeReal_crop!"
 				
-		REM TODO: PENDIENTE DETECTAR QUE RESULTADO TIENE UN COUNT MAYOUR PARA USAR ESE COMO SELECCION POR DEFECTO.
-		echo.
-		set /p InputNewSize="[VIDEO] - CONFIRMA QUE EL NUEVO TAMA¥O ES [!tSizeReal_crop!]:"
-		if /i "!InputNewSize!" neq "" (
-			set tSizeReal_crop=!InputNewSize!
-			echo [VIDEO] - [MODIFICADO] - EL NUEVO TAMA¥O SE HA DEFINIDO EN: !tSizeReal_crop!
-		)
-		
-		for /f %%i in ('cscript /nologo src/VideoSizeReal_Size.vbs "!tSizeReal_crop!"') do (
-			set tSizeReal_size=%%i
-		)
-		echo.
+				echo [VIDEO] - [BORDE]
+				@CHOICE /C:YN /M "[VIDEO] - [BORDE] - ¨SE VE BIEN EL VIDEO? [SI] PARA USAR ESTE VALOR / [NO] PARA BUSCAR BORDE OTRA VEZ"
+				IF Errorlevel 2 (
+					(set t_return=NEWSCAN)
+				)
+				IF Errorlevel 1 (
+					(set t_return=OK)
+				)
+			)
+
+			if "!t_return!" == "NEWSCAN" (
 				
-		REM ********************************************************
-		REM ********************************************************
-				
-				
-	
-	
-	
-		
+				if "!t_t_ss!" == "" ( set t_t_ss=20 )
+				if "!t_t_sd!" == "" ( set t_t_sd=120 )
 
+				echo [VIDEO] - [BORDE]
+				set /p InputNewtDetectStar="[VIDEO] - [BORDE] - INICIAR SCAN A LOS [!t_t_ss! SEGUDNOS, ALL PARA TODO EL VIDEO]:"
+				if "!InputNewtDetectStar!" == "ALL" (
+					(set t_t_all=YES)
+					echo [VIDEO] - [BORDE] - [MODIFICADO] - HACER SCAN DE TODO EL VIDEO
+				) else (
+					(set t_t_all=NO)
+					if not "!InputNewtDetectStar!" == "" (
+						set t_t_ss=!InputNewtDetectStar!
+						echo [VIDEO] - [BORDE] - [MODIFICADO] - INICIARA EL SCAN DESDE EL SEGUNDO: !t_t_ss!
+						echo [VIDEO] - [BORDE]
+					)
+				)
+				(set InputNewtDetectStar=)
 
-		REM **************************************************************
-		REM *** DETECTAR SI EL TAMA¥O ORIGINAL Y EL NUEVO SON EL MISMO ***
-		REM **************************************************************
-		
-		if "!tSizeReal_size!" == "!tSizeOrig_size!" (
-			@CHOICE /C:YN /M "[VIDEO] - ¨NO SE HAN DETECTADO BORDES, DESEAS CANCELAR LA RECODIFICACION?"
-			IF Errorlevel 2 GOTO NOBORDE_NO
-			IF Errorlevel 1 GOTO NOBORDE_YES
-			GOTO :eof
-
-			:NOBORDE_YES
-				echo [VIDEO] - [SKIP] EN ESTE ARCHIVO NO SE HAN DETECTADO BORDES, SE OMITE^^!^^!^^!^^!
-				goto END_VIDEO_FIX
-
-			:NOBORDE_NO
-				set tSizeReal_crop=
-				echo.
+				if not "!t_t_ss!" == "" (
+					set /p InputNewtDetectDura="[VIDEO] - [BORDE] - DURACION DEL SCAN [!t_t_sd! SEGUNDOS]:"
+					if /i "!InputNewtDetectDura!" neq "" (
+						set t_t_sd=!InputNewtDetectDura!
+						echo [VIDEO] - [BORDE] - [MODIFICADO] - LA DURACION DEL SCAN ES AHORA DE: !tDetectDura! SEGUNDOS
+					)
+					(set InputNewtDetectDura=)
+				)
+				echo [VIDEO] - [BORDE]
+				goto :FIX_CROPDETECT_INIT_SCAN
+			)
 		)
-		
-		CALL :PLAY_TEST "!t_file!" "!tSizeReal_crop!"
-
-		@CHOICE /C:YN /M "[VIDEO] - ¨SE VE BIEN EL VIDEO? [SI] PARA USAR ESTE VALOR / [NO] PARA BUSCAR BORDE OTRA VEZ"
-		IF Errorlevel 1 (
-			echo [VIDEO]
-			GOTO FIX_CROPDETECT_INIT_SCAN
-		)
-
-		:FIX_CROPDETECT_ENDLOCAL
 	ENDLOCAL & (
-		set "%~4=%tSizeReal_crop%"
+		set "%~4=%t_SizeReal_crop%"
+		set "%~5=%t_return%"
 	)
 	goto:eof
 
@@ -545,6 +589,8 @@ exit /b 0
 		set t_crop=%~2
 
 		if "!t_crop!" == "" (
+			echo [VIDEO] - [TEST] - [SKIP] - NO SE DETECTO CROP^^!^^!
+		) else (
 			echo [VIDEO] - [TEST] - PLAY VERSION ORIGNAL....
 			set RunExternal=%tPathffplay% "!t_file!"
 			call src\gen_func.cmd RUN_SUB_EXE 3 !tfInfoTestPlay!
@@ -556,8 +602,6 @@ exit /b 0
 			) else (
 				@call src\gen_func.cmd RUN_SUB_EXE 3 !tfInfoTestPlay!
 			)
-		) else (
-			echo [VIDEO] - [TEST] - [SKIP] - NO SE DETECTO CROP^^!^^!
 		)
 	ENDLOCAL
 	goto:eof
