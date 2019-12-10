@@ -96,6 +96,7 @@ set tPathffmpeg="%tPathFF%\ffmpeg.exe"
 set tPathffprobe="%tPathFF%\ffprobe.exe"
 set tPathffplay="%tPathFF%\ffplay.exe"
 set tPathaacgain="%tPathTools%\aacgain.exe"
+set tPathControls="%tPathTools%\controls.exe"
 
 set tURLBaseTools=https://raw.githubusercontent.com/vsc55/ConversorVideoCMD/master/tools
 
@@ -115,12 +116,17 @@ if DEFINED _error_falta_algo (
 @call src\gen_func.cmd CHECK_FILE_AND_FIX "%tPathffprobe%" "%tURLBaseTools%/%ffmpeg_bits%/ffprobe.exe" "ERROR: No se ha localizado el programa FFPROBE ^(%ffmpeg_bits%^)^^^^^^^!" _error_falta_algo
 @call src\gen_func.cmd CHECK_FILE_AND_FIX "%tPathffplay%" "%tURLBaseTools%/%ffmpeg_bits%/ffplay.exe" "ERROR: No se ha localizado el programa FFPLAY ^(%ffmpeg_bits%^)^^^^^^^!" _error_falta_algo
 @call src\gen_func.cmd CHECK_FILE_AND_FIX "%tPathaacgain%" "%tURLBaseTools%/aacgain.exe" "No se ha localizado el programa AACGAIN^^^^^^^!" _error_falta_algo
+@call src\gen_func.cmd CHECK_FILE_AND_FIX "%tPathControls%" "%tURLBaseTools%/controls.exe" "No se ha localizado el programa CONTROLS^^^^^^^!" _error_falta_algo
 if DEFINED _error_falta_algo (
 	echo.
 	echo *** EXIT: ERROR CODE 2^^!
 	pause
 	exit /b 2
 )
+
+
+REM DESACTIVAMOS EL BOTON X DE LA VENTANA PARA QUE NO SE PUEDA CERRAR
+%tPathControls% false
 
 
 
