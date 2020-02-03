@@ -93,6 +93,10 @@ exit /b 0
 		CALL src\fun_ffprobe.cmd GET_RESOLUCION "!t_file!" !tfInfoSizeOrig! tSizeOrig_size
 		CALL src\gen_func.cmd GetWidthByResolution x %tSizeOrig_size% tWidthOrig
 		
+		REM **** Duracion del video
+		CALL src\fun_ffprobe.cmd GET_DURACION "!t_file!" !tfInfoDuration! tDurationFile
+		CALL src\fun_ffprobe.cmd DURACION_FORMAT !tDurationFile! tDurationFileFormat
+
 		REM ******************************
 		REM ******************************
 	
@@ -723,6 +727,7 @@ exit /b 0
 	echo.
 		echo [VIDEO]
 		echo [VIDEO] - [INFO] - [IN] - TAMA¥O INICIAL: %tSizeOrig_size%
+		echo [VIDEO] - [INFO] - [IN] - DURACION: %tDurationFileFormat%
 		echo [VIDEO] - [INFO]
 		echo [VIDEO] - [INFO] - [OUT] - ENCODING: %all_v_encoder%
 		echo [VIDEO] - [INFO] - [OUT] - FORMATO SALIDA: %OutputVideoFormat% [%OutputVideoType%]
