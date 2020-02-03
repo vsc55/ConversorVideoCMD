@@ -311,7 +311,7 @@ exit /b 0
 			REM ******
 			REM ****** INFO -> ffmpeg -hide_banner -h encoder=libx264
 			set OutputVideoFormat="avc"
-			set opt_v_CRF=%default_crf%
+			set opt_v_CRF=%all_crf%
 			set video_e=-c:v %all_v_encoder% -pix_fmt yuv420p -crf !opt_v_CRF! -preset slow -refs %ffmpeg_refs% -r %ffmpeg_fps% -movflags +faststart
 			
 		) else if "%all_v_encoder%" == "libx265" (
@@ -322,7 +322,7 @@ exit /b 0
 			REM ****** INFO -> ffmpeg -hide_banner -h encoder=libx265
 			set OutputVideoFormat="hevc"
 			rem		set opt_v_CRF=%default_crf%
-			set opt_v_CRF=%all_qmin%
+			set opt_v_CRF=%all_crf%
 
 			set video_e=-c:v %all_v_encoder% -pix_fmt yuv420p
 			
@@ -464,15 +464,22 @@ exit /b 0
 					rem RES: %%a
 					rem count: %%b
 					for /f "delims=:" %%A in ("%%a") do (
-						if %%~A == !tWidthOrig! (
-							if %%b GTR 5 (
-								echo [VIDEO] - [BORDE] - [SCAN] - MUESTRA: %%a  -- REPETIDA: %%b 
+						if %%b GTR 5 (
+							if %%~A == !tWidthOrig! (
+								echo [VIDEO] - [BORDE] - [SCAN] - MUESTRA: %%a  -- REPETIDA: %%b
+								set t_SizeReal_crop=%%a
+							) else if %%~A LEQ !tWidthOrig! (
+								echo [VIDEO] - [BORDE] - [SCAN] - ORIG ^(!tWidthOrig!^) - MUESTRA: %%a  -- REPETIDA: %%b  -- [BORDE VERTICAL]
 								set t_SizeReal_crop=%%a
 							) else (
-								if "%_debug%" == "YES" (echo [VIDEO] - [BORDE] - [SCAN] - [DEBUG] - ORIG ^(!tWidthOrig!^) - MUESTRA ^(%%A^) - COUNT ^(%%b^) - MUESTRA_ALL ^(%%i^)   - NO VALIDA^^!^^!^^!^^!)
+								if "%_debug%" == "YES" (
+									echo [VIDEO] - [BORDE] - [SCAN] - [DEBUG] - ORIG ^(!tWidthOrig!^) - MUESTRA ^(%%A^) - COUNT ^(%%b^) - MUESTRA_ALL ^(%%i^)   - NO VALIDA^^!^^!^^!^^!
+								)
 							)
 						) else (
-							if "%_debug%" == "YES" (echo [VIDEO] - [BORDE] - [SCAN] - [DEBUG] - ORIG ^(!tWidthOrig!^) - MUESTRA ^(%%a^) - MUESTRA_ALL ^(%%i^)   - NO VALIDA^^!^^!^^!^^!)
+							if "%_debug%" == "YES" (
+								echo [VIDEO] - [BORDE] - [SCAN] - [DEBUG] - ORIG ^(!tWidthOrig!^) - MUESTRA ^(%%A^) - COUNT ^(%%b^) - MUESTRA_ALL ^(%%i^)   - NO VALIDA^^!^^!^^!^^!
+							)
 						)
 					)
 				)
@@ -564,7 +571,7 @@ exit /b 0
 				)
 				(set InputNewtDetectStar=)
 
-				if not "!t_t_ss!" == "" (
+				if "!t_t_all!" == "NO" (
 					set /p InputNewtDetectDura="[VIDEO] - [BORDE] - DURACION DEL SCAN [!t_t_sd! SEGUNDOS]:"
 					if /i "!InputNewtDetectDura!" neq "" (
 						set t_t_sd=!InputNewtDetectDura!
@@ -715,7 +722,7 @@ exit /b 0
 :PRINT_INFO_PROCESS
 	echo.
 		echo [VIDEO]
-		echo [VIDEO] - [INFO] - [IN] - TAMA¥O INICIAL: !tSizeReal_size!
+		echo [VIDEO] - [INFO] - [IN] - TAMA¥O INICIAL: %tSizeOrig_size%
 		echo [VIDEO] - [INFO]
 		echo [VIDEO] - [INFO] - [OUT] - ENCODING: %all_v_encoder%
 		echo [VIDEO] - [INFO] - [OUT] - FORMATO SALIDA: %OutputVideoFormat% [%OutputVideoType%]

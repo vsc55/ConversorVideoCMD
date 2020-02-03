@@ -55,16 +55,16 @@ exit /b 0
 	GOTO SELECT_PROFILE
 
 
-:: all_v_encoder = [copy|hevc_nvenc|libx265|h264_nvenc|libx264]
-:: all_a_encoder = [copy|aac_coder]
-:: all_v_profile = [baseline|main|main10|etc...]
-:: all_v_level = [4|5|5.2|etc...]
-:: all_qmin = 0    q minimo -> nvenc
-:: all_qmax = 23   q maximo -> nvenc
-:: all_crv= 23      -> libx265 y libx264
+:: all_v_encoder    = [copy|hevc_nvenc|libx265|h264_nvenc|libx264]
+:: all_a_encoder    = [copy|aac_coder]
+:: all_v_profile    = [baseline|main|main10|etc...]
+:: all_v_level      = [4|5|5.2|etc...]
+:: all_qmin         = 0    q minimo -> nvenc
+:: all_qmax         = 23   q maximo -> nvenc
+:: all_crf          = 23   -> libx265 y libx264
 :: all_detect_borde = [NO|YES]
-:: all_change_size = [NO|1920:-1|1280:-1]
-:: all_a_bitrate = [96K|192K|lo que quieras]
+:: all_change_size  = [NO|1920:-1|1280:-1]
+:: all_a_bitrate    = [96K|192K|lo que quieras]
 
 
 :SELECT_PROFILE_CLEAN
@@ -80,7 +80,7 @@ exit /b 0
 	set all_v_level=
 	set all_qmin=
 	set all_qmax=
-	set all_crv=
+	set all_crf=
 	set all_detect_borde=
 	set all_change_size=
 	set all_a_bitrate=
@@ -226,8 +226,8 @@ exit /b 0
 		if "!all_qmax!" NEQ "" (
 			echo [GLOBAL] - [INFO] - [VIDEO] - Q MAX: !all_qmax!
 		)
-		if "!all_crv!" NEQ "" (
-			echo [GLOBAL] - [INFO] - [VIDEO] - CRV: !all_crv!
+		if "!all_crf!" NEQ "" (
+			echo [GLOBAL] - [INFO] - [VIDEO] - CRV: !all_crf!
 		)
 		echo [GLOBAL] - [INFO] - [VIDEO] - DETECTAR BORDE: !all_detect_borde!
 		echo [GLOBAL] - [INFO] - [VIDEO] - NUEVO SIZE: !all_change_size!

@@ -22,7 +22,7 @@ exit /b 0
 
 
 :SELECT_PROFILE
-	:: @call src\opt_h264.cmd SELECT_PROFILE opt_v_profile
+	:: @call src\select_encoder_video_opt_h264.cmd SELECT_PROFILE opt_v_profile
 	
 	set txt_msg=
 	if "%_stage%" == "G" (
@@ -60,7 +60,7 @@ exit /b 0
 
 
 :SELECT_LEVEL
-	:: @call src\opt_h264.cmd SELECT_LEVEL 0 opt_v_level
+	:: @call src\select_encoder_video_opt_h264.cmd SELECT_LEVEL 0 opt_v_level
 	:: TODO: PENDIENTE CONTROLAR SI EL VALOR INTRODUCIDO ESTA ENTRE -1 Y 5.
 	
 	set tmp_opt_v_level=%~1
@@ -115,7 +115,7 @@ exit /b 0
 	
 
 :SELECT_QMIN_QMAX
-	:: @call src\opt_h264.cmd SELECT_QMIN_QMAX 18 23 opt_v_qmin opt_v_qmax
+	:: @call src\select_encoder_video_opt_h264.cmd SELECT_QMIN_QMAX 18 23 opt_v_qmin opt_v_qmax
 	
 	if not "!tfStreamV!" == "" (
 		echo [VIDEO] - [INFO] - INFORMACION PISTA DE VIDEO:
@@ -186,5 +186,45 @@ exit /b 0
 	
 	set %3=!tmp_opt_v_qmin!
 	set %4=!tmp_opt_v_qmax!
+	
+	goto:eof
+
+:SELECT_CRF
+	:: @call src\select_encoder_video_opt_h264.cmd SELECT_CRF 23 opt_v_crf
+	
+	if not "!tfStreamV!" == "" (
+		echo [VIDEO] - [INFO] - INFORMACION PISTA DE VIDEO:
+		type !tfStreamV!
+		echo.
+	)
+	
+	set tmp_opt_v_crf=%~1
+	
+	set txt_msg=CONTROL BITRATE - CRF [RANGO 0 a 51] - ACTUAL CRF [!tmp_opt_v_crf!]  - DESACTIVAR CON -1:
+	if "%_stage%" == "G" (
+		set txt_msg="[GLOBAL] - [VIDEO] - !txt_msg!"
+	) else (
+		set txt_msg="[VIDEO] - !txt_msg!"
+	)
+	set /p InputNewOpt_v_crf=!txt_msg!
+	if not "!InputNewOpt_v_crf!" == "" (
+		If "!InputNewOpt_v_crf!" == "-1" (
+			set tmp_opt_v_crf=
+		) else (
+			set tmp_opt_v_crf=!InputNewOpt_v_crf!
+		)
+		REM TODO: PENDIENTE CONTROLAR SI NO ES NUMERICO Y SI EL VALOR ES MENOR DE -1 O MAYOR QUE 51
+	)
+	
+	if "%_stage%" == "G" (echo|set /p="[GLOBAL] - ")
+	echo|set /p="[VIDEO] - [CONFIG] - CRF: "
+	If "!tmp_opt_v_crf!" == "" (
+		echo|set /p="DESACTIVADO^!^!^!^!"
+	) else (
+		echo|set /p="!tmp_opt_v_crf!"
+	)
+	echo.
+	
+	set %2=!tmp_opt_v_crf!
 	
 	goto:eof

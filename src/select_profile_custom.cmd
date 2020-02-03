@@ -62,10 +62,15 @@ if not "!all_v_profile!" == "" (
 :SKIP_SELECT_ENCODER_VIDEO_OPTIONS_H264_PROFILE_LEVEL
 
 
-:INIT_SELECT_ENCODER_VIDEO_OPTIONS_H264_QMIN_QMAX
-@call src\select_encoder_video_opt_h264.cmd SELECT_QMIN_QMAX %default_qmin% %default_qmax% all_qmin all_qmax
+:INIT_SELECT_ENCODER_VIDEO_OPTIONS_H264_CRF_QMIN_QMAX
+if "!all_v_encoder!" == "libx264" 	 ( 
+	@call src\select_encoder_video_opt_h264.cmd SELECT_CRF %default_crf% all_crf
+)
+if "!all_v_encoder!" == "h264_nvenc" ( 
+	@call src\select_encoder_video_opt_h264.cmd SELECT_QMIN_QMAX %default_qmin% %default_qmax% all_qmin all_qmax
+)
 echo.
-:SKIP_SELECT_ENCODER_VIDEO_OPTIONS_H264_QMIN_QMAX
+:SKIP_SELECT_ENCODER_VIDEO_OPTIONS_H264_CRF_QMIN_QMAX
 
 
 :SKIP_SELECT_ENCODER_VIDEO_OPTIONS_H264
@@ -94,10 +99,15 @@ if not "!all_v_profile!" == "" (
 :SKIP_SELECT_ENCODER_VIDEO_OPTIONS_H265_PROFILE_LEVEL
 
 
-:INIT_SELECT_ENCODER_VIDEO_OPTIONS_H265_QMIN_QMAX
-@call src\select_encoder_video_opt_h265.cmd SELECT_QMIN_QMAX %default_qmin% %default_qmax% all_qmin all_qmax
+:INIT_SELECT_ENCODER_VIDEO_OPTIONS_H265_CRF_QMIN_QMAX
+if "!all_v_encoder!" == "libx265" 	 ( 
+	@call src\select_encoder_video_opt_h265.cmd SELECT_CRF %default_crf% all_crf
+)
+if "!all_v_encoder!" == "hevc_nvenc" ( 
+	@call src\select_encoder_video_opt_h265.cmd SELECT_QMIN_QMAX %default_qmin% %default_qmax% all_qmin all_qmax
+)
 echo.
-:SKIP_SELECT_ENCODER_VIDEO_OPTIONS_H265_QMIN_QMAX
+:SKIP_SELECT_ENCODER_VIDEO_OPTIONS_H265_CRF_QMIN_QMAX
 
 
 :SKIP_SELECT_ENCODER_VIDEO_OPTIONS_H265

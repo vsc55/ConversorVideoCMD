@@ -16,8 +16,8 @@ set ffmpeg_threads=0
 set ffmpeg_refs=4
 set ffmpeg_fps=23.976
 REM set ffmpeg_fps=25.000
-set ffmpeg_border_detect_star=0
-set ffmpeg_border_detect_dura=20
+set ffmpeg_border_detect_star=120
+set ffmpeg_border_detect_dura=120
 
 set default_crf=21
 set default_qmin=1
@@ -143,7 +143,7 @@ set tFileName=
 :: all_v_level = [4|5|5.2|etc...]
 :: all_qmin = 0    		q minimo -> nvenc
 :: all_qmax = 23   		q maximo -> nvenc
-:: all_crv= 23      	-> libx265 y libx264
+:: all_crf= 23      	-> libx265 y libx264
 :: all_detect_borde = [NO|YES]
 :: all_change_size = [NO|1920:-1|1280:-1]
 :: all_a_encoder = [copy|aac_coder]
@@ -153,7 +153,7 @@ set tFileName=
 set all_v_encoder=
 set all_qmin=
 set all_qmax=
-set all_crv=
+set all_crf=
 set all_detect_borde=
 set all_change_size=
 set all_v_profile=
@@ -185,7 +185,7 @@ for %%i in ("%tPathOrige%\*.avi" "%tPathOrige%\*.flv" "%tPathOrige%\*.mkv" "%tPa
 	set tPathFileOrig="%%~fi"
 	
 	REM INFO: NOMBRE DEL ARCHIVO YA PROCESADO CON SU PATH COMPLETO.
-	set tPathFileConvrt="%tPathConve%\%%~ni.%OutputVideoType%"
+	set tPathFileConvrt="%tPathConve%\%%~ni_fix.%OutputVideoType%"
 	
 	REM INFO: NOMBRE DEL ARCHIVO A PROCESAR SIN PATH, SOLO EL NOMBRE DEL ARCHIVO.
 	set tFileName="%%~nxi"
