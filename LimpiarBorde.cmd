@@ -133,6 +133,7 @@ REM DESACTIVAMOS EL BOTON X DE LA VENTANA PARA QUE NO SE PUEDA CERRAR
 set OutputVideoFormat=matroska
 set OutputVideoType=mkv
 set tPathFileOrig=
+set tPathFileOrigLock=
 set tPathFileConvrt=
 set tFileName=
 
@@ -177,18 +178,21 @@ if "!all_profile!" == "" (
 )
 :SKIP_SELECT_PROFILE
 
-
 for %%i in ("%tPathOrige%\*.avi" "%tPathOrige%\*.flv" "%tPathOrige%\*.mkv" "%tPathOrige%\*.mp4") do (
 	set _stage=F
 	
 	REM INFO: NOMBRE DEL ARCHIVO A PROCESAR CON SU PATH COMPLETO.
 	set tPathFileOrig="%%~fi"
-	
+
 	REM INFO: NOMBRE DEL ARCHIVO YA PROCESADO CON SU PATH COMPLETO.
 	set tPathFileConvrt="%tPathConve%\%%~ni_fix.%OutputVideoType%"
 	
 	REM INFO: NOMBRE DEL ARCHIVO A PROCESAR SIN PATH, SOLO EL NOMBRE DEL ARCHIVO.
 	set tFileName="%%~nxi"
+
+	REM INFO: NOMBRE DEL ARCHIVO DE BLOQUEO
+	set tPathFileOrigLock="%tPathProce%\%%~ni_lock.txt"
+	
 	
 	echo.
 	echo ********************************
@@ -200,7 +204,18 @@ for %%i in ("%tPathOrige%\*.avi" "%tPathOrige%\*.flv" "%tPathOrige%\*.mkv" "%tPa
 
 	If exist !tPathFileConvrt! (
 		echo [GLOBAL] - [SKIP] - YA SE HA PROCESADO^^!^^!
-	) else (
+		set _stage=SKIP_E
+	)
+
+	If exist !tPathFileOrigLock! (
+		echo [GLOBAL] - [SKIP] - ARCHIVO BLOQUEADO^^!^^!
+		set _stage=SKIP_L
+	)
+
+	if "!_stage!" == "F" (
+		REM **** CEAMOS EL ARCHIVO DE BLOQUEO
+		type NUL > !tPathFileOrigLock!
+
 		CALL :FILES_NAME_SET_ALL !tPathFileOrig!
 		CALL :FILES_REMOVE
 
@@ -260,6 +275,9 @@ for %%i in ("%tPathOrige%\*.avi" "%tPathOrige%\*.flv" "%tPathOrige%\*.mkv" "%tPa
 			@call src\process_audio.cmd FILES_NAME_CLEAN_ALL
 			@call src\process_video.cmd FILES_NAME_CLEAN_ALL
 			@call src\process_multiplex.cmd FILES_NAME_CLEAN_ALL
+
+			REM **** BORRAMOS ARCHIVO BLOQUEO
+			@call src\gen_func.cmd FUN_FILE_DELETE_FILE !tPathFileOrigLock!
 
 			echo [GLOBAL] - [INFO] - FINALIZADO PROCESADO
 			echo ********************************
@@ -324,6 +342,7 @@ REM exit /b 0
 	echo.
 	echo [GLOBAL] ********** DEBUG **********
 	echo [GLOBAL] - tPathFileOrig -------- ^> %tPathFileOrig%
+	echo [GLOBAL] - tPathFileOrigLock----- ^> %tPathFileOrigLock%
 	echo [GLOBAL] - tPathFileConvrt ------ ^> %tPathFileConvrt%
 	echo [GLOBAL] - tFileName ------------ ^> %tFileName%
 	echo [GLOBAL] 
