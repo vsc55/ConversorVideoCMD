@@ -3,7 +3,7 @@ cls
 setlocal enabledelayedexpansion
 title ClearBorde 3.0
 
-:: _stage > C = Config, G = Global, F = File
+:: _stage > C = Config, G = Global, F = File, SKIP_E = File Out Exist, SKIP_L = File Bloqueado
 :VARIABLES
 set _HACK_CHEKC_=1987
 set _os_bitness=

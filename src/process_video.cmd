@@ -109,26 +109,33 @@ exit /b 0
 	
 		if "%all_detect_borde%" == "NO" (
 			echo [VIDEO] - [SKIP] - NO SE EFECTUA DETECCION DE BORDES NEGROS [GLOBAL]
-		) else (
-			@CHOICE /C:YN /d Y /t 10 /M "[VIDEO] - [BORDE] - ¨DESEAS DETECTAR BORDE NEGRO SUPERIOR HE INFERIOR [AUTO **SI** EN 10 SEG]"
-			IF Errorlevel 1 (
-				echo [VIDEO] - [BORDE] - DETECTANDO TAMA¥O REAL SIN BORDES...
-				echo [VIDEO] - [BORDE]
-				CALL :FIX_CROPDETECT "!t_file!" "%ffmpeg_border_detect_star%" "%ffmpeg_border_detect_dura%" tSizeReal_crop tStatus_Scan_Borde
-				echo [VIDEO]
-				
-				if not "!tSizeReal_crop" == "" (
-					if not "!all_change_size!"	== "NO" (
-						(set all_change_size=NO)
-						echo [VIDEO] - [RESIZE] - SE HA DESACTIVADO LA OPTION DE RESIZE YA QUE NO SE PUEDE EJECUTAR A LA VEZ QUE DETECTAR BODRES^^!^^!
-					)
-				)
+			GOTO VIDEO_CHOICE_DETECTAR_BORDE_END
+		)
+
+		@CHOICE /C:YN /d Y /t 10 /M "[VIDEO] - [BORDE] - ¨DESEAS DETECTAR BORDE NEGRO SUPERIOR HE INFERIOR [AUTO **SI** EN 10 SEG]"
+		IF Errorlevel 2 GOTO VIDEO_CHOICE_DETECTAR_BORDE_NO
+		IF Errorlevel 1 GOTO VIDEO_CHOICE_DETECTAR_BORDE_SI
+		GOTO :eof
+
+		:VIDEO_CHOICE_DETECTAR_BORDE_SI
+		echo [VIDEO] - [BORDE] - DETECTANDO TAMA¥O REAL SIN BORDES...
+		echo [VIDEO] - [BORDE]
+		CALL :FIX_CROPDETECT "!t_file!" "%ffmpeg_border_detect_star%" "%ffmpeg_border_detect_dura%" tSizeReal_crop tStatus_Scan_Borde
+		echo [VIDEO]		
+
+		if not "!tSizeReal_crop" == "" (
+			if not "!all_change_size!"	== "NO" (
+				(set all_change_size=NO)
+				echo [VIDEO] - [RESIZE] - SE HA DESACTIVADO LA OPTION DE RESIZE YA QUE NO SE PUEDE EJECUTAR A LA VEZ QUE DETECTAR BODRES^^!^^!
 			)
 		)
-		
-		
+		GOTO VIDEO_CHOICE_DETECTAR_BORDE_END
+			
+		:VIDEO_CHOICE_DETECTAR_BORDE_NO
+		echo [VIDEO] - [BORDE] - MANUAL SKIP
+		GOTO VIDEO_CHOICE_DETECTAR_BORDE_END
 
-
+		:VIDEO_CHOICE_DETECTAR_BORDE_END
 
 
 		REM *********************************************************
