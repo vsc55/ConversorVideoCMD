@@ -22,9 +22,9 @@ function Invoke-Multiplex {
     $aTmp  = Join-Path $Context.Proceso ("{0}.m4a" -f $name)
 
     # Fuente de video: recodificado si existe, si no el original (caso copy).
-    $videoSrc = if (Test-Path $vTmp) { $vTmp } else { $File }
+    $videoSrc = if (Test-Path -LiteralPath $vTmp) { $vTmp } else { $File }
     # Fuente de audio: m4a recodificado si existe, si no el original (caso copy).
-    $useAudioFile = (Test-Path $aTmp)
+    $useAudioFile = (Test-Path -LiteralPath $aTmp)
 
     # Subtitulos seleccionados en la fase preparar (filtramos posibles nulos del JSON).
     $subs    = @($Subtitles | Where-Object { $_ })
@@ -55,6 +55,9 @@ function Invoke-Multiplex {
             $ffArgs += @('-map', ("{0}:{1}?" -f $subInput, [int]$s.Index))
             $lang = if ($s.Lang) { $s.Lang } else { 'und' }
             $ffArgs += @(('-metadata:s:s:{0}' -f $oi), ("language={0}" -f $lang))
+            # Titulo de la pista: 'Forzados' si es forzada, en blanco si es completa.
+            $title = if ($s.Forced) { 'Forzados' } else { '' }
+            $ffArgs += @(('-metadata:s:s:{0}' -f $oi), ("title={0}" -f $title))
             $disp = @()
             if ($s.Default) { $disp += 'default' }
             if ($s.Forced)  { $disp += 'forced' }
@@ -72,8 +75,8 @@ function Invoke-Multiplex {
     $code = Invoke-ToolShow -Exe $Context.FFmpeg -Arguments $ffArgs -Context $Context
     if ($code -ne 0) { Write-CvLog 'MULTIPLEX' ("[ERR] - ffmpeg devolvio codigo {0}" -f $code) }
 
-    if (Test-Path $out) {
-        $mb = [math]::Round((Get-Item $out).Length / 1MB, 1)
+    if (Test-Path -LiteralPath $out) {
+        $mb = [math]::Round((Get-Item -LiteralPath $out).Length / 1MB, 1)
         Write-CvLog 'MULTIPLEX' ("[OK] - {0}  ({1} MB)" -f (Split-Path $out -Leaf), $mb)
         return $true
     }

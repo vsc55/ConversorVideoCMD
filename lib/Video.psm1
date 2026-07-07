@@ -205,7 +205,7 @@ function Invoke-VideoRun {
     )
     $name = [System.IO.Path]::GetFileNameWithoutExtension($File)
     $outTmp = Join-Path $Context.Proceso ("{0}.mkv" -f $name)
-    if (Test-Path $outTmp) { Remove-Item -Force $outTmp -ErrorAction SilentlyContinue }
+    if (Test-Path -LiteralPath $outTmp) { Remove-Item -Force -LiteralPath $outTmp -ErrorAction SilentlyContinue }
 
     # filtro de video
     $vf = @()
@@ -221,7 +221,7 @@ function Invoke-VideoRun {
     Write-CvLog 'VIDEO' 'Procesando...'
     $code = Invoke-ToolShow -Exe $Context.FFmpeg -Arguments $ffArgs -Context $Context
     if ($code -ne 0) { Write-CvLog 'VIDEO' ("[ERR] - ffmpeg devolvio codigo {0}" -f $code) }
-    return (Test-Path $outTmp)
+    return (Test-Path -LiteralPath $outTmp)
 }
 
 Export-ModuleMember -Function *

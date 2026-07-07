@@ -1,30 +1,78 @@
 {
-    "audioLanguages": [
-        "es"
-    ],
-    "subtitleLanguages": [
-        "spa",
-        "es",
-        "esp",
-        "es-es",
-        "es_es",
-        "castellano",
-        "spanish"
-    ],
-    "outputExtension": "mkv",
-    "threads": 0,
-    "fps": "23.976",
-    "audioHz": 44100,
-    "borderStart": 120,
-    "borderDuration": 120,
-    "cleanTemps": true,
-    "separateWindow": true,
-    "debug": false,
-    "consoleBackground": "DarkBlue",
-    "consoleForeground": "Yellow",
-    "consoleFont": "Consolas",
-    "consoleFontSize": 18,
-    "windowWidth": 150,
-    "windowHeight": 50,
-    "lockCloseButton": true
+    "downloads": {
+        "ffmpeg": {
+            "selected": "8.1.2",
+            "type": "zip",
+            "url": "https://github.com/GyanD/codexffmpeg/releases/download/{version}/ffmpeg-{version}-full_build.zip",
+            "binPath": "ffmpeg-{version}-full_build/bin",
+            "files": ["ffmpeg.exe", "ffprobe.exe", "ffplay.exe"],
+            "dest": "tools\\x64",
+            "versionExe": "ffmpeg.exe",
+            "versionArgs": ["-version"],
+            "versionRegex": "ffmpeg version (\\d+\\.\\d+(?:\\.\\d+)?)",
+            "versions": {
+                "8.1.2": "b8cdefab5f50590a076c27c2b56b0294a0e6154faded28ba1ba05ebc4f801f57",
+                "5.1.2": "1f4056c147694228fddaeb925083338e35d952e4b65e3bd3c5a0a2c13c7800d6"
+            }
+        },
+        "aacgain": {
+            "selected": "2.0.0",
+            "type": "file",
+            "url": "https://github.com/dgilman/aacgain/releases/download/{version}/aacgain-{version}-windows-amd64.exe",
+            "files": ["aacgain.exe"],
+            "dest": "tools",
+            "versionExe": "aacgain.exe",
+            "versionArgs": ["/v"],
+            "versionRegex": "[Vv]ersion (\\d+\\.\\d+(?:\\.\\d+)?)",
+            "versions": {
+                "2.0.0": "d960cedbd274881badd3dd914475ca23bb31c27b3a5cab881ff0d1515a37371a"
+            }
+        }
+    },
+    "languages": {
+        "audio": [
+            "es"
+        ],
+        "subtitle": [
+            "spa",
+            "es",
+            "esp",
+            "es-es",
+            "es_es",
+            "castellano",
+            "spanish"
+        ]
+    },
+    "encode": {
+        "outputExtension": "mkv",
+        "threads": 0,
+        "fps": "23.976",
+        "audioHz": 44100
+    },
+    "border": {
+        "start": 120,
+        "duration": 120
+    },
+    "volume": {
+        "method": "peak",
+        "loudnorm": {
+            "I": -16,
+            "TP": -1.5,
+            "LRA": 11
+        }
+    },
+    "behavior": {
+        "cleanTemps": true,
+        "separateWindow": true,
+        "lockCloseButton": true,
+        "debug": false
+    },
+    "console": {
+        "background": "DarkBlue",
+        "foreground": "Yellow",
+        "font": "Consolas",
+        "fontSize": 18,
+        "windowWidth": 150,
+        "windowHeight": 40
+    }
 }

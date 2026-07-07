@@ -1,8 +1,7 @@
 <#
     Audio.psm1 - Fase ASK (seleccion de pista + sincronia) y RUN (extraccion + volumen).
-    Espejo de process_audio.cmd. La normalizacion de volumen en v1 se hace midiendo el
-    pico con volumedetect de ffmpeg (independiente del locale) y aplicando ganancia al
-    recodificar; se puede cambiar a aacgain si se prefiere el gain sin perdida.
+    La normalizacion de volumen se hace midiendo el pico con volumedetect de ffmpeg
+    (independiente del locale) y aplicando ganancia al recodificar.
 #>
 
 function Get-AudioInitDelay {
@@ -106,7 +105,7 @@ function Invoke-AudioRun {
     )
     $name   = [System.IO.Path]::GetFileNameWithoutExtension($File)
     $outM4a = Join-Path $Context.Proceso ("{0}.m4a" -f $name)
-    if (Test-Path $outM4a) { Remove-Item -Force $outM4a -ErrorAction SilentlyContinue }
+    if (Test-Path -LiteralPath $outM4a) { Remove-Item -Force -LiteralPath $outM4a -ErrorAction SilentlyContinue }
 
     $hz = if ($Profile.AudioHz) { $Profile.AudioHz } else { $Context.DefaultAudioHz }
 
@@ -115,11 +114,11 @@ function Invoke-AudioRun {
     $mapPre      = @()     # -map o filtro previo
     if ($Sync -gt 0) {
         $wav = Join-Path $Context.Proceso ("{0}_concat.wav" -f $name)
-        if (Test-Path $wav) { Remove-Item -Force $wav -ErrorAction SilentlyContinue }
+        if (Test-Path -LiteralPath $wav) { Remove-Item -Force -LiteralPath $wav -ErrorAction SilentlyContinue }
         $fc = ("[0:{0}]aformat=channel_layouts=stereo[a2];aevalsrc=0:d={1}:sample_rate={2}:channel_layout=stereo[sil];[sil][a2]concat=n=2:v=0:a=1[out]" -f $Index, $Sync, $hz)
         Write-CvLog 'AUDIO' ("[SYNC] - [FIX] - Generando silencio de {0}s + pista..." -f $Sync)
         Invoke-ToolShow -Exe $Context.FFmpeg -Arguments @('-hide_banner','-y','-i',$File,'-filter_complex',$fc,'-map','[out]',$wav) -Context $Context | Out-Null
-        if (-not (Test-Path $wav)) { Write-CvLog 'AUDIO' '[ERR] - No se pudo generar el audio sincronizado'; return $false }
+        if (-not (Test-Path -LiteralPath $wav)) { Write-CvLog 'AUDIO' '[ERR] - No se pudo generar el audio sincronizado'; return $false }
         $sourceInput = @('-i',$wav)
         $mapPre      = @('-map','0:a')
     } else {
@@ -127,27 +126,45 @@ function Invoke-AudioRun {
         $mapPre      = @('-map',"0:$Index",'-vn','-sn','-map_chapters','-1')
     }
 
-    # Medir pico y calcular ganancia (llevar el pico a 0 dB).
-    $peak = Get-MaxVolume -Context $Context -InputArgs ($sourceInput + $mapPre)
-    $gain = 0.0
-    if ($null -ne $peak -and $peak -lt 0) { $gain = [math]::Round(-$peak, 1) }
-    if ($gain -gt 0) { Write-CvLog 'AUDIO' ("[VOL] - Aplicando ganancia +{0} dB" -f $gain) }
-    else { Write-CvLog 'AUDIO' '[VOL] - Sin ajuste de volumen' }
-
     # Etiqueta de la pista de audio en el filtro: si venimos del wav sincronizado solo
     # hay una pista (0:a); si no, hay que referenciar el indice concreto (0:Index), no [0:a]
     # (que seria la PRIMERA pista y podria no ser la seleccionada).
     $aLabel = if ($Sync -gt 0) { '0:a' } else { "0:$Index" }
+    $method = "$($Context.VolumeMethod)".ToLower()
+    if ($method -notin @('peak','loudnorm','aacgain')) { $method = 'peak' }
 
-    # Codificar a AAC.
+    # Base del comando de codificacion a AAC.
     $ffArgs = @('-hide_banner','-y','-threads',"$($Context.Threads)") + $sourceInput
-    if ($gain -gt 0) {
+
+    if ($method -eq 'peak') {
+        # PEAK: medir el pico (volumedetect) y llevarlo a 0 dB con el filtro volume.
+        $peak = Get-MaxVolume -Context $Context -InputArgs ($sourceInput + $mapPre)
+        $gain = 0.0
+        if ($null -ne $peak -and $peak -lt 0) { $gain = [math]::Round(-$peak, 1) }
+        if ($gain -gt 0) {
+            Write-CvLog 'AUDIO' ("[VOL] - [PEAK] - Aplicando ganancia +{0} dB" -f $gain)
+            $gtxt = $gain.ToString([System.Globalization.CultureInfo]::InvariantCulture)
+            $ffArgs += @('-filter_complex', ("[{0}]volume={1}dB:precision=fixed[a]" -f $aLabel, $gtxt), '-map','[a]')
+        } else {
+            Write-CvLog 'AUDIO' '[VOL] - [PEAK] - Sin ajuste de volumen'
+            $ffArgs += $mapPre
+        }
+    }
+    elseif ($method -eq 'loudnorm') {
+        # LOUDNORM: normalizacion de sonoridad EBU R128 (una pasada). I/TP/LRA desde config.
         $inv  = [System.Globalization.CultureInfo]::InvariantCulture
-        $gtxt = $gain.ToString($inv)
-        $ffArgs += @('-filter_complex', ("[{0}]volume={1}dB:precision=fixed[a]" -f $aLabel, $gtxt), '-map','[a]')
-    } else {
+        $li   = ([double]$Context.LoudnormI).ToString($inv)
+        $ltp  = ([double]$Context.LoudnormTP).ToString($inv)
+        $llra = ([double]$Context.LoudnormLRA).ToString($inv)
+        Write-CvLog 'AUDIO' ("[VOL] - [LOUDNORM] - Normalizando sonoridad (I={0}, TP={1}, LRA={2})" -f $li, $ltp, $llra)
+        $ffArgs += @('-filter_complex', ("[{0}]loudnorm=I={1}:TP={2}:LRA={3}[a]" -f $aLabel, $li, $ltp, $llra), '-map','[a]')
+    }
+    else {
+        # AACGAIN: se codifica sin ajuste y despues se aplica la ganancia sin perdida.
+        Write-CvLog 'AUDIO' '[VOL] - [AACGAIN] - La ganancia se aplicara al m4a despues de codificar'
         $ffArgs += $mapPre
     }
+
     $ffArgs += @('-c:a','aac','-aac_coder','twoloop','-ac','2','-ar',"$hz")
     if ($Profile.AudioBitrate) { $ffArgs += @('-b:a',"$($Profile.AudioBitrate)") }
     $ffArgs += $outM4a
@@ -155,11 +172,21 @@ function Invoke-AudioRun {
     Write-CvLog 'AUDIO' 'Recodificando audio...'
     Invoke-ToolShow -Exe $Context.FFmpeg -Arguments $ffArgs -Context $Context | Out-Null
 
+    # AACGAIN: aplicar la ganancia ReplayGain sobre el m4a ya codificado (sin recodificar).
+    if ($method -eq 'aacgain' -and (Test-Path -LiteralPath $outM4a)) {
+        if (Test-Path $Context.AacGain) {
+            Write-CvLog 'AUDIO' '[VOL] - [AACGAIN] - Aplicando ganancia sin perdida...'
+            [void](Invoke-ToolShow -Exe $Context.AacGain -Arguments @('/r','/c','/q', $outM4a) -Context $Context)
+        } else {
+            Write-CvLog 'AUDIO' '[VOL] - [AACGAIN] - [AVISO] - No se encuentra aacgain.exe, se omite el ajuste'
+        }
+    }
+
     # limpieza del wav temporal
     $wav = Join-Path $Context.Proceso ("{0}_concat.wav" -f $name)
-    if (Test-Path $wav) { Remove-Item -Force $wav -ErrorAction SilentlyContinue }
+    if (Test-Path -LiteralPath $wav) { Remove-Item -Force -LiteralPath $wav -ErrorAction SilentlyContinue }
 
-    return (Test-Path $outM4a)
+    return (Test-Path -LiteralPath $outM4a)
 }
 
 Export-ModuleMember -Function *

@@ -36,18 +36,54 @@ Set-CvAppearance -Context $ctx -Title ("ConversorVideoCMD {0}" -f $CvVersion)
 $sepLine = ('=' * 64)
 
 # ---- Comprobacion de herramientas ----
+# Si faltan herramientas, ofrecer descargarlas. $didInstall marca si se instalo algo.
+$didInstall = $false
+
+# ffmpeg (siempre necesario).
+$ffMissing = @('FFmpeg','FFprobe','FFplay' | Where-Object { -not (Test-Path $ctx.$_) })
+if ($ffMissing.Count -gt 0) {
+    Write-CvLog 'GLOBAL' ("[FFMPEG] - No se encontro ffmpeg/ffprobe/ffplay en {0}" -f (Split-Path $ctx.FFmpeg))
+    $ffVer = Select-CvToolVersion -Context $ctx -Name 'ffmpeg'
+    if (-not [string]::IsNullOrWhiteSpace($ffVer)) {
+        if (Install-CvTool -Context $ctx -Name 'ffmpeg' -Version $ffVer) { $didInstall = $true }
+    } else {
+        Write-CvLog 'GLOBAL' '[FFMPEG] - Descarga cancelada.'
+    }
+}
+
+# aacgain (solo si el metodo de volumen es 'aacgain').
+if ("$($ctx.VolumeMethod)".ToLower() -eq 'aacgain' -and -not (Test-Path $ctx.AacGain)) {
+    Write-CvLog 'GLOBAL' ("[AACGAIN] - No se encontro aacgain.exe en {0}" -f (Split-Path $ctx.AacGain))
+    $agVer = Select-CvToolVersion -Context $ctx -Name 'aacgain'
+    if (-not [string]::IsNullOrWhiteSpace($agVer)) {
+        if (Install-CvTool -Context $ctx -Name 'aacgain' -Version $agVer) { $didInstall = $true }
+    } else {
+        Write-CvLog 'GLOBAL' '[AACGAIN] - Descarga cancelada.'
+    }
+}
+
 $missing = Test-CvTools -Context $ctx
 if ($missing.Count -gt 0) {
+    # Si algo falta (o una descarga fallo) se deja el error en pantalla, no se limpia.
     Write-Host 'ERROR: faltan herramientas en tools\:' -ForegroundColor Red
     $missing | ForEach-Object { Write-Host ("  - {0}" -f $_) -ForegroundColor Red }
     exit 1
 }
 
+# Si se instalo algo y todo fue bien, limpiar la pantalla para dejarla despejada.
+if ($didInstall) { Clear-Host }
+
+# Versiones realmente instaladas (leidas de las propias apps).
+$ffInstalled = Get-CvToolInstalledVersion -Context $ctx -Name 'ffmpeg'
+if ($ffInstalled) { Write-CvLog 'GLOBAL' ("[FFMPEG] - Version instalada: {0}" -f $ffInstalled) }
+$agInstalled = Get-CvToolInstalledVersion -Context $ctx -Name 'aacgain'
+if ($agInstalled) { Write-CvLog 'GLOBAL' ("[AACGAIN] - Version instalada: {0}" -f $agInstalled) }
+
 function Get-SourceFiles {
     param($Context)
     $files = @()
     foreach ($ext in $Context.Extensions) {
-        $files += @(Get-ChildItem -Path $Context.Original -Filter $ext -File -ErrorAction SilentlyContinue)
+        $files += @(Get-ChildItem -LiteralPath $Context.Original -Filter $ext -File -ErrorAction SilentlyContinue)
     }
     return ($files | Sort-Object Name)
 }
@@ -69,8 +105,8 @@ trap { if ($ctx.LockClose) { try { Set-CvCloseButton -Enabled $true } catch {} }
 $needPrepare = $false
 foreach ($f in $files) {
     $name = $f.BaseName
-    if ((Test-Path (Get-OutputPath $ctx $name))) { continue }   # ya convertido
-    if (-not (Test-Job -Context $ctx -Name $name)) { $needPrepare = $true; break }
+    if ((Test-Path -LiteralPath (Get-OutputPath $ctx $name))) { continue }   # ya convertido
+    if (-not (Test-CvJob -Context $ctx -Name $name)) { $needPrepare = $true; break }
 }
 
 # ============================================================
@@ -88,8 +124,8 @@ if ($needPrepare) {
     Write-CvLog 'GLOBAL' '[PREPARAR] - Generando configuracion de los archivos...'
     foreach ($f in $files) {
         $name = $f.BaseName
-        if (Test-Path (Get-OutputPath $ctx $name)) { continue }
-        if (Test-Job -Context $ctx -Name $name)    { continue }
+        if (Test-Path -LiteralPath (Get-OutputPath $ctx $name)) { continue }
+        if (Test-CvJob -Context $ctx -Name $name)    { continue }
 
         Write-Host ''
         Write-Host ''
@@ -121,7 +157,7 @@ if ($needPrepare) {
             audio     = @{ skip = $aAsk.Skip; index = $aAsk.Index; is51 = $aAsk.Is51; sync = $aAsk.Sync }
             subtitles = @($subSel)
         }
-        Write-Job -Context $ctx -Name $name -Job $job
+        Write-CvJob -Context $ctx -Name $name -Job $job
         Write-Host ''
         Write-CvLog 'PREPARAR' ("[OK] - Job creado: {0}.job.json" -f $name)
     }
@@ -140,8 +176,8 @@ while ($didAny) {
     foreach ($f in (Get-SourceFiles -Context $ctx)) {
         $name = $f.BaseName
         $out  = Get-OutputPath $ctx $name
-        if (Test-Path $out) { continue }                       # ya hecho
-        if (-not (Test-Job -Context $ctx -Name $name)) { continue }  # sin preparar
+        if (Test-Path -LiteralPath $out) { continue }                       # ya hecho
+        if (-not (Test-CvJob -Context $ctx -Name $name)) { continue }  # sin preparar
 
         # Reclamo atomico
         if (-not (Enter-Lock -Context $ctx -Name $name)) { continue }  # lo tiene otro worker
@@ -154,7 +190,7 @@ while ($didAny) {
             Write-CvLog 'WORKER' ("CODIFICANDO: {0}" -f $name)
             Write-Host $sepLine
 
-            $job  = Read-Job -Context $ctx -Name $name
+            $job  = Read-CvJob -Context $ctx -Name $name
             $prof = $job.profile
             $info = Get-MediaInfo -Context $ctx -File $f.FullName
             if ($null -eq $info) { Write-CvLog 'WORKER' '[ERR] - No se pudo leer el archivo'; continue }
@@ -184,7 +220,7 @@ while ($didAny) {
                 } else {
                     Write-CvLog 'WORKER' '[TEMP] - Se conservan los temporales (existe marcador keep_temp)'
                 }
-                Remove-Job -Context $ctx -Name $name
+                Remove-CvJob -Context $ctx -Name $name
                 $sw.Stop()
                 Write-Host ''
                 Write-CvLog 'WORKER' ("[OK] - Finalizado: {0}" -f $name)

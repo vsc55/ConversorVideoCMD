@@ -1,1 +1,5 @@
-x64 - 5.1 - 2022-07-24 
+https://github.com/GyanD/codexffmpeg/releases/tag/8.1.2
+x64 - 8.1.2 - 2026-07-07
+
+https://github.com/dgilman/aacgain
+2.0.0

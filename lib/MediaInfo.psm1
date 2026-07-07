@@ -103,9 +103,9 @@ function Write-ConversionSummary {
     )
     $name = [System.IO.Path]::GetFileName($File)
 
-    $origBytes = (Get-Item $File).Length
+    $origBytes = (Get-Item -LiteralPath $File).Length
     $outBytes  = 0
-    if (Test-Path $Output) { $outBytes = (Get-Item $Output).Length }
+    if (Test-Path -LiteralPath $Output) { $outBytes = (Get-Item -LiteralPath $Output).Length }
     $origMB = [math]::Round($origBytes / 1MB, 1)
     $outMB  = [math]::Round($outBytes  / 1MB, 1)
     $ahorro = if ($origBytes -gt 0) { [math]::Round(100 * (1 - ($outBytes / $origBytes)), 1) } else { 0 }

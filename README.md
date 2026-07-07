@@ -1,63 +1,75 @@
 # ConversorVideoCMD
 
-Conversor/recodificador de vídeo por lotes para Windows, escrito en Batch (CMD) y VBScript, que usa **FFmpeg** como motor de conversión y **AACGain** para normalizar el volumen del audio.
+Conversor/recodificador de vídeo por lotes para Windows, escrito en **PowerShell** (5.1), que usa **FFmpeg/FFprobe/FFplay** como motor. Diseño modular en `lib\` y toda la configuración en `config.json`.
 
-*Batch video converter/re-encoder for Windows, written in Batch (CMD) and VBScript, using **FFmpeg** as conversion engine and **AACGain** for audio volume normalization.*
+> La versión antigua en Batch (CMD + VBScript) se conserva en la rama **`v3.x`**.
 
 ***
 
-## Proceso [es]
+## Proceso
 
   1. Copia el archivo original dentro de la carpeta `Original` (admite `.avi`, `.flv`, `.mp4`, `.mov` y `.mkv`).
-  2. Ejecuta el script `LimpiarBorde.cmd`. Primero te preguntará la configuración de todos los archivos (fase preparar) y después empezará a codificar sin más preguntas (fase procesar).
-  3. Cuando termine el proceso, podrás obtener el archivo recodificado de la carpeta `Convertido`.
+  2. Ejecuta **`run.cmd`** (doble clic). Primero te preguntará la configuración de todos los archivos (fase **preparar**) y después empezará a codificar sin más preguntas (fase **procesar**).
+  3. Cuando termine, tendrás el archivo recodificado en la carpeta `Convertido` (`<nombre>_fix.mkv`).
 
-### `LimpiarBorde.cmd` — modelo preparar/procesar
+`run.cmd` solo lanza `LimpiarBorde.ps1` con `-ExecutionPolicy Bypass` (no cambia la política del sistema) y pone la consola en UTF-8.
 
-Versión modular (el código está en `src\`). Al arrancar decide el modo según el estado de los archivos:
+## Modelo preparar / procesar
 
-- **Fase PREPARAR** (si hay algún archivo sin configurar): hace todas las preguntas y detecciones y escribe un fichero de trabajo `Proceso\<nombre>.job` con la configuración resuelta. Incluye:
+Al arrancar decide el modo según el estado de los archivos:
+
+- **Fase PREPARAR** (si hay algún archivo sin `.job` y sin convertir): hace todas las preguntas y detecciones y escribe un fichero `Proceso\<nombre>.job.json` con la configuración resuelta (perfil congelado). Incluye:
   - Menú de perfiles predefinidos (H.265/H.264 por GPU NVIDIA o CPU, copy, resize...) o configuración personalizada.
-  - Detección y recorte automático de bandas negras (crop), con previsualización del resultado en FFplay.
+  - Detección y recorte automático de bandas negras (crop), con previsualización en FFplay.
+  - Selección de pista de **audio** y **subtítulos** por idioma (listas configurables), con menú si hay varias del mismo idioma.
   - Corrección del desfase audio/vídeo (añade silencio inicial si el audio empieza más tarde).
-- **Fase PROCESAR (worker)**: codifica los archivos preparados sin preguntar, recodifica el audio a AAC con normalización de volumen (AACGain) y multiplexa el resultado a **MKV** en `Convertido`.
-- **Paralelo**: cuando todos los archivos ya tienen su `.job`, puedes abrir varias ventanas de `LimpiarBorde.cmd`; cada una entra directa como worker y se reparten los archivos mediante un bloqueo atómico (`Proceso\<nombre>.lock`, creado con `mkdir`).
+- **Fase PROCESAR (worker)**: codifica los preparados sin preguntar, recodifica el audio a AAC con normalización de volumen y multiplexa a **MKV** en `Convertido`. Muestra un resumen al terminar cada archivo.
+- **Paralelo**: cuando todos los archivos tienen su `.job`, abre varias ventanas de `run.cmd`; cada una entra como worker y se reparten los archivos mediante un bloqueo atómico (`Proceso\<nombre>.lock`, con `mkdir`).
 - **Regla `_`**: si el nombre de un archivo empieza por `_`, se fuerza la detección de bordes aunque el perfil diga "sin bordes".
 
-### Requisitos
+## Requisitos
 
-- Windows de 64 bits.
-- Los ejecutables necesarios (`ffmpeg`, `ffprobe`, `ffplay`, `aacgain`, `controls`) van incluidos en `tools\`; si falta alguno, el script intenta descargarlo automáticamente desde este repositorio.
+- Windows de 64 bits con **PowerShell 5.1** (el que trae Windows).
+- `ffmpeg.exe`, `ffprobe.exe` y `ffplay.exe` en `tools\x64\`. Si no están, al arrancar el script se ofrece a **descargarlos automáticamente** (build de [GyanD/codexffmpeg](https://github.com/GyanD/codexffmpeg), con verificación SHA256). La versión y el hash se fijan en `config.json` (`ffmpegVersion` / `ffmpegSha256`).
 - Para los perfiles NVENC hace falta una GPU NVIDIA compatible.
 
-### Estructura de carpetas
+## Configuración (`config.json`)
 
-| Carpeta      | Uso                                                          |
-|--------------|--------------------------------------------------------------|
-| `Original`   | Vídeos de entrada.                                           |
-| `Proceso`    | Archivos temporales de trabajo.                              |
-| `Convertido` | Resultado final (`*_fix.mkv`).                               |
-| `src`        | Módulos del script (`process_*`, `select_*`, `fun_*`, VBS).  |
-| `tools`      | Ejecutables (FFmpeg x64, AACGain, controls).                 |
+Todo es editable sin tocar código: idiomas de audio y subtítulos (`audioLanguages` / `subtitleLanguages`, admiten variantes como `es`, `es-ES`, `es_es`, `spa`, `castellano`...), `fps`, `threads`, parámetros de escaneo de bordes, limpieza de temporales, ventana aparte para codificar, modo debug, y apariencia (fuente, colores y tamaño de ventana).
 
-### Modo debug
+Marcadores rápidos (crea un archivo vacío con ese nombre en la raíz para activar): `debug_on` (modo debug), `keep_temp` (conservar temporales), `same_window` (codificar en la ventana principal).
 
-Crea en la raíz un archivo vacío llamado `debug_on` para activar el modo debug de `LimpiarBorde.cmd` (los archivos `_debug_on`, `_debug_stop_a` y `_debug_stop_v` del repositorio son plantillas: renómbralos sin el `_` inicial para activarlos).
+### Normalización de volumen
 
-***
+El método se elige con `volumeMethod` en `config.json` (uno de tres):
 
-## Process [en]
+| Método | Qué hace |
+|--------|----------|
+| `peak` (por defecto) | Mide el pico (`volumedetect`) y lo lleva a 0 dB aplicando la ganancia durante la recodificación. Simple, sin dependencias. |
+| `loudnorm` | Normalización de **sonoridad** perceptual EBU R128 (filtro `loudnorm` de ffmpeg). |
+| `aacgain` | Codifica sin ajuste y luego aplica la ganancia **sin recodificar** con `aacgain` (ReplayGain, como la versión batch antigua). Requiere `tools\aacgain.exe`. |
 
- 1. Copy the original file into the `Original` folder (supports `.avi`, `.flv`, `.mp4`, `.mov` and `.mkv`).
- 2. Run `LimpiarBorde.cmd`. It first asks the configuration for every file (prepare phase) and then starts encoding unattended (process phase).
- 3. When the process ends, get the re-encoded file from the `Convertido` folder.
+Para `loudnorm`, sus parámetros también son configurables:
 
-### Features
+```json
+"volumeMethod": "loudnorm",
+"loudnormI": -16,
+"loudnormTP": -1.5,
+"loudnormLRA": 11
+```
 
-- **Prepare/process queue**: a prepare phase asks all questions and writes a `Proceso\<name>.job` config file per video; a worker phase then encodes them unattended reading each job.
-- **Parallel workers**: once every file has its `.job`, you can open several `LimpiarBorde.cmd` windows; each becomes a worker and they share the workload via an atomic lock (`Proceso\<name>.lock`, created with `mkdir`).
-- Predefined encoding profiles (H.265/H.264 via NVIDIA GPU or CPU, copy, resize...) or fully custom setup.
-- Automatic black border detection and cropping, with FFplay preview. Files whose name starts with `_` force border detection.
-- Audio re-encoding to AAC with volume normalization (AACGain) and audio/video sync fix (prepends silence when audio starts late).
-- Final muxing to **MKV** into the `Convertido` folder.
-- Required tools are bundled in `tools\`; missing ones are downloaded automatically from this repository.
+- **I** (LUFS) = sonoridad media objetivo. `-16` para streaming/online; `-23` es el estándar de emisión EBU R128 (más bajo).
+- **TP** (dBTP) = pico real máximo permitido (margen para no saturar; `-1.5` deja headroom).
+- **LRA** (LU) = rango dinámico de sonoridad permitido antes de comprimir.
+
+Se pasan a ffmpeg con punto decimal (formato invariante), independientemente del locale de Windows.
+
+## Estructura de carpetas
+
+| Carpeta      | Uso                                                    |
+|--------------|--------------------------------------------------------|
+| `Original`   | Vídeos de entrada.                                     |
+| `Proceso`    | Temporales y ficheros de trabajo (`*.job.json`).       |
+| `Convertido` | Resultado final (`*_fix.mkv`).                         |
+| `lib`        | Módulos PowerShell (`*.psm1`).                         |
+| `tools`      | Ejecutables (FFmpeg x64).                              |
