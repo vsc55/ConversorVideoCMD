@@ -178,7 +178,7 @@ if "!all_profile!" == "" (
 )
 :SKIP_SELECT_PROFILE
 
-for %%i in ("%tPathOrige%\*.avi" "%tPathOrige%\*.flv" "%tPathOrige%\*.mkv" "%tPathOrige%\*.mp4") do (
+for %%i in ("%tPathOrige%\*.avi" "%tPathOrige%\*.flv" "%tPathOrige%\*.mp4" "%tPathOrige%\*.mov" "%tPathOrige%\*.mkv") do (
 	set _stage=F
 	
 	REM INFO: NOMBRE DEL ARCHIVO A PROCESAR CON SU PATH COMPLETO.

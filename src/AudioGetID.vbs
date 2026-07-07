@@ -140,8 +140,16 @@ DebugWrite "sReturn: " & sReturn
 if len(trim(sReturn)) > 0 then
 	'sReturn ="Stream #0:1(spa): Audio: ac3, 48000 Hz, 5.1(side), fltp, 384 kb/s (default)"
 	'sReturn ="Stream #0:1: Audio: ac3, 48000 Hz, 5.1(side), fltp, 384 kb/s (default)"
-	
-	iReturn = split(split(Split(sReturn," ")(1),":")(1),"(")(0)
+	'sReturn ="Stream #0:1[0x1100](spa): Audio: ac3, ..."  <- FORMATO MPEG-TS, LLEVA EL PID ENTRE CORCHETES
+
+	s = Split(sReturn," ")
+	if UBound(s) >= 1 then
+		b = Split(s(1),":")
+		if UBound(b) >= 1 then
+			'QUITAMOS LOS SUFIJOS "(spa)" Y "[0x1100]" PARA QUEDARNOS SOLO CON EL NUMERO DE PISTA.
+			iReturn = Split(Split(b(1),"(")(0),"[")(0)
+		end if
+	end if
 end if
 DebugWrite "iReturn: " & iReturn
 

@@ -123,7 +123,7 @@ exit /b 0
 		CALL :FIX_CROPDETECT "!t_file!" "%ffmpeg_border_detect_star%" "%ffmpeg_border_detect_dura%" tSizeReal_crop tStatus_Scan_Borde
 		echo [VIDEO]		
 
-		if not "!tSizeReal_crop" == "" (
+		if not "!tSizeReal_crop!" == "" (
 			if not "!all_change_size!"	== "NO" (
 				(set all_change_size=NO)
 				echo [VIDEO] - [RESIZE] - SE HA DESACTIVADO LA OPTION DE RESIZE YA QUE NO SE PUEDE EJECUTAR A LA VEZ QUE DETECTAR BODRES^^!^^!
@@ -155,7 +155,7 @@ exit /b 0
 			echo.
 		) else if "%all_change_size%" == "" (
 			echo.
-			@call src\opt_encoder.cmd SELECT_NEW_SIZE !tWidthOrig! OutNewSize
+			@call src\select_encoder_video.cmd SELECT_NEW_SIZE !tWidthOrig! OutNewSize
 			echo.
 		) else (
 			set OutNewSize=%all_change_size%
@@ -194,7 +194,7 @@ exit /b 0
 		)
 		if not "!OutNewSize!" == "" (
 			if not "!video_f!" == "" (
-				set video_f=!video_f!, scale=!OutNewSize!
+				set video_f=!video_f!,scale=!OutNewSize!
 			) else (
 				set video_f=scale=!OutNewSize!
 			)
@@ -239,7 +239,7 @@ exit /b 0
 			)
 			
 			set video_e=!video_e! -rc-lookahead:v 32
-			set video_e=!video_e! -refs %ffmpeg_refs%
+			REM NO PASAMOS -refs A NVENC: MUCHAS GPUS NO SOPORTAN MULTIPLES FRAMES DE REFERENCIA Y FFMPEG ABORTA CON "No capable devices found".
 			set video_e=!video_e! -r %ffmpeg_fps%
 			set video_e=!video_e! -movflags +faststart
 			
@@ -300,7 +300,7 @@ exit /b 0
 			)
 			
 			set video_e=!video_e! -rc-lookahead:v 32
-			set video_e=!video_e! -refs %ffmpeg_refs%
+			REM NO PASAMOS -refs A NVENC: MUCHAS GPUS NO SOPORTAN MULTIPLES FRAMES DE REFERENCIA Y FFMPEG ABORTA CON "No capable devices found".
 			set video_e=!video_e! -r %ffmpeg_fps%
 			set video_e=!video_e! -movflags +faststart
 			
@@ -355,11 +355,18 @@ exit /b 0
 		
 		
 		echo.
+		REM -tune animation SOLO EXISTE EN libx264/libx265; CON OTROS ENCODERS (NVENC) NO SE PREGUNTA.
+		if "%all_v_encoder%" == "libx264" GOTO VIDEO_CHOICE_IS_ANIMATION_ASK
+		if "%all_v_encoder%" == "libx265" GOTO VIDEO_CHOICE_IS_ANIMATION_ASK
+		echo [VIDEO] - [TUNE] - ANIMATION: NO SOPORTADO POR EL ENCODER %all_v_encoder% [SKIP]
+		GOTO VIDEO_CHOICE_IS_ANIMATION_END
+
+		:VIDEO_CHOICE_IS_ANIMATION_ASK
 		@CHOICE /C:YN /d !profile_default_animation! /t 10 /M "[VIDEO] - ES UN VIDEO DE ANIMACION [AUTO **!profile_default_animation!** EN 10 SEG]"
 		IF Errorlevel 2 GOTO VIDEO_CHOICE_IS_ANIMATION_NO
 		IF Errorlevel 1 GOTO VIDEO_CHOICE_IS_ANIMATION_SI
 		GOTO :eof
-		
+
 		:VIDEO_CHOICE_IS_ANIMATION_SI
 		set video_e=!video_e! -tune animation
 		echo [VIDEO] - [TUNE] - ANIMATION: SI
@@ -586,7 +593,7 @@ exit /b 0
 					set /p InputNewtDetectDura="[VIDEO] - [BORDE] - DURACION DEL SCAN [!t_t_sd! SEGUNDOS]:"
 					if /i "!InputNewtDetectDura!" neq "" (
 						set t_t_sd=!InputNewtDetectDura!
-						echo [VIDEO] - [BORDE] - [MODIFICADO] - LA DURACION DEL SCAN ES AHORA DE: !tDetectDura! SEGUNDOS
+						echo [VIDEO] - [BORDE] - [MODIFICADO] - LA DURACION DEL SCAN ES AHORA DE: !t_t_sd! SEGUNDOS
 					)
 					(set InputNewtDetectDura=)
 				)

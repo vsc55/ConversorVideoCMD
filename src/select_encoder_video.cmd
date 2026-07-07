@@ -121,6 +121,8 @@ exit /b 0
 		type !tfStreamV!
 		echo.
 	)
+	REM LIMPIAMOS LA VARIABLE: SI SE PULSA ENTER, set /p NO LA MODIFICA Y SE REUTILIZARIA LA RESPUESTA DEL ARCHIVO ANTERIOR.
+	(set InputNewOutNewSize=)
 	set /p InputNewOutNewSize=!tmp_msg!
 	if /i "!InputNewOutNewSize!" neq "" (
 		set tmp_OutNewSize=!InputNewOutNewSize!

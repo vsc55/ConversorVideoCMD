@@ -108,7 +108,7 @@ REM	)
 		
 		set map_ord=!map_ord! -map 0:0
 		set map_ord=!map_ord! -map 1:a:0
-		if not "!_count_steam_sub!" == "0" (
+		if not "!_count_subtit!" == "0" (
 					rem set map_ord=!map_ord! -map 0:m:language:spa
 		rem			If exist !tfProcesVideo! (
 		rem				set map_ord=!map_ord! -map 2:s
@@ -128,7 +128,7 @@ REM	)
 		set metadata_a=!metadata_a! -metadata:s:a title=""
 		set metadata_a=!metadata_a! -metadata:s:a language=spa
 		
-		if not "!_count_steam_sub!" == "0" (
+		if not "!_count_subtit!" == "0" (
 			REM TODO: PENDIENTE DETECTAR PISTA DE SUB FORZADA Y PONERLE TITULO DE "FORZADOS"
 			REM TODO: PENDIENTE FILTRAR SOLO SUBS EN CASTELLANO
 			set metadata_s=!metadata_s! -metadata:s:s title=""
@@ -137,7 +137,7 @@ REM	)
 
 		echo [MULTIPLEX] - PROCESANDO....
 		set RunExternal=%tPathffmpeg% -hide_banner -y -threads %ffmpeg_threads% -i "!_v_source!" -i "!_a_source!"
-		if not "!_count_steam_sub!" == "0" (
+		if not "!_count_subtit!" == "0" (
 			set RunExternal=!RunExternal! -i "!_s_source!"
 		)
 		set RunExternal=!RunExternal! !metadata_all! !metadata_a! !metadata_v! !metadata_s! !map_ord! -c:v copy -c:s copy -c:a copy -f %OutputVideoFormat% "%t_file_dest%"
@@ -209,7 +209,10 @@ REM	)
 		set t_file=%~1
 
 		@call src\gen_func.cmd FILE_SIZE _SizeByte "!t_file!"
-		set /A _SizeMB=%_SizeByte:~0,-3%/1024
+		REM SI EL ARCHIVO ES MENOR DE 1000 BYTES EL RECORTE DEJA LA VARIABLE VACIA Y set /A DA ERROR.
+		set _SizeKB=!_SizeByte:~0,-3!
+		if "!_SizeKB!" == "" set _SizeKB=0
+		set /A _SizeMB=_SizeKB/1024
 
 		echo [MULTIPLEX] - [INFO] - ARCHIVO PROCESADO:
 		echo [MULTIPLEX] - [INFO]   - FILE: !t_file!

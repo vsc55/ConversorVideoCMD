@@ -21,23 +21,28 @@ else
 end if
 
 Set objInfoFile = objFSO.OpenTextFile(sPathFileInfo, ForReading)
-While Not objInfoFile.AtEndOfStream 
+Do While Not objInfoFile.AtEndOfStream
 	str1 = objInfoFile.Readline
 	If InStr(str1, "Parsed_ashowinfo_") > 0 Then
 		If InStr(str1, "pts_time:") > 0 Then
-				
+
 			s=Split(str1," ")
 			For i=LBound(s) To UBound(s)
 				b=Split(s(i),":")
-				if b(0) = "pts_time" then
-					DebugWrite str1
-					iReturn = trim(b(1))
+				if UBound(b) >= 1 then
+					if b(0) = "pts_time" then
+						DebugWrite str1
+						iReturn = trim(b(1))
+					end if
 				end if
 			Next
-			
+
+			'EL DESFASE INICIAL ES EL pts_time DEL PRIMER FRAME DE AUDIO, NO EL DEL ULTIMO DEL LOG.
+			If Not IsEmpty(iReturn) Then Exit Do
+
 		End If
 	End If
-Wend 
+Loop
 objInfoFile.Close
 
 if IsEmpty(iReturn) = true then

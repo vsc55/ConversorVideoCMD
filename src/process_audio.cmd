@@ -58,6 +58,7 @@ exit /b 0
 	if "%all_a_encoder%" == "copy" (
 		echo [AUDIO] - [SKIP] - SE COPIARA LA PISTA ORIGINAL
 		set "%~1=SKIP"
+		GOTO :eof
 	)
 	if exist !tfProcesAudio! (
 		@CHOICE /C:YN /d N /t 10 /M "[AUDIO] - LA PISTA DE AUDIO YA SE HA PROCESADO ¨QUIERES VOLVER A PROCESARLA [AUTO **NO** EN 10 SEG]"
@@ -156,7 +157,7 @@ exit /b 0
 			)
 		) else (
 			if "!t_sync_v_a_status!" == "ERROR1" ( 
-				echo|set /p="[ERR] - NO SE HA LOCALIZADO pts_time^!^!^!^!
+				echo|set /p="[ERR] - NO SE HA LOCALIZADO pts_time^!^!^!^!"
 			) else (
 				echo|set /p="[!t_sync_v_a_status!]^!^!^!^!"
 			)
@@ -223,7 +224,8 @@ exit /b 0
 
 		set RunExternal=%tPathffmpeg% -hide_banner -y -threads %ffmpeg_threads% -y
 		set RunExternal=!RunExternal! -i "!t_file_orig!" -vn -sn -map_chapters -1
-		set RunExternal=!RunExternal! -filter_complex "aevalsrc=0|:d=!t_sec_add!:sample_rate=!t_hz!:channel_layout=!t_channel![silence];[silence][0:a]concat=n=2:v=0:a=!t_id_pista![out]" -map [out]
+		REM a=1 -> NUMERO DE STREAMS DE AUDIO DE SALIDA DEL CONCAT, NO EL ID DE LA PISTA.
+		set RunExternal=!RunExternal! -filter_complex "aevalsrc=0:d=!t_sec_add!:sample_rate=!t_hz!:channel_layout=!t_channel![silence];[silence][0:a]concat=n=2:v=0:a=1[out]" -map [out]
 		set RunExternal=!RunExternal! "!t_file_concat!"
 		@call src\gen_func.cmd RUN_SUB_EXE
 	ENDLOCAL
@@ -257,14 +259,20 @@ exit /b 0
 		(set t_sync_va=)
 		(set t_return=)
 
-		set RunExternal=%tPathffmpeg% -hide_banner -y -threads %ffmpeg_threads% -i "!t_file!" -af "ashowinfo" -map 0:!t_id_pista_a! -y -f alaw -frames:a !t_id_pista_a! nul
+		REM -frames:a 1 -> SOLO NECESITAMOS EL PRIMER FRAME DE AUDIO PARA OBTENER SU pts_time INICIAL.
+		set RunExternal=%tPathffmpeg% -hide_banner -y -threads %ffmpeg_threads% -i "!t_file!" -af "ashowinfo" -map 0:!t_id_pista_a! -y -f alaw -frames:a 1 nul
 		CALL src\gen_func.cmd RUN_SUB_EXE 2 !tfInfoFixInitTime!
 		
 		cscript /nologo src/AudioGetInitTime.vbs !tfInfoFixInitTime! !tfInfoFixInitTimeR!
 		(set /p t_sync_va=<!tfInfoFixInitTimeR!)
 
-		if "!t_sync_va!" == "" ( (set t_return=ERROR1) )
-		if /i !t_sync_va! neq 0 ( (set t_return=NO) ) else ( (set t_return=OK) )
+		if "!t_sync_va!" == "" (
+			(set t_return=ERROR1)
+		) else if /i "!t_sync_va!" neq "0" (
+			(set t_return=NO)
+		) else (
+			(set t_return=OK)
+		)
 	ENDLOCAL&(
 		set "%~3=%t_sync_va%"
 		set "%~4=%t_return%"
@@ -415,7 +423,10 @@ exit /b 0
 		cscript /nologo src/AudioGetMaxVolAACGain.vbs !tfInfoFixVol! !tfInfoFixVolR!
 		(set /p t_audio_fix_vol=<!tfInfoFixVolR!)
 	
-		if /i !t_audio_fix_vol! gtr 0 (
+		if "!t_audio_fix_vol!" == "" (
+			echo [AUDIO] - [VOLF] - [ERR^^!] - NO SE HA LOCALIZADO EL AJUSTE DE VOLUMEN^^!^^!^^!^^!
+			(set t_return=ERROR1)
+		) else if /i !t_audio_fix_vol! gtr 0 (
 			echo [AUDIO] - [VOLF] - [FIX ] - APLICANDO AJUSTE RECOMENDADO [!t_audio_fix_vol!]...
 			set RunExternal=%tPathaacgain% /r /c /q "!t_file_out!"
 			CALL src\gen_func.cmd RUN_SUB_EXE

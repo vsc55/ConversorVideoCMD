@@ -1,0 +1,9 @@
+/Proceso/*.txt
+/Proceso/*.m4a
+/Original/*.mkv
+/Original/*.mp4
+/Original/*.avi
+/Convertido/*.mkv
+/Convertido/*.mp4
+/Convertido/*.avi
+/tools/x64/*.exe

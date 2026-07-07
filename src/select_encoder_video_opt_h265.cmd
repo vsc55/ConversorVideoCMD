@@ -88,6 +88,7 @@ exit /b 0
 		type !tfStreamV!
 		echo.
 	)
+	(set InputNewOpt_v_level=)
 	set /p InputNewOpt_v_level=!txt_msg!
 	if /i "!InputNewOpt_v_level!" neq "" (
 		if /i "!InputNewOpt_v_level!" equ "-1" (
@@ -130,6 +131,7 @@ exit /b 0
 	) else (
 		set txt_msg="[VIDEO] - !txt_msg!"
 	)
+	(set InputNewOpt_v_qmin=)
 	set /p InputNewOpt_v_qmin=!txt_msg!
 	if not "!InputNewOpt_v_qmin!" == "" (
 		If "!InputNewOpt_v_qmin!" == "-2" (
@@ -151,6 +153,7 @@ exit /b 0
 	) else (
 		set txt_msg="[VIDEO] - !txt_msg!"
 	)
+	(set InputNewOpt_v_qmax=)
 	set /p InputNewOpt_v_qmax=!txt_msg!
 	if not "!InputNewOpt_v_qmax!" == "" (
 		If "!InputNewOpt_v_qmax!" == "-2" (
@@ -203,6 +206,7 @@ exit /b 0
 	) else (
 		set txt_msg="[VIDEO] - !txt_msg!"
 	)
+	(set InputNewOpt_v_crf=)
 	set /p InputNewOpt_v_crf=!txt_msg!
 	if not "!InputNewOpt_v_crf!" == "" (
 		If "!InputNewOpt_v_crf!" == "-1" (

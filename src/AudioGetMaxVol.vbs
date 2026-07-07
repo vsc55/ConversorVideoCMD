@@ -49,14 +49,18 @@ end if
 
 
 
-if iReturn > 0 then
+'FFMPEG SIEMPRE ESCRIBE EL DECIMAL CON PUNTO, PERO CDbl USA EL SEPARADOR DEL LOCALE DE WINDOWS.
+'DETECTAMOS EL SEPARADOR REAL PARA QUE FUNCIONE IGUAL EN LOCALE ESPAÑOL (COMA) Y EN INGLES (PUNTO).
+sDecSep = Mid(CStr(1.5), 2, 1)
+nReturn = CDbl(Replace(iReturn, ".", sDecSep))
+
+if nReturn > 0 then
 	'si el valor es positivo quiere decir que el volumen esta por encima del nivel vase, por lo que lo dejamos en 0
 	'para omitir el aumento de volumen.
 	iReturn = 0
-else 
-	'eliminamos el simbolo - para combertir el valor en numero positivo. No usamos "iReturn * -1" ya que se come los decimales.
-	'iReturn = Right(iReturn, len(iReturn) -1)
-	iReturn=Replace((Cdbl(Replace(iReturn,".",",")) * -1),",",".")
+else
+	'combertimos el valor en numero positivo y lo devolvemos siempre con punto decimal.
+	iReturn = Replace(CStr(nReturn * -1), sDecSep, ".")
 end if
 
 

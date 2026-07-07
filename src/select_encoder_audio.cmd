@@ -71,6 +71,8 @@ exit /b 0
 		) else (
 			set txt_msg="[AUDIO] - SELECCIONAR CUSTOM BITRATE [DEFAULT !tmp_audio_bitrate!]:"
 		)
+		REM LIMPIAMOS LA VARIABLE: SI SE PULSA ENTER, set /p NO LA MODIFICA Y SE REUTILIZARIA LA RESPUESTA DEL ARCHIVO ANTERIOR.
+		(set InputNewAudioBitrate=)
 		set /p InputNewAudioBitrate=!txt_msg!
 		if /i "!InputNewAudioBitrate!" neq "" (
 			if /i "!InputNewAudioBitrate!" equ "-1" (

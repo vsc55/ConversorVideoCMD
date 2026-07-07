@@ -170,9 +170,10 @@ exit /b 0
 				echo|set /p="[DEBUG] - [FUN_FILE_DELETE_FILE] - ARCHIVO [!t_file!] BORRADO..."
 			)
 			del /f /q !t_file! 2> nul
-			IF not "%ERRORLEVEL%" == "0" (
+			REM !ERRORLEVEL! Y NO %ERRORLEVEL%: DENTRO DE UN BLOQUE ( ) EL %% SE EXPANDE ANTES DE EJECUTAR EL del.
+			IF not "!ERRORLEVEL!" == "0" (
 				if "%_debug%" == "YES" (
-					echo|set /p="  [ERR %ERRORLEVEL% ^!^!]"
+					echo|set /p="  [ERR !ERRORLEVEL! ^!^!]"
 					echo.
 				)
 			) else (
@@ -205,18 +206,18 @@ exit /b 0
 
 	setlocal
 		set t_file=%~1
-		set t_url=%2
+		set t_url=%~2
 
 		set t_return=NO
-		If exist !t_file! (
+		If exist "!t_file!" (
 			set t_return=YES
 		) else (
 			::TODO Pendiente comprobar si url no esta vacia.
 			if "!t_url!" neq "" (
 				echo Descargando:
 				echo - !t_url!
-				curl -f -# !t_url! -o !t_file!
-				If exist !t_file! (
+				curl -f -# "!t_url!" -o "!t_file!"
+				If exist "!t_file!" (
 					set t_return=DOWNLOAD_YES
 				)
 			)
@@ -232,11 +233,11 @@ exit /b 0
 
 	setlocal
 		set t_file=%~1
-		set t_url=%2
+		set t_url=%~2
 		set t_msg=%~3
 		set t_return=
 
-		CALL:CHECK_EXIST_AND_DOWNLOAD !t_file! !t_url! _checkExist
+		CALL:CHECK_EXIST_AND_DOWNLOAD "!t_file!" "!t_url!" _checkExist
 		if "!_checkExist!" == "NO" (
 			if "!t_msg!" neq "" (
 				echo.
@@ -264,10 +265,11 @@ exit /b 0
 				echo|set /p="[DEBUG] - [CHECK_DIR_AND_CREATE] - CREANDO [!t_dir!] ..."
 			)
 			mkdir "!t_dir!"
-			IF not "%ERRORLEVEL%" == "0" (
+			REM !ERRORLEVEL! Y NO %ERRORLEVEL%: DENTRO DE UN BLOQUE ( ) EL %% SE EXPANDE ANTES DE EJECUTAR EL mkdir.
+			IF not "!ERRORLEVEL!" == "0" (
 				set t_return=NO
 				if "%_debug%" == "YES" (
-					echo|set /p="  [ERR %ERRORLEVEL% ^!^!]"
+					echo|set /p="  [ERR !ERRORLEVEL! ^!^!]"
 					echo.
 				)
 			) else (
@@ -317,7 +319,7 @@ exit /b 0
 			(set t_type_win=)
 		) else if "!t_type_win!" == "MAX" (
 			set t_type_win=/MAX
-		else if "!t_type_win!" == "MIN" (
+		) else if "!t_type_win!" == "MIN" (
 			set t_type_win=/MIN
 		) else (
 			set t_type_win=/MIN

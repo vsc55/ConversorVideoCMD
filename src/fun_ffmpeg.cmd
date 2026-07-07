@@ -44,7 +44,7 @@ exit /b 0
 		set t_file_save=%~2
 		set t_type=%~3
 
-		if exist !t_file_read! (
+		if exist "!t_file_read!" (
 			set RunExternal=%tPathffmpeg% -i "!t_file_read!" 2^>^&1 ^| findstr /R /C:"Stream " ^| findstr /R /C:" !t_type!: " ^| find /c /v ""
 			call src\gen_func.cmd RUN_SUB_EXE 3 "!t_file_save!" t_count
 		)

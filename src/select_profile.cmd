@@ -200,7 +200,10 @@ exit /b 0
 		REM if "!all_qmax!" == ""      ( set all_qmax=0 )
 		if "!all_v_profile!" == "" 		(set all_v_profile=SKIPSELECT)
 		if "!all_v_level!" == ""   		(set all_v_level=SKIPSELECT)
-		if "!all_change_size!" == ""   	(set all_change_size=NO)
+		REM EN EL PERFIL CUSTOM, VACIO SIGNIFICA "PREGUNTAR EN CADA ARCHIVO" (VER SELECT_NEW_SIZE), NO HAY QUE CONVERTIRLO A NO.
+		if not "!all_profile!" == "custom" (
+			if "!all_change_size!" == "" (set all_change_size=NO)
+		)
 		
 		:: TODO: Pendiente crear menu para poder configurar este valor
 		if "!all_a_hz!" == ""   (set all_a_hz=!default_a_hz!)

@@ -493,7 +493,6 @@ GOTO SEC_PROCESS_ABORT
 	) else if /i "%OutputVideoAspect%" equ "1.85" (
 		set OutputVideoSize=1920x1040
 	)
-	set OutputVideoSize=1920:-1
 	GOTO SELECTVIDEORESOLUCION_END
 	
 
@@ -579,7 +578,7 @@ GOTO SEC_PROCESS_ABORT
 	GOTO SELECTGPUOCPU_END
 
 :SELECTGPUOCPU_OPT4
-	set ffmpeg_cv=hvec_nvenc
+	set ffmpeg_cv=hevc_nvenc
 	set OutputCodec=h265
 	GOTO SELECTGPUOCPU_END
 	
@@ -697,7 +696,7 @@ if /i "%InputType%" equ "1" (
 	if /i "%ffmpeg_cv%" equ "libx264"    echo ³   ÃÄÄÄÄ´³ USAR ENCODE: CPU - (x264)
 	if /i "%ffmpeg_cv%" equ "h264_nvenc" echo ³   ÃÄÄÄÄ´³ USAR ENCODE: GPU - NVIDIA - (x264)
 	if /i "%ffmpeg_cv%" equ "libx265"    echo ³   ÃÄÄÄÄ´³ USAR ENCODE: CPU - (x265)
-	if /i "%ffmpeg_cv%" equ "hvec_nvenc" echo ³   ÃÄÄÄÄ´³ USAR ENCODE: GPU - NVIDIA - (x265)
+	if /i "%ffmpeg_cv%" equ "hevc_nvenc" echo ³   ÃÄÄÄÄ´³ USAR ENCODE: GPU - NVIDIA - (x265)
 	echo ³   ³
 	echo ³   ÃÄÄÄÄ´³ NEW FPS:           %OutputVideoFPS% fps
 	echo ³   ÃÄÄÄÄ´³ NEW RELACION:      %OutputVideoAspect%
@@ -739,7 +738,7 @@ for %%i in ("%tPathOrige%\*.avi" "%tPathOrige%\*.flv" "%tPathOrige%\*.mkv" "%tPa
 	set tProcFInfoF="%tPathProce%\%%~ni.info6"
 	
 	set tProcFixVol="%tPathProce%\%%~ni.fixvol"
-	set tProcFixInitTime="0"
+	set tProcFixInitTime=0
 	
 	
 	
@@ -834,7 +833,7 @@ echo ³   ³     ÀÄÄÄÄ´³ CONVIERTIENDO AUDIO !VarCheck:~2! ^(pista !VarCheck:~,1!^
 
 
 
-						%tPathffmpeg% -i "%%~fi" -af "ashowinfo" -map 0:!VarCheck:~,1! -y -f alaw -frames:a !VarCheck:~,1! nul 2> !tProcFInfoE!
+						%tPathffmpeg% -i "%%~fi" -af "ashowinfo" -map 0:!VarCheck:~,1! -y -f alaw -frames:a 1 nul 2> !tProcFInfoE!
 						findstr.exe  /i /c:"Parsed_ashowinfo" !tProcFInfoE! | findstr.exe /i /c:"pts_time" > !tProcFInfoF!
 					
 						set /p tProcFixInitTime=<!tProcFInfoF!
@@ -843,7 +842,7 @@ echo ³   ³     ÀÄÄÄÄ´³ CONVIERTIENDO AUDIO !VarCheck:~2! ^(pista !VarCheck:~,1!^
 						
 						
 						
-						if /i !tProcFixInitTime! neq 0 (
+						if /i "!tProcFixInitTime!" neq "0" (
 echo ³   ³          ³ÃÄÄÄÄ´³ EL AUDIO Y VIDEO INICIAN A LA VEZ = NO AUDIO INICIA [!tProcFixInitTime!] SEG MAS TARDE!!!!
 							start "" /wait /min %tPathffmpeg% -f lavfi -i aevalsrc=0:d=!tProcFixInitTime! -i "%%~fi" -y -threads %ffmpeg_threads% -filter_complex "[0:a] [1:!VarCheck:~,1!] concat=n=2:v=0:a=1 [a]" -map [a] -ab %OutputAudioBitrate%k -ar 44100 -ac 2 -aac_coder twoloop !tProcFAudi!
 						) else (
@@ -852,12 +851,11 @@ echo ³   ³          ³ÃÄÄÄÄ´³ EL AUDIO Y VIDEO INICIAN A LA VEZ = OK
 						)
 echo ³   ³          ³³
 					)
-				)
 				
 				If exist !tProcFInfoB! (del /f /q !tProcFInfoB!)
 				If exist !tProcFInfoC! (del /f /q !tProcFInfoC!)
-				If exist !tProcFInfoC! (del /f /q !tProcFInfoE!)
-				If exist !tProcFInfoC! (del /f /q !tProcFInfoF!)
+				If exist !tProcFInfoE! (del /f /q !tProcFInfoE!)
+				If exist !tProcFInfoF! (del /f /q !tProcFInfoF!)
 				
 			) else (
 echo ³   ³     ÀÄÄÄÄ´³ ERROR: ALGO HA FALLADO AL PROCESAR LA PISTA DE AUDIO!
@@ -882,6 +880,7 @@ echo ³   ³          ³ÀÄÄÄÄ´³ ANALIZANDO VOLUMEN
 			)
 			If exist !tProcFixVol! (del /f /q !tProcFixVol!)
 				
+			if "!VarCheck!" == "" (set VarCheck=0)
 			if !VarCheck! gtr 0 (
 echo ³   ³          ³      ÀÄÄÄÄ´³ APLICANDO AJUSTE RECOMENDADO !VarCheck!
 				start "" /wait /min %tPathaacgain% /r /c /q !tProcFAudi!
@@ -921,7 +920,6 @@ echo ³   ³          ³
 						) )
 					)
 				)
-			)
 			
 			If exist !tProcFInfoD! (del /f /q !tProcFInfoD!)
 
@@ -935,8 +933,6 @@ echo ³   ³           ÀÄÄÄÄ´³ COPIANDO ...
 					) else (
 echo ³   ³           ÃÄÄÄÄ´³ PASADA 1/2
 						if /i "%OutputCodec%" equ "h264" (
-							echo %tPathffmpeg% -i "%%~fi" -i !tProcFAudi! -map 0:!VarCheck! -map 1:0 -y -threads %ffmpeg_threads% -pass 1 -s %OutputVideoSize% -aspect %OutputVideoAspect% -r %OutputVideoFPS% -vb %OutputVideoBitrate%k -c:v %ffmpeg_cv% -acodec copy !tProcFConv!
-							pause
 							start "" /wait /min %tPathffmpeg% -i "%%~fi" -i !tProcFAudi! -map 0:!VarCheck! -map 1:0 -y -threads %ffmpeg_threads% -pass 1 -s %OutputVideoSize% -aspect %OutputVideoAspect% -r %OutputVideoFPS% -vb %OutputVideoBitrate%k -c:v %ffmpeg_cv% -acodec copy !tProcFConv!
 							
 						)
@@ -944,7 +940,7 @@ echo ³   ³           ÃÄÄÄÄ´³ PASADA 1/2
 							if /i "%ffmpeg_cv%" equ "libx265" (
 								start "" /wait /min %tPathffmpeg% -i "%%~fi" -i !tProcFAudi! -map 0:!VarCheck! -map 1:0 -y -threads %ffmpeg_threads% -x265-params pass=1 -s %OutputVideoSize% -aspect %OutputVideoAspect% -r %OutputVideoFPS% -vb %OutputVideoBitrate%k -c:v %ffmpeg_cv% -acodec copy !tProcFConv!
 							) else (
-								start "" /wait /min %tPathffmpeg% -i "%%~fi" -i !tProcFAudi! -map 0:!VarCheck! -map 1:0 -y -threads %ffmpeg_threads% -x265-params pass=1 -s %OutputVideoSize% -aspect %OutputVideoAspect% -r %OutputVideoFPS% -vb %OutputVideoBitrate%k -c:v %ffmpeg_cv% -acodec copy !tProcFConv!
+								start "" /wait /min %tPathffmpeg% -i "%%~fi" -i !tProcFAudi! -map 0:!VarCheck! -map 1:0 -y -threads %ffmpeg_threads% -s %OutputVideoSize% -aspect %OutputVideoAspect% -r %OutputVideoFPS% -vb %OutputVideoBitrate%k -c:v %ffmpeg_cv% -acodec copy !tProcFConv!
 							)
 						)
 echo ³   ³           ÀÄÄÄÄ´³ PASADA 2/2
@@ -955,7 +951,7 @@ echo ³   ³           ÀÄÄÄÄ´³ PASADA 2/2
 							if /i "%ffmpeg_cv%" equ "libx265" (
 								start "" /wait /min %tPathffmpeg% -i "%%~fi" -i !tProcFAudi! -map 0:!VarCheck! -map 1:0 -y -threads %ffmpeg_threads% -x265-params pass=2 -s %OutputVideoSize% -aspect %OutputVideoAspect% -r %OutputVideoFPS% -vb %OutputVideoBitrate%k -c:v %ffmpeg_cv% -acodec copy !tProcFConv!
 							) else (
-								start "" /wait /min %tPathffmpeg% -i "%%~fi" -i !tProcFAudi! -map 0:!VarCheck! -map 1:0 -y -threads %ffmpeg_threads% -x265-params pass=2 -s %OutputVideoSize% -aspect %OutputVideoAspect% -r %OutputVideoFPS% -vb %OutputVideoBitrate%k -c:v %ffmpeg_cv% -acodec copy !tProcFConv!
+								rem NVENC SOLO USA UNA PASADA, LA CODIFICACION COMPLETA YA SE HIZO EN LA PASADA 1/2
 							)
 						)
 					)
@@ -972,9 +968,8 @@ echo ³   ³           ÃÄÄÄÄ´³ PASADA 1/2
 						if /i "%OutputCodec%" equ "h265" (
 							if /i "%ffmpeg_cv%" equ "libx265" (
 								start "" /wait /min %tPathffmpeg% -i "%%~fi" -map 0:!VarCheck! -y -threads %ffmpeg_threads% -x265-params pass=1 -s %OutputVideoSize% -aspect %OutputVideoAspect% -r %OutputVideoFPS% -vb %OutputVideoBitrate%k -c:v %ffmpeg_cv% -acodec copy !tProcFConv!
-							)
-							else (
-								start "" /wait /min %tPathffmpeg% -i "%%~fi" -map 0:!VarCheck! -y -threads %ffmpeg_threads% -x265-params pass=1 -s %OutputVideoSize% -aspect %OutputVideoAspect% -r %OutputVideoFPS% -vb %OutputVideoBitrate%k -c:v %ffmpeg_cv% -acodec copy !tProcFConv!
+							) else (
+								start "" /wait /min %tPathffmpeg% -i "%%~fi" -map 0:!VarCheck! -y -threads %ffmpeg_threads% -s %OutputVideoSize% -aspect %OutputVideoAspect% -r %OutputVideoFPS% -vb %OutputVideoBitrate%k -c:v %ffmpeg_cv% -acodec copy !tProcFConv!
 							)
 						)
 echo ³   ³           ÀÄÄÄÄ´³ PASADA 2/2
@@ -984,9 +979,8 @@ echo ³   ³           ÀÄÄÄÄ´³ PASADA 2/2
 						if /i "%OutputCodec%" equ "h265" (
 							if /i "%ffmpeg_cv%" equ "libx265" (
 								start "" /wait /min %tPathffmpeg% -i "%%~fi" -map 0:!VarCheck! -y -threads %ffmpeg_threads% -x265-params pass=2 -s %OutputVideoSize% -aspect %OutputVideoAspect% -r %OutputVideoFPS% -vb %OutputVideoBitrate%k -c:v %ffmpeg_cv% -acodec copy !tProcFConv!
-							)
-							else (
-								start "" /wait /min %tPathffmpeg% -i "%%~fi" -map 0:!VarCheck! -y -threads %ffmpeg_threads% -x265-params pass=2 -s %OutputVideoSize% -aspect %OutputVideoAspect% -r %OutputVideoFPS% -vb %OutputVideoBitrate%k -c:v %ffmpeg_cv% -acodec copy !tProcFConv!
+							) else (
+								rem NVENC SOLO USA UNA PASADA, LA CODIFICACION COMPLETA YA SE HIZO EN LA PASADA 1/2
 							)
 						)
 					)

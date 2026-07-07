@@ -2,5 +2,6 @@
     "files.encoding": "cp437",
     "[markdown]": {
         "files.encoding": "UTF-8"
-    }
+    },
+    "snyk.advanced.autoSelectOrganization": true
 }
