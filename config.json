@@ -1,0 +1,30 @@
+{
+    "audioLanguages": [
+        "es"
+    ],
+    "subtitleLanguages": [
+        "spa",
+        "es",
+        "esp",
+        "es-es",
+        "es_es",
+        "castellano",
+        "spanish"
+    ],
+    "outputExtension": "mkv",
+    "threads": 0,
+    "fps": "23.976",
+    "audioHz": 44100,
+    "borderStart": 120,
+    "borderDuration": 120,
+    "cleanTemps": true,
+    "separateWindow": true,
+    "debug": false,
+    "consoleBackground": "DarkBlue",
+    "consoleForeground": "Yellow",
+    "consoleFont": "Consolas",
+    "consoleFontSize": 18,
+    "windowWidth": 150,
+    "windowHeight": 50,
+    "lockCloseButton": true
+}
