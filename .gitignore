@@ -7,3 +7,8 @@
 /Convertido/*.mp4
 /Convertido/*.avi
 /tools/x64/*.exe
+
+/Proceso/*.job
+/Proceso/*.mkv
+/Proceso/*.mp4
+/Proceso/*.avi

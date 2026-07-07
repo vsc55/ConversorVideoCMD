@@ -36,7 +36,7 @@ exit /b 0
 			REM ******** DEBUG!!!!!!!!!!!!!!!!
 
 			CALL :START_PROCESS_CHECK _skip_process_run "%~1"
-			if not defined _skip_process_run ( CALL :START_PROCESS_RUN %* )
+			if not defined _skip_process_run ( echo [OBSOLETO: usar ASK/RUN] )
 			
 			CALL :FILES_NAME_CLEAN_ALL
 		ENDLOCAL
@@ -72,45 +72,44 @@ exit /b 0
 	goto:eof
 
 
-:START_PROCESS_RUN
+:ASK
+	:: @call src\process_video.cmd ASK "file" "jobfile"
 	SETLOCAL
 		set t_file=%~1
-		call :FILES_REMOVE_TEMP
-	
-
+		set t_jobfile=%~2
+		CALL :FILES_NAME_SET_ALL "%~1"
+		if "%_debug%" == "YES" ( CALL :PRINT_DEBUG_INFO )
 		set tSizeReal_crop=
-		set tSizeReal_size=
-		REM set tSizeOrig_size=
-		REM set tWidthOrig=
-	
-	
-	
-		REM ******************************
-		REM *** GET INFO FILE ORIGINAL ***
-		REM ******************************
-		
-		REM **** Resolucion orginal
+		set OutNewSize=
+		set v_anim=NO
+
+		CALL :START_PROCESS_CHECK _skip_process_run "%~1"
+		if defined _skip_process_run (
+			>>"%~2" echo j_v_skip=!_skip_process_run!
+			>>"%~2" echo j_crop=
+			>>"%~2" echo j_resize=
+			>>"%~2" echo j_anim=NO
+			ENDLOCAL
+			goto:eof
+		)
+		>>"%~2" echo j_v_skip=
+
+		REM ****** GET INFO FILE ORIGINAL (necesario para deteccion de bordes) ******
 		CALL src\fun_ffprobe.cmd GET_RESOLUCION "!t_file!" !tfInfoSizeOrig! tSizeOrig_size
 		CALL src\gen_func.cmd GetWidthByResolution x %tSizeOrig_size% tWidthOrig
-		
-		REM **** Duracion del video
-		CALL src\fun_ffprobe.cmd GET_DURACION "!t_file!" !tfInfoDuration! tDurationFile
-		CALL src\fun_ffprobe.cmd DURACION_FORMAT !tDurationFile! tDurationFileFormat
-
-		REM ******************************
-		REM ******************************
-	
-	
 
 
-		REM ********************************************************
-		REM *** DETECCION DEL TAMA¥O DEL VIDEO SIN BORDES NEGROS ***
-		REM ********************************************************
-	
-		if "%all_detect_borde%" == "NO" (
+		set _v_detect=%all_detect_borde%
+		set _fchar=%~n1
+		if "!_fchar:~0,1!" == "_" (
+			set _v_detect=YES
+			echo [VIDEO] - [BORDE] - PREFIJO _ : SE FUERZA LA DETECCION DE BORDES
+		)
+		if "!_v_detect!" == "NO" (
 			echo [VIDEO] - [SKIP] - NO SE EFECTUA DETECCION DE BORDES NEGROS [GLOBAL]
 			GOTO VIDEO_CHOICE_DETECTAR_BORDE_END
 		)
+		if "!_fchar:~0,1!" == "_" GOTO VIDEO_CHOICE_DETECTAR_BORDE_SI
 
 		@CHOICE /C:YN /d Y /t 10 /M "[VIDEO] - [BORDE] - ¨DESEAS DETECTAR BORDE NEGRO SUPERIOR HE INFERIOR [AUTO **SI** EN 10 SEG]"
 		IF Errorlevel 2 GOTO VIDEO_CHOICE_DETECTAR_BORDE_NO
@@ -136,8 +135,6 @@ exit /b 0
 		GOTO VIDEO_CHOICE_DETECTAR_BORDE_END
 
 		:VIDEO_CHOICE_DETECTAR_BORDE_END
-
-
 		REM *********************************************************
 		REM *** DEFINIMOS SI DESEAMOS CAMBIAR EL TAMA¥O DEL VIDEO ***
 		REM *********************************************************
@@ -167,6 +164,37 @@ exit /b 0
 
 
 		
+
+		>>"%~2" echo j_crop=!tSizeReal_crop!
+		>>"%~2" echo j_resize=!OutNewSize!
+
+		echo.
+		REM -tune animation SOLO EXISTE EN libx264/libx265; CON OTROS ENCODERS (NVENC) NO SE PREGUNTA.
+		set v_anim=NO
+		if "%all_v_encoder%" == "libx264" GOTO VIDEO_ASK_ANIM_ASK
+		if "%all_v_encoder%" == "libx265" GOTO VIDEO_ASK_ANIM_ASK
+		GOTO VIDEO_ASK_ANIM_END
+		:VIDEO_ASK_ANIM_ASK
+		@CHOICE /C:YN /d !profile_default_animation! /t 10 /M "[VIDEO] - ES UN VIDEO DE ANIMACION [AUTO **!profile_default_animation!** EN 10 SEG]"
+		IF Errorlevel 2 (set v_anim=NO)
+		IF Errorlevel 1 (set v_anim=SI)
+		:VIDEO_ASK_ANIM_END
+		>>"%~2" echo j_anim=!v_anim!
+	ENDLOCAL
+	goto:eof
+
+
+:RUN
+	:: @call src\process_video.cmd RUN "file" "crop" "resize" "anim"
+	SETLOCAL
+		set tPathFileOrig="%~1"
+		set tSizeReal_crop=%~2
+		set OutNewSize=%~3
+		set v_anim=%~4
+		CALL :FILES_NAME_SET_ALL "%~1"
+		if "%_debug%" == "YES" ( CALL :PRINT_DEBUG_INFO )
+		call :FILES_REMOVE_TEMP
+
 		:INIT_VIDEO_RECODIFICATION
 		
 		set RunFunction=%tPathffmpeg% -hide_banner -y -threads %ffmpeg_threads% -i !tPathFileOrig! -an -sn -map_chapters -1
@@ -351,35 +379,12 @@ exit /b 0
 		
 		REM **** PARTHCE TEMPORA PARA PROBAR EL ARCHIVO TERMPORAL EN FORMATO MKV
 		set OutputVideoFormat="matroska"
-		
-		
-		
-		echo.
-		REM -tune animation SOLO EXISTE EN libx264/libx265; CON OTROS ENCODERS (NVENC) NO SE PREGUNTA.
-		if "%all_v_encoder%" == "libx264" GOTO VIDEO_CHOICE_IS_ANIMATION_ASK
-		if "%all_v_encoder%" == "libx265" GOTO VIDEO_CHOICE_IS_ANIMATION_ASK
-		echo [VIDEO] - [TUNE] - ANIMATION: NO SOPORTADO POR EL ENCODER %all_v_encoder% [SKIP]
-		GOTO VIDEO_CHOICE_IS_ANIMATION_END
 
-		:VIDEO_CHOICE_IS_ANIMATION_ASK
-		@CHOICE /C:YN /d !profile_default_animation! /t 10 /M "[VIDEO] - ES UN VIDEO DE ANIMACION [AUTO **!profile_default_animation!** EN 10 SEG]"
-		IF Errorlevel 2 GOTO VIDEO_CHOICE_IS_ANIMATION_NO
-		IF Errorlevel 1 GOTO VIDEO_CHOICE_IS_ANIMATION_SI
-		GOTO :eof
-
-		:VIDEO_CHOICE_IS_ANIMATION_SI
-		set video_e=!video_e! -tune animation
-		echo [VIDEO] - [TUNE] - ANIMATION: SI
-		GOTO VIDEO_CHOICE_IS_ANIMATION_END
-
-		:VIDEO_CHOICE_IS_ANIMATION_NO
-		echo [VIDEO] - [TUNE] - ANIMATION: NO
-		GOTO VIDEO_CHOICE_IS_ANIMATION_END
-		
-		:VIDEO_CHOICE_IS_ANIMATION_END
-		echo.
-		
-		
+		if /i "!v_anim!" == "SI" (
+			if "%all_v_encoder%" == "libx264" (set video_e=!video_e! -tune animation)
+			if "%all_v_encoder%" == "libx265" (set video_e=!video_e! -tune animation)
+			echo [VIDEO] - [TUNE] - ANIMATION: SI
+		)
 		echo.
 		CALL :PRINT_INFO_PROCESS	
 		echo.
@@ -387,15 +392,12 @@ exit /b 0
 		set RunFunction=!RunFunction! !metadata_v! !video_f! !video_e! !map_ord! -f %OutputVideoFormat% !tfProcesVideo!
 		@call src\gen_func.cmd RUN_EXE
 		set RunFunction=
-		
-		
-		:END_VIDEO_FIX
-		
-		
 	ENDLOCAL
 	echo.
 	echo [VIDEO] - [FINALIZADO]
 	goto:eof
+
+
 
 
 

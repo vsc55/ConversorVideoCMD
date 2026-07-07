@@ -165,138 +165,157 @@ set all_a_hz=
 set all_profile=
 
 
-:INIT_SELECT_PROFILE
-set _stage=G
+:INIT_MAIN
 echo.
-@call src\select_profile.cmd SELECT_PROFILE
-echo.
-@call src\select_profile.cmd PRINT_CONFIG_GLOBAL
-echo.
-if "!all_profile!" == "" (
-	echo ERROR: No se ha seleccionado ningun perfil.
-	exit
-)
-:SKIP_SELECT_PROFILE
 
+REM ============================================================
+REM  MODO AUTOMATICO (preparar/procesar):
+REM   - Si hay algun archivo sin .job (y sin convertir) -> FASE PREPARAR (preguntas)
+REM   - Despues, en la misma ventana -> FASE WORKER: codifica los preparados.
+REM   - Puedes abrir varias ventanas: cuando todos tienen .job, cada una entra
+REM     directa como worker y se reparten los archivos por el lock (mkdir atomico).
+REM ============================================================
+
+REM ---- Clasificar: hay algun archivo POR PREPARAR (sin .job y sin convertir)? ----
+set _need_prepare=0
 for %%i in ("%tPathOrige%\*.avi" "%tPathOrige%\*.flv" "%tPathOrige%\*.mp4" "%tPathOrige%\*.mov" "%tPathOrige%\*.mkv") do (
-	set _stage=F
-	
-	REM INFO: NOMBRE DEL ARCHIVO A PROCESAR CON SU PATH COMPLETO.
-	set tPathFileOrig="%%~fi"
-
-	REM INFO: NOMBRE DEL ARCHIVO YA PROCESADO CON SU PATH COMPLETO.
-	set tPathFileConvrt="%tPathConve%\%%~ni_fix.%OutputVideoType%"
-	
-	REM INFO: NOMBRE DEL ARCHIVO A PROCESAR SIN PATH, SOLO EL NOMBRE DEL ARCHIVO.
-	set tFileName="%%~nxi"
-
-	REM INFO: NOMBRE DEL ARCHIVO DE BLOQUEO
-	set tPathFileOrigLock="%tPathProce%\%%~ni_lock.txt"
-	
-	
-	echo.
-	echo ********************************
-	echo [GLOBAL] - [INFO] - PROCESANDO: !tFileName!
-	REM ******** DEBUG!!!!!!!!!!!!!!!!
-	if "%_debug%" == "YES" ( CALL :PRINT_DEBUG_INFO )
-	REM ******** DEBUG!!!!!!!!!!!!!!!!
-
-
-	If exist !tPathFileConvrt! (
-		echo [GLOBAL] - [SKIP] - YA SE HA PROCESADO^^!^^!
-		set _stage=SKIP_E
+	if not exist "%tPathConve%\%%~ni_fix.%OutputVideoType%" (
+		if not exist "%tPathProce%\%%~ni.job" ( set "_need_prepare=1" )
 	)
-
-	If exist !tPathFileOrigLock! (
-		echo [GLOBAL] - [SKIP] - ARCHIVO BLOQUEADO^^!^^!
-		set _stage=SKIP_L
-	)
-
-	if "!_stage!" == "F" (
-		REM **** CEAMOS EL ARCHIVO DE BLOQUEO
-		type NUL > !tPathFileOrigLock!
-
-		CALL :FILES_NAME_SET_ALL !tPathFileOrig!
-		CALL :FILES_REMOVE
-
-		REM GET INFO GENERAL DEL ARCHIVO CON FFMPEG Y OBTENEMOS LOS STREAM
-		@call src\fun_ffmpeg.cmd GET_INFO !tPathFileOrig! !tfInfoffmpeg!
-
-		call :READ_STREAM !tPathFileOrig! _read_stream
-
-		if "!_read_stream!" == "1" (
-			echo [GLOBAL] - [SKIP] - NO SE HAN DETECTADO NINGUNA STREAM EN EL ARCHIVO^^!^^!
-		) else (
-			REM **** DURACION DEL VIDEO
-			@call src\fun_ffprobe.cmd GET_DURACION !tPathFileOrig! !tfInfoDuration! tDuration
-			@call src\fun_ffprobe.cmd DURACION_FORMAT !tDuration! tDuration
-			echo [GLOBAL] - [INFO] - DURACION: !tDuration!
-			echo.
-			
-			@call src\process_sub.cmd FILES_NAME_SET_ALL !tPathFileOrig!
-			@call src\process_audio.cmd FILES_NAME_SET_ALL !tPathFileOrig!
-			@call src\process_video.cmd FILES_NAME_SET_ALL !tPathFileOrig!
-			@call src\process_multiplex.cmd FILES_NAME_SET_ALL !tPathFileOrig!
-
-
-			rem			call src\fun_ffmpeg.cmd COUNT_STREAM !tPathFileOrig! !tfStreamCountS! "Subtitle" _count_steam_sub
-			rem			call src\fun_ffmpeg.cmd COUNT_STREAM !tPathFileOrig! !tfStreamCountA! "Audio" _count_steam_audio
-			rem			call src\fun_ffmpeg.cmd COUNT_STREAM !tPathFileOrig! !tfStreamCountV! "Video" _count_steam_video
-
-
-			set _stage=FS
-			@call src\process_sub.cmd START_PROCESS !tPathFileOrig!
-
-			set _stage=FA
-			@call src\process_audio.cmd START_PROCESS !tPathFileOrig!
-			
-
-			REM :PRUEBOTRAVEZ
-			set _stage=FV
-			@call src\process_video.cmd START_PROCESS !tPathFileOrig!
-			REM PAUSE
-			REM GOTO PRUEBOTRAVEZ
-
-
-			set _stage=FM
-			@call src\process_multiplex.cmd START_PROCESS !tPathFileOrig! !tPathFileConvrt! !tfProcesAudio! !tfProcesVideo!
-
-			REM DESACTIVAR PARA DEPURAR @@ DEBUG MODE @@
-			if 1 == 2 (
-				@call src\process_sub.cmd FILES_REMOVE
-				@call src\process_audio.cmd FILES_REMOVE
-				@call src\process_video.cmd FILES_REMOVE
-				@call src\process_multiplex.cmd FILES_REMOVE
-			) else (
-				@call src\process_multiplex.cmd FILES_REMOVE_PROCESS_V
-			)
-
-			@call src\process_sub.cmd FILES_NAME_CLEAN_ALL
-			@call src\process_audio.cmd FILES_NAME_CLEAN_ALL
-			@call src\process_video.cmd FILES_NAME_CLEAN_ALL
-			@call src\process_multiplex.cmd FILES_NAME_CLEAN_ALL
-
-			REM **** BORRAMOS ARCHIVO BLOQUEO
-			@call src\gen_func.cmd FUN_FILE_DELETE_FILE !tPathFileOrigLock!
-
-			echo [GLOBAL] - [INFO] - FINALIZADO PROCESADO
-			echo ********************************
-		)
-
-		
-		REM DESACTIVAR PARA DEPURAR @@ DEBUG MODE @@
-		if 1 == 2 (
-			if not "%_debug%" == "YES" ( CALL :FILES_REMOVE )
-		)
-		CALL :FILES_NAME_CLEAN_ALL
-	)
-	echo.
 )
 
+REM ---- FASE PREPARAR ----
+if "!_need_prepare!" == "1" (
+	set _stage=G
+	echo.
+	@call src\select_profile.cmd SELECT_PROFILE
+	echo.
+	@call src\select_profile.cmd PRINT_CONFIG_GLOBAL
+	echo.
+	if "!all_profile!" == "" (
+		echo ERROR: No se ha seleccionado ningun perfil.
+		pause
+		exit /b 1
+	)
+	echo.
+	echo [GLOBAL] - [PREPARAR] - GENERANDO CONFIGURACION DE LOS ARCHIVOS...
+	for %%i in ("%tPathOrige%\*.avi" "%tPathOrige%\*.flv" "%tPathOrige%\*.mp4" "%tPathOrige%\*.mov" "%tPathOrige%\*.mkv") do CALL :PREPARE_FILE "%%~fi" "%%~ni"
+	echo.
+	echo [GLOBAL] - [PREPARAR] - CONFIGURACION COMPLETADA.
+)
+
+REM ---- FASE WORKER ----
+set _stage=F
 echo.
-echo [GLOBAL] - [END] - TODOS LOS ARCHIVOS HAN SIDO PROCESADOS
+echo [GLOBAL] - [WORKER] - BUSCANDO ARCHIVOS PREPARADOS PARA CODIFICAR...
+:WORK_SCAN
+set _did=0
+for %%i in ("%tPathOrige%\*.avi" "%tPathOrige%\*.flv" "%tPathOrige%\*.mp4" "%tPathOrige%\*.mov" "%tPathOrige%\*.mkv") do CALL :WORK_FILE "%%~fi" "%%~ni"
+if "!_did!" == "1" goto WORK_SCAN
+
+echo.
+echo [GLOBAL] - [END] - NO QUEDAN ARCHIVOS LIBRES POR PROCESAR
 pause
 GOTO :eof
+
+
+:PREPARE_FILE
+	REM :PREPARE_FILE  <fullpath> <name>
+	set "tPathFileOrig=%~1"
+	set "tName=%~2"
+	set "tOut=%tPathConve%\%~2_fix.%OutputVideoType%"
+	set "tJob=%tPathProce%\%~2.job"
+	set "tJobTmp=%tPathProce%\%~2.job.tmp"
+	if exist "%tOut%" goto:eof
+	if exist "%tJob%" goto:eof
+	echo.
+	echo ================================================
+	echo [PREPARAR] - ARCHIVO: %~2
+	CALL :FILES_NAME_SET_ALL "%tPathFileOrig%"
+	if "%_debug%" == "YES" ( CALL :PRINT_DEBUG_INFO )
+	@call src\fun_ffmpeg.cmd GET_INFO "%tPathFileOrig%" %tfInfoffmpeg%
+	call :READ_STREAM "%tPathFileOrig%" _read_stream
+	if "%_read_stream%" == "1" (
+		echo [PREPARAR] - [SKIP] - SIN STREAMS DETECTADOS
+		CALL :FILES_NAME_CLEAN_ALL
+		goto:eof
+	)
+	REM --- cabecera del job: perfil congelado (autosuficiente para el worker) ---
+	> "%tJobTmp%" echo all_v_encoder=%all_v_encoder%
+	>>"%tJobTmp%" echo all_v_profile=%all_v_profile%
+	>>"%tJobTmp%" echo all_v_level=%all_v_level%
+	>>"%tJobTmp%" echo all_qmin=%all_qmin%
+	>>"%tJobTmp%" echo all_qmax=%all_qmax%
+	>>"%tJobTmp%" echo all_crf=%all_crf%
+	>>"%tJobTmp%" echo all_a_encoder=%all_a_encoder%
+	>>"%tJobTmp%" echo all_a_bitrate=%all_a_bitrate%
+	>>"%tJobTmp%" echo all_a_hz=%all_a_hz%
+	>>"%tJobTmp%" echo all_change_size=%all_change_size%
+	REM --- preguntas por archivo (cada script anade sus claves j_) ---
+	@call src\process_video.cmd ASK "%tPathFileOrig%" "%tJobTmp%"
+	@call src\process_audio.cmd ASK "%tPathFileOrig%" "%tJobTmp%"
+	REM --- commit atomico: renombrar tmp -> job ---
+	move /y "%tJobTmp%" "%tJob%" >nul
+	echo [PREPARAR] - [OK] - JOB CREADO: %~2.job
+	CALL :FILES_NAME_CLEAN_ALL
+	goto:eof
+
+
+:WORK_FILE
+	REM :WORK_FILE  <fullpath> <name>
+	set "tPathFileOrig=%~1"
+	set "tName=%~2"
+	set "tOut=%tPathConve%\%~2_fix.%OutputVideoType%"
+	set "tJob=%tPathProce%\%~2.job"
+	set "tLock=%tPathProce%\%~2.lock"
+	if exist "%tOut%" goto:eof
+	if not exist "%tJob%" goto:eof
+	REM --- reclamo atomico: mkdir falla si el lock ya existe (otro worker lo tiene) ---
+	mkdir "%tLock%" 2>nul
+	if errorlevel 1 goto:eof
+	set _did=1
+	echo.
+	echo ================================================
+	echo [WORKER] - CODIFICANDO: %~2
+	CALL :LOAD_JOB "%tJob%"
+	CALL :FILES_NAME_SET_ALL "%tPathFileOrig%"
+	if "%_debug%" == "YES" ( CALL :PRINT_DEBUG_INFO )
+	@call src\process_audio.cmd FILES_NAME_SET_ALL "%tPathFileOrig%"
+	@call src\process_video.cmd FILES_NAME_SET_ALL "%tPathFileOrig%"
+	@call src\process_sub.cmd FILES_NAME_SET_ALL "%tPathFileOrig%"
+	@call src\process_multiplex.cmd FILES_NAME_SET_ALL "%tPathFileOrig%"
+	REM --- AUDIO ---
+	if not "%j_a_skip%" == "" (
+		echo [AUDIO] - [SKIP] - %j_a_skip%
+	) else (
+		@call src\process_audio.cmd RUN "%tPathFileOrig%" "%j_a_id%" "%j_a_chan%" "%j_sync%"
+	)
+	REM --- VIDEO ---
+	if not "%j_v_skip%" == "" (
+		echo [VIDEO] - [SKIP] - %j_v_skip%
+	) else (
+		@call src\process_video.cmd RUN "%tPathFileOrig%" "%j_crop%" "%j_resize%" "%j_anim%"
+	)
+	REM --- MULTIPLEX ---
+	@call src\process_multiplex.cmd START_PROCESS "%tPathFileOrig%" "%tOut%" %tfProcesAudio% %tfProcesVideo%
+	@call src\process_multiplex.cmd FILES_REMOVE_PROCESS_V
+	CALL :FILES_NAME_CLEAN_ALL
+	if exist "%tOut%" (
+		@call src\gen_func.cmd FUN_FILE_DELETE_FILE "%tJob%"
+		echo [WORKER] - [OK] - FINALIZADO: %~2
+	) else (
+		echo [WORKER] - [ERR] - NO SE GENERO LA SALIDA, SE REINTENTARA: %~2
+	)
+	rmdir /s /q "%tLock%" 2>nul
+	goto:eof
+
+
+:LOAD_JOB
+	REM :LOAD_JOB <jobfile> -> carga cada clave=valor como variable de entorno
+	for /f "usebackq tokens=1* delims==" %%a in ("%~1") do set "%%a=%%b"
+	goto:eof
+
+
 REM exit /b 0
 
 
@@ -342,9 +361,9 @@ REM exit /b 0
 	echo.
 	echo [GLOBAL] ********** DEBUG **********
 	echo [GLOBAL] - tPathFileOrig -------- ^> %tPathFileOrig%
-	echo [GLOBAL] - tPathFileOrigLock----- ^> %tPathFileOrigLock%
-	echo [GLOBAL] - tPathFileConvrt ------ ^> %tPathFileConvrt%
-	echo [GLOBAL] - tFileName ------------ ^> %tFileName%
+	echo [GLOBAL] - tLock ---------------- ^> %tLock%
+	echo [GLOBAL] - tOut ----------------- ^> %tOut%
+	echo [GLOBAL] - tName ---------------- ^> %tName%
 	echo [GLOBAL] 
 	echo [GLOBAL] - tfInfoffmpeg --------- ^> %tfInfoffmpeg%
 	echo [GLOBAL] - tfStreamAll ---------- ^> %tfStreamAll%

@@ -38,7 +38,7 @@ exit /b 0
 			REM ******** DEBUG!!!!!!!!!!!!!!!!
 
 			CALL :START_PROCESS_CHECK _skip_process_run "%~1"
-			if not defined _skip_process_run ( CALL :START_PROCESS_RUN %* )
+			if not defined _skip_process_run ( echo [OBSOLETO: usar ASK/RUN] )
 			
 			CALL :FILES_REMOVE_FIX_SILENCIO
 			CALL :FILES_NAME_CLEAN_ALL
@@ -88,103 +88,77 @@ exit /b 0
 	goto:eof
 
 
-:START_PROCESS_RUN
+:ASK
+	:: @call src\process_audio.cmd ASK "file" "jobfile"
 	SETLOCAL
 		set t_file=%~1
-		CALL :FILES_REMOVE_TEMP
+		set t_jobfile=%~2
+		CALL :FILES_NAME_SET_ALL "%~1"
+		if "%_debug%" == "YES" ( CALL :PRINT_DEBUG_INFO )
+		CALL :START_PROCESS_CHECK _skip_process_run "%~1"
+		if defined _skip_process_run (
+			>>"%~2" echo j_a_skip=!_skip_process_run!
+			>>"%~2" echo j_a_id=
+			>>"%~2" echo j_a_chan=STEREO
+			>>"%~2" echo j_sync=0
+			ENDLOCAL
+			goto:eof
+		)
+		>>"%~2" echo j_a_skip=
 
-		REM ***************************
-		REM *** BUSCAMOS PISTA DE AUDIO/VIDEO
-		REM ***************************
 		(set t_audio_id_pista=)
 		CALL :GET_ID t_audio_id_pista
+		set t_audio_ccanales=STEREO
+		findstr.exe /i /c:"5.1" !tfStreamA_A! >nul
+		if not errorlevel 1 (set t_audio_ccanales=5.1 A STEREO)
 
-
-		REM *********************************************
-		REM *** COMPROBAMOS SI EL AUDIO ESTA SINCRONIZADO
-		REM *********************************************
 		echo|set /p="[AUDIO] - [SYNC] - [SCAN] - COMPROBANDO SI EL AUDIO Y EL VIDEO INICIAN A LA VEZ..."
-
 		(set t_sync_v_a=)
 		(set t_sync_v_a_status=)
-		CALL :CHECK_SYNC_AUDIO_VIDEO "%t_file%" "!t_audio_id_pista!" t_sync_v_a t_sync_v_a_status
-
-		REM t_sync_v_a_status:
-		REM -- OK - TODO OK
-		REM -- NO - AUDIO NO SINCRONIZADO, HAY QUE A¥ADIR SILENCIO
-		REM -- ERROR1 -> NO SE HA LOCALIZADO pts_time
-		REM -- ERROR2 -> NO SE HA CREADO EL ARCHIVO DE AUDIO CON EL SILENCIO A¥ADIDO
-
+		CALL :CHECK_SYNC_AUDIO_VIDEO "%~1" "!t_audio_id_pista!" t_sync_v_a t_sync_v_a_status
+		set t_sync_final=0
 		if "!t_sync_v_a_status!" == "OK" (
-			echo|set /p="[OK]"
-			echo.
+			echo   [OK]
 		) else if "!t_sync_v_a_status!" == "NO" (
-			echo|set /p="[^!^!]"
-			echo.
-			echo [AUDIO] - [SYNC]
-			
-			call :SELECT_SYNC_SEG !t_sync_v_a! t_sync_v_a
-			if "!t_sync_v_a!" == "0" (
-				(set t_sync_v_a_status=OK)
-			) else (
-				echo [AUDIO] - [SYNC] - [FIX ] - SE A¥ADIRA AL INICIO UN SILENCIO DE: !t_sync_v_a! SEG
-				CALL :FILES_REMOVE_FIX_SILENCIO
-
-				REM ***** INI - CODIGO DE PRUEBAS - NO ES NECESARIO YA QUE EL SILENCIO SE GENERA DIRECTAMENTE AL EXTRAER LA PISTA DE AUDIO *****
-				echo|set /p="[AUDIO] - [SYNC] - [FIX ] - GENERANDO SILENCIO..."
-				CALL :FIX_SILENCIO_GEN "!t_sync_v_a!" "!all_a_hz!" "stereo" !tfProcesAudioSilencio!
-				echo|set /p="  [OK]"
-				echo.
-				REM ***** END - CODIGO DE PRUEBAS - NO ES NECESARIO YA QUE EL SILENCIO SE GENERA DIRECTAMENTE AL EXTRAER LA PISTA DE AUDIO *****
-
-
-				REM ***** AVISO!!!! ****** TENEMOS QUE GENERAR PRIMERO EL WAV YA QUE SI LO GENERAMOS DIRECTAMENTE EN AAC EN LA UNION DEL SILENCION CON 
-				REM                        LA PISTA DE AUDIO A¥ADE UNOS SEGUNDOS MAS DE TIEMPO Y SE DESINCRONIZA.
-				REM                        https://trac.ffmpeg.org/ticket/7846
-
-				echo|set /p="[AUDIO] - [SYNC] - [FIX ] - A¥ADIENDO SILENCIO A LA PISTA DE AUDIO..."
-				CALL :FIX_SILENCIO_ADD "!t_sync_v_a!" "!all_a_hz!" "stereo" "!t_audio_id_pista!" !tPathFileOrig! !tfProcesAudioSilencio! !tfProcesAudioConcat!
-					If exist !tfProcesAudioConcat! (
-					echo|set /p="[OK]"
-					echo.
-					(set t_sync_v_a_status=OK)
-				) else (
-					echo|set /p="[ERR^!^!]"
-					echo.
-					CALL :FILES_REMOVE_FIX_SILENCIO
-					(set t_sync_v_a_status=ERROR2)
-				)
-			)
+			echo   [NO SINCRONIZADO]
+			call :SELECT_SYNC_SEG !t_sync_v_a! t_sync_final
 		) else (
-			if "!t_sync_v_a_status!" == "ERROR1" ( 
-				echo|set /p="[ERR] - NO SE HA LOCALIZADO pts_time^!^!^!^!"
-			) else (
-				echo|set /p="[!t_sync_v_a_status!]^!^!^!^!"
-			)
-			echo.
+			echo   [!t_sync_v_a_status!] - SIN AJUSTE DE SYNC
 		)
-
-		if "!t_sync_v_a_status!" == "OK" (
-			REM ******************************************
-			REM ******************************************
-			REM ******************************************
-			REM TODO: Pendiente configurar numero de canales
-
-			set t_audio_ccanales=
-			findstr.exe /i /c:"5.1" !tfStreamA_A! >nul
-			if not errorlevel 1 (
-				set t_audio_ccanales=5.1 A STEREO
-			) else (
-				set t_audio_ccanales=STEREO
-			)
-			echo [AUDIO]
-			CALL :FIX_VOLUMEN "!t_audio_id_pista!" "!all_a_bitrate!" "!all_a_hz!" "!t_audio_ccanales!" !tPathFileOrig! !tfProcesAudioConcat! !tfProcesAudio! t_audio_fix_vol t_audio_fix_vol_status
-		)
-
+		>>"%~2" echo j_a_id=!t_audio_id_pista!
+		>>"%~2" echo j_a_chan=!t_audio_ccanales!
+		>>"%~2" echo j_sync=!t_sync_final!
 	ENDLOCAL
-	echo [AUDIO]
+	goto:eof
+
+
+:RUN
+	:: @call src\process_audio.cmd RUN "file" "a_id" "a_chan" "sync"
+	SETLOCAL
+		set tPathFileOrig="%~1"
+		set t_file=%~1
+		set t_audio_id_pista=%~2
+		set t_audio_ccanales=%~3
+		set t_sync_v_a=%~4
+		CALL :FILES_NAME_SET_ALL "%~1"
+		if "%_debug%" == "YES" ( CALL :PRINT_DEBUG_INFO )
+		CALL :FILES_REMOVE_TEMP
+
+		if /i not "!t_sync_v_a!" == "0" (
+			echo|set /p="[AUDIO] - [SYNC] - [FIX ] - GENERANDO Y ANADIENDO SILENCIO DE !t_sync_v_a! SEG..."
+			CALL :FIX_SILENCIO_GEN "!t_sync_v_a!" "!all_a_hz!" "stereo" !tfProcesAudioSilencio!
+			CALL :FIX_SILENCIO_ADD "!t_sync_v_a!" "!all_a_hz!" "stereo" "!t_audio_id_pista!" !tPathFileOrig! !tfProcesAudioSilencio! !tfProcesAudioConcat!
+			echo   [OK]
+		)
+
+		echo [AUDIO]
+		CALL :FIX_VOLUMEN "!t_audio_id_pista!" "!all_a_bitrate!" "!all_a_hz!" "!t_audio_ccanales!" !tPathFileOrig! !tfProcesAudioConcat! !tfProcesAudio! t_audio_fix_vol t_audio_fix_vol_status
+		CALL :FILES_REMOVE_FIX_SILENCIO
+	ENDLOCAL
 	echo [AUDIO] - [FINALIZADO]
 	goto:eof
+
+
 
 
 
