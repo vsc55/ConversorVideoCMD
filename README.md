@@ -2,7 +2,7 @@
 
 Conversor/recodificador de vídeo por lotes para Windows, escrito en **PowerShell 5.1**, que usa **FFmpeg** como motor. Diseño modular en `lib\` y toda la configuración en `config.json`.
 
-Recodifica a **MKV** (H.265/H.264 por GPU NVIDIA o CPU), con detección y recorte de bandas negras, selección de audio/subtítulos por idioma, corrección de sincronía y normalización de volumen.
+Recodifica a **MKV** (H.265/H.264 por GPU NVIDIA o CPU), con detección y recorte de bandas negras, selección de pistas (vídeo/audio/subtítulos, con preview), corrección de sincronía, normalización de volumen y **MKV final limpio** (sin metadatos heredados ni etiquetas `DURATION`).
 
 > La versión antigua en Batch (CMD + VBScript) se conserva en la rama **`v3.x`**.
 
@@ -10,7 +10,7 @@ Recodifica a **MKV** (H.265/H.264 por GPU NVIDIA o CPU), con detección y recort
 
 ## Puesta en marcha
 
-1. Copia tus vídeos en la carpeta `Original\` (admite `.avi`, `.flv`, `.mp4`, `.mov`, `.mkv`).
+1. Copia tus vídeos en la carpeta `Original\` (por defecto `.avi`, `.flv`, `.mp4`, `.mov`, `.mkv`; ampliable en `config.json` → `encode.extensions`).
 2. Doble clic en **`Convert.cmd`**.
    - Si falta FFmpeg, se ofrece a **descargarlo** (build de [GyanD/codexffmpeg](https://github.com/GyanD/codexffmpeg), verificado con SHA256).
    - Primero **pregunta** la configuración de cada archivo; luego **codifica** sin más preguntas.
@@ -18,7 +18,7 @@ Recodifica a **MKV** (H.265/H.264 por GPU NVIDIA o CPU), con detección y recort
 
 `Convert.cmd` solo lanza `Convert.ps1` con `-ExecutionPolicy Bypass` (no cambia la política del sistema) y pone la consola en UTF-8.
 
-Para gestionar versiones de FFmpeg/aacgain o editar la configuración cómodamente: **`setup.cmd`**.
+Para gestionar las herramientas (FFmpeg, aacgain, MKVToolNix, 7zr) o editar la configuración cómodamente: **`setup.cmd`**. Ambos lanzadores admiten `-Config <ruta>` para usar un fichero de configuración alterno.
 
 ## En qué consiste
 
@@ -46,7 +46,7 @@ Modelo **preparar → procesar**:
 | `Original\` | Vídeos de entrada. |
 | `Proceso\` | Trabajo: `*.job.json`, `*.lock`, temporales. |
 | `Convertido\` | Resultado final (`*_fix.mkv`). |
-| `tools\<app>\<ver>\<plat>` | Ejecutables (FFmpeg, aacgain). |
+| `tools\<app>\<ver>\<plat>` | Ejecutables (FFmpeg, aacgain, mkvpropedit, 7zr). |
 | `docs\` | Documentación detallada. |
 
 ## 📖 Documentación
@@ -60,3 +60,4 @@ La documentación técnica y detallada (cómo trabaja, flujos, diagramas y **los
 - [Configuración](docs/configuracion.md) — referencia de `config.json`.
 - [Herramientas](docs/herramientas.md) — versiones, plataforma, descargas y `setup`.
 - [Jobs](docs/jobs.md) — formato del job, lock y temporales.
+- [Pruebas](docs/pruebas.md) — muestras de test, batería del pipeline y fuentes/licencias.
