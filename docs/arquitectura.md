@@ -16,7 +16,7 @@ ConversorVideoCMD/
 │   ├── Console.psm1        Apariencia de consola, ventana nativa, menús y prompts
 │   ├── Exec.psm1           Ejecución de procesos externos (ffmpeg/ffprobe…)
 │   ├── Job.psm1            Cola: jobs JSON, lock atómico, temporales, ruta de salida
-│   ├── Tools.psm1          Apps/versiones/descargas (ffmpeg, aacgain)
+│   ├── Tools.psm1          Apps/versiones/descargas (ffmpeg, aacgain, sevenzip, mkvtoolnix)
 │   ├── MediaInfo.psm1      ffprobe (JSON), selección de pista, resumen
 │   ├── Profile.psm1        Perfiles de codificación + menú
 │   ├── Video.psm1          Detección de bordes, preview, args y codificación de vídeo
@@ -51,6 +51,30 @@ foreach ($m in $modules) {
 (`setup.ps1` usa el mismo patrón con un subconjunto: `@('Log','Config','Context','Console','Exec','Tools')`.)
 
 Los módulos se llaman entre sí (p. ej. `New-CvContext` de Context usa `Get-CvConfig` de Config y `New-CvToolContext` de Tools; `Install-CvTool` de Tools usa `Write-CvLog` de Log, `Invoke-ToolCapture` de Exec y `Select-FromList` de Console). Como todos se importan en la misma sesión, la resolución de comandos entre módulos funciona.
+
+Capas y dependencias (a grandes rasgos: los orquestadores usan el pipeline y la base; el pipeline se apoya en la base):
+
+```mermaid
+flowchart LR
+    CV["Convert.ps1"]
+    SET["setup.ps1"]
+    subgraph P["Pipeline de conversión"]
+      JOB[Job]; TOOL[Tools]; MI[MediaInfo]; PRO[Profile]
+      VID[Video]; AUD[Audio]; SUB[Subtitle]; ATT[Attachment]; MUX[Multiplex]
+    end
+    subgraph B["Base (transversal)"]
+      LOG[Log]; CFG[Config]; CTX[Context]; CON[Console]; EXE[Exec]
+    end
+    CV --> P
+    CV --> B
+    SET --> TOOL
+    SET --> B
+    P --> B
+```
+
+- **Base**: `Log`, `Config`, `Context`, `Console`, `Exec` — sin dependencias del pipeline; los usa todo.
+- **Pipeline**: `Job`, `Tools`, `MediaInfo`, `Profile`, `Video`, `Audio`, `Subtitle`, `Attachment`, `Multiplex` — la lógica de conversión; se apoyan en la base (y en `MediaInfo`/`Exec` para leer/lanzar ffmpeg).
+- **Orquestadores**: `Convert.ps1` (todo el pipeline) y `setup.ps1` (base + `Tools`).
 
 | Módulo | Responsabilidad |
 |---|---|

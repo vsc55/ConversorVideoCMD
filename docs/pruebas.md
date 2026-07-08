@@ -55,6 +55,19 @@ Usan el ffmpeg de `tools\` (o el del `PATH`) y la muestra base `test\video-1080p
 
 Ejecuta el **pipeline real** (`Convert.ps1`, fase worker desatendida) sobre todas las fixtures con un **perfil test**, en un **root aislado** (un directorio temporal con *junctions* a `lib\`/`tools\` del proyecto, más su propio `config.json` y copia de `Convert.ps1`), y verifica cada salida con ffprobe. No toca nada del proyecto real (ni `config.json` ni las carpetas de trabajo); las junctions se borran de forma segura (solo el enlace, nunca su destino).
 
+```mermaid
+flowchart TD
+    A["Crear root temporal<br/>junctions a lib\\ y tools\\ + config.json propio + copia de Convert.ps1"] --> B["Copiar fixtures a Original\\ del root"]
+    B --> C["Generar los .job.json por adelantado<br/>(Select-AudioStream / ConvertTo-SubSel: sin menús)"]
+    C --> D["Ejecutar Convert.ps1 -WorkerOnly<br/>(entra directo como worker, codifica sin preguntar)"]
+    D --> E["Verificar cada salida con ffprobe<br/>(codec, resize, audio/subs, forced+default, 0 tags)"]
+    E --> F{"¿todas OK?"}
+    F -- "sí" --> G["TOTAL n/n PASS → exit 0"]
+    F -- "no" --> H["[FAIL] con el detalle → exit 1"]
+    G --> Z["finally: borrar junctions (seguro) + root temporal"]
+    H --> Z
+```
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File test\run-tests.ps1                  # GPU (hevc_nvenc, por defecto)
 powershell -ExecutionPolicy Bypass -File test\run-tests.ps1 -Encoder libx265 # CPU (portable, sin GPU)

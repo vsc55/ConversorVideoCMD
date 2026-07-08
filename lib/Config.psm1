@@ -100,7 +100,10 @@ function Get-CvConfigDefaults {
             }
         }
         languages = [ordered]@{ audio = $langs; subtitle = $langs }
-        encode    = [ordered]@{ outputExtension = 'mkv'; threads = 0; fps = '23.976'; audioHz = 44100 }
+        # encode: outputExtension = contenedor de salida; extensions = extensiones de ENTRADA que
+        # se procesan de Original\ (sin punto); audioChannels = canales del audio recodificado (2
+        # = estereo; 6 = 5.1; 8 = 7.1); threads/fps/audioHz para ffmpeg.
+        encode    = [ordered]@{ outputExtension = 'mkv'; extensions = @('avi','flv','mp4','mov','mkv'); threads = 0; fps = '23.976'; audioHz = 44100; audioChannels = 2 }
         # border: deteccion de bordes negros con cropdetect.
         #  - start/duration: punto inicial y presupuesto total de escaneo (segundos).
         #  - samples: en cuantos puntos repartidos del video se escanea (1 = solo al inicio,
@@ -313,6 +316,7 @@ function Repair-CvConfigArrays($cfg) {
         }
     }
     if ($cfg.PSObject.Properties['profiles'] -and $null -ne $cfg.profiles) { $cfg.profiles = @($cfg.profiles) }
+    if ($cfg.encode -and $null -ne $cfg.encode.extensions) { $cfg.encode.extensions = @($cfg.encode.extensions) }
 }
 function Read-CvConfigFile {
     param([Parameter(Mandatory)][string]$Path)

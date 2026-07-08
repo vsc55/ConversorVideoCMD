@@ -113,7 +113,11 @@ function New-CvContext {
         ConsoleFontSize   = [int]$cfg.console.fontSize
         WindowWidth       = [int]$cfg.console.windowWidth
         WindowHeight      = [int]$cfg.console.windowHeight
-        Extensions     = @('*.avi','*.flv','*.mp4','*.mov','*.mkv')
+        # Extensiones de ENTRADA (config encode.extensions): se normalizan a patron glob '*.ext'
+        # (tolera que el usuario las escriba con o sin '*.'/'.').
+        Extensions     = @(@($cfg.encode.extensions) | Where-Object { "$_" -ne '' } | ForEach-Object { '*.' + ("$_".TrimStart('*').TrimStart('.')) })
+        # Canales del audio recodificado (encode.audioChannels; 2 = estereo por defecto).
+        AudioChannels  = $(if ([int]$cfg.encode.audioChannels -ge 1) { [int]$cfg.encode.audioChannels } else { 2 })
         # Perfiles de codificacion propios (config 'profiles'); se anaden a los de serie.
         Profiles       = @($cfg.profiles)
     }

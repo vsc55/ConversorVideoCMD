@@ -6,6 +6,24 @@ Por eso el `config.json` distribuido es **mínimo**: solo lleva lo que se **sobr
 
 La forma cómoda de editarlo es `setup.cmd` → **Editar configuración** (ver [herramientas.md](herramientas.md)), que carga el config **fusionado** (así ves y editas TODAS las opciones aunque el fichero sea mínimo) pero al guardar aplica **solo los valores que cambiaste** sobre el `config.json` actual, sin reescribir el resto: un fichero mínimo sigue mínimo (+ lo editado) y uno completo sigue completo. Para (re)generar un `config.json` **completo** con todos los valores por defecto, usa **Restablecer config.json**.
 
+Carga (arranque) y edición (setup):
+
+```mermaid
+flowchart TD
+    D["Get-CvConfigDefaults (fuente única de defaults)"] --> MERGE["Merge-CvConfig (fusión profunda)"]
+    J["config.json del usuario (parcial o vacío)"] --> MERGE
+    MERGE --> CFG["Config efectiva → $ctx"]
+
+    subgraph EDIT["setup → Editar configuración"]
+      E1["Edita el config FUSIONADO (se ven todas las claves)"] --> E2["Al guardar: Update-CvConfigEdits<br/>solo lo distinto del default se escribe;<br/>lo que vuelve al default se elimina + poda secciones vacías"]
+      E2 --> E3["config.json sigue MÍNIMO"]
+    end
+
+    subgraph RESET["setup → Restablecer"]
+      R1["Reset-CvConfig → config.json COMPLETO (todos los defaults; copia .bak)"]
+    end
+```
+
 ## Estructura
 
 Esquema completo (tras la fusión con los defaults):
@@ -14,7 +32,7 @@ Esquema completo (tras la fusión con los defaults):
 {
   "downloads":   { "ffmpeg": {...}, "aacgain": {...}, "sevenzip": {...}, "mkvtoolnix": {...} },
   "languages":   { "audio": [...], "subtitle": [...] },
-  "encode":      { "outputExtension": "mkv", "threads": 0, "fps": "23.976", "audioHz": 44100 },
+  "encode":      { "outputExtension": "mkv", "extensions": ["avi","flv","mp4","mov","mkv"], "threads": 0, "fps": "23.976", "audioHz": 44100, "audioChannels": 2 },
   "border":      { "start": 120, "duration": 120 },
   "preview":     { "start": 120, "seconds": 30 },
   "volume":      { "method": "peak", "loudnorm": { "I": -16, "TP": -1.5, "LRA": 11 } },
@@ -55,10 +73,12 @@ Se **canonicalizan** las variantes (`Get-CvLangCanon`): `es`, `es-ES`, `es_es`, 
 
 | Clave | Ejemplo | Uso |
 |---|---|---|
-| `outputExtension` | `"mkv"` | Extensión de la salida. |
+| `outputExtension` | `"mkv"` | Extensión del contenedor de salida. |
+| `extensions` | `["avi","flv","mp4","mov","mkv"]` | Extensiones de **entrada** que se procesan de `Original\` (sin punto; se tolera `.ext`/`*.ext`). Añade aquí `ts`, `webm`, `m4v`… si las necesitas. |
 | `threads` | `0` | `-threads` (0 = auto). |
 | `fps` | `"23.976"` | `-r` en la codificación de vídeo. |
 | `audioHz` | `44100` | Samplerate de audio por defecto. |
+| `audioChannels` | `2` | Canales del audio **recodificado** a AAC (`-ac`): `2` = estéreo, `6` = 5.1, `8` = 7.1. (No afecta a `audioEncoder: copy`, que conserva la pista original.) |
 
 ## `border`
 

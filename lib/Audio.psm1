@@ -4,6 +4,15 @@
     (independiente del locale) y aplicando ganancia al recodificar.
 #>
 
+function Get-CvChannelLayout {
+    <# Nombre de layout de ffmpeg para N canales (para aformat/aevalsrc del audio de salida). #>
+    param([int]$Channels)
+    switch ($Channels) {
+        1 { 'mono' }; 2 { 'stereo' }; 6 { '5.1' }; 8 { '7.1' }
+        default { 'stereo' }
+    }
+}
+
 function Get-AudioInitDelay {
     <# Devuelve el pts_time del primer frame de audio (desfase inicial) o 0. #>
     param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)][string]$File, [int]$Index)
@@ -226,14 +235,17 @@ function Invoke-AudioRun {
     if (Test-Path -LiteralPath $outM4a) { Remove-Item -Force -LiteralPath $outM4a -ErrorAction SilentlyContinue }
 
     $hz = if ($Prof.AudioHz) { $Prof.AudioHz } else { $Context.DefaultAudioHz }
+    # Canales de salida del audio recodificado (config encode.audioChannels; 2 = estereo).
+    $ch     = [int]$Context.AudioChannels; if ($ch -lt 1) { $ch = 2 }
+    $layout = Get-CvChannelLayout $ch
 
-    # Fuente: si hay que sincronizar, generamos un wav (silencio + audio) en estereo.
+    # Fuente: si hay que sincronizar, generamos un wav (silencio + audio) en el layout de salida.
     $sourceInput = $null   # args de -i para medir y para codificar
     $mapPre      = @()     # -map o filtro previo
     if ($Sync -gt 0) {
         $wav = $tmp.SyncWav
         if (Test-Path -LiteralPath $wav) { Remove-Item -Force -LiteralPath $wav -ErrorAction SilentlyContinue }
-        $fc = ("[0:{0}]aformat=channel_layouts=stereo[a2];aevalsrc=0:d={1}:sample_rate={2}:channel_layout=stereo[sil];[sil][a2]concat=n=2:v=0:a=1[out]" -f $Index, $Sync, $hz)
+        $fc = ("[0:{0}]aformat=channel_layouts={3}[a2];aevalsrc=0:d={1}:sample_rate={2}:channel_layout={3}[sil];[sil][a2]concat=n=2:v=0:a=1[out]" -f $Index, $Sync, $hz, $layout)
         Start-CvStep $Context 'AUDIO' ("Generando silencio de {0}s + pista..." -f $Sync)
         Invoke-ToolShow -Exe $Context.FFmpeg -Arguments @('-hide_banner','-y','-i',$File,'-filter_complex',$fc,'-map','[out]',$wav) -Context $Context | Out-Null
         $syncOk = (Test-Path -LiteralPath $wav)
@@ -285,7 +297,7 @@ function Invoke-AudioRun {
         $ffArgs += $mapPre
     }
 
-    $ffArgs += @('-c:a','aac','-aac_coder','twoloop','-ac','2','-ar',"$hz")
+    $ffArgs += @('-c:a','aac','-aac_coder','twoloop','-ac',"$ch",'-ar',"$hz")
     if ($Prof.AudioBitrate) { $ffArgs += @('-b:a',"$($Prof.AudioBitrate)") }
     $ffArgs += $outM4a
 

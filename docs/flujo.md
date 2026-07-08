@@ -32,7 +32,39 @@ flowchart TD
 
 ## Clasificación
 
-Al arrancar, tras comprobar herramientas, se recorren los vídeos de `Original\` y se decide si hace falta preparar:
+Cómo se decide **qué archivos se intentan codificar**, de un vistazo:
+
+```mermaid
+flowchart TD
+    A["Ficheros en Original\\ (nivel superior, NO recursivo)"] --> B{"¿extensión en<br/>encode.extensions?"}
+    B -- "no" --> X["Ignorado (no es candidato)"]
+    B -- "sí" --> C["Candidato<br/>clave = BaseName (nombre sin extensión)"]
+    C --> D{"¿existe<br/>Convertido\\&lt;n&gt;_fix.&lt;ext&gt;?"}
+    D -- "sí" --> E["YA CONVERTIDO → saltar"]
+    D -- "no" --> F{"¿existe<br/>Proceso\\&lt;n&gt;.job.json?"}
+    F -- "no" --> G["POR PREPARAR → fase PREPARAR"]
+    F -- "sí" --> H["PREPARADO → fase WORKER"]
+```
+
+### Qué archivos se consideran (entrada)
+
+`Get-SourceFiles` construye la lista de candidatos. El **único** filtro de entrada es **carpeta + extensión**:
+
+- **Carpeta**: solo `Original\` (`$ctx.Original`; configurable en `paths.original`, por defecto `<programa>\Original`). **No es recursivo** — solo el nivel superior de esa carpeta, no subcarpetas.
+- **Extensión**: los ficheros cuya extensión esté en `encode.extensions` (por defecto `avi`, `flv`, `mp4`, `mov`, `mkv`; ver [configuracion.md](configuracion.md)). Internamente se usan como globs `*.ext`.
+- El resultado se ordena por nombre.
+
+No hay más criterios: cualquier fichero con esa extensión en `Original\` es un candidato (el prefijo `_` **no** excluye; solo fuerza la detección de bordes, ver abajo).
+
+### Identidad de un archivo: su `BaseName`
+
+Todo cuelga del **nombre sin extensión** (`BaseName`): el job (`Proceso\<nombre>.job.json`), la salida (`Convertido\<nombre>_fix.<outputExtension>`) y el lock (`Proceso\<nombre>.lock`).
+
+> ⚠️ **Colisión por nombre**: dos entradas con el mismo `BaseName` y distinta extensión (p. ej. `peli.mp4` y `peli.mkv`) comparten job/salida/lock y se pisarían. Evita nombres iguales con distinta extensión en `Original\`.
+
+### Estado de cada candidato
+
+Al arrancar, tras comprobar herramientas, se decide si hace falta preparar:
 
 ```powershell
 foreach ($f in $files) {
@@ -42,8 +74,17 @@ foreach ($f in $files) {
 }
 ```
 
-- Un archivo **necesita prepararse** si NO está convertido (no existe `Convertido\<nombre>_fix.mkv`) **y** no tiene `Proceso\<nombre>.job.json`.
-- Si todos tienen job (o están convertidos) → se salta PREPARAR y se entra directo como WORKER. Esto permite abrir **varias ventanas**: la primera prepara, las demás entran como workers.
+Por cada candidato:
+
+| Situación | Estado |
+|---|---|
+| Existe `Convertido\<nombre>_fix.<ext>` | **Ya convertido** → se salta. |
+| No existe salida y **no** tiene `.job` | **Por preparar** → fase PREPARAR. |
+| No existe salida y **sí** tiene `.job` | **Preparado** → fase WORKER. |
+
+- Si algún candidato está "por preparar" → se entra en **PREPARAR**.
+- Si todos tienen job (o están convertidos) → se salta PREPARAR y se entra directo como **WORKER**. Esto permite abrir **varias ventanas**: la primera prepara, las demás entran como workers.
+- **Re-convertir** un archivo: borra su `Convertido\<nombre>_fix.<ext>` (y su `.job` si además quieres que te vuelva a preguntar la configuración).
 
 ## Fase PREPARAR
 
@@ -103,6 +144,34 @@ flowchart TD
 Al iniciar cada archivo, el worker muestra su **resolución y duración** (útil para estimar cuánto durará la codificación). En **uso normal**, cada paso se muestra como una línea compacta `- <acción>... ✓` (o `✗` en rojo si falla), y el resumen final va enmarcado con guiones. En **modo debug** se ven los logs detallados por sección, los comandos exactos y las confirmaciones.
 
 Orden de codificación por archivo: **audio → vídeo → multiplexado**. El audio se recodifica a un `.m4a` temporal, el vídeo a un `.mkv` temporal, y el multiplexado los une con los **subtítulos** y los **adjuntos** conservados del original en `Convertido\<nombre>_fix.mkv`; después limpia los metadatos heredados y quita las etiquetas `DURATION` con **mkvpropedit**.
+
+Pipeline interno de cada archivo (pasos de cada etapa):
+
+```mermaid
+flowchart TB
+    subgraph AUD["1) Invoke-AudioRun → &lt;n&gt;.m4a"]
+      direction TB
+      A0{"¿audioEncoder = copy?"} -- "sí" --> ASK["saltar (se copia en el mux)"]
+      A0 -- "no" --> A1["Sincronía: silencio + pista si sync &gt; 0"]
+      A1 --> A2["Volumen: peak / loudnorm / aacgain"]
+      A2 --> A3["-c:a aac -ac &lt;canales&gt; -ar &lt;hz&gt;"]
+    end
+    subgraph VID["2) Invoke-VideoRun → &lt;n&gt;.mkv"]
+      direction TB
+      V0{"¿videoEncoder = copy?"} -- "sí" --> VSK["saltar (se copia en el mux)"]
+      V0 -- "no" --> V1["-map 0:&lt;index&gt; (pista elegida)"]
+      V1 --> V2["-vf crop + scale (si aplica)"]
+      V2 --> V3["codec del perfil (nvenc / libx26x)"]
+    end
+    subgraph MUX["3) Invoke-Multiplex → Convertido\\&lt;n&gt;_fix.mkv"]
+      direction TB
+      M1["Mapea: vídeo + audio + subtítulos + adjuntos"]
+      M1 --> M2["-map_metadata -1 (borra tags heredados)"]
+      M2 --> M3["re-fija title / language / disposition"]
+      M3 --> M4["mkvpropedit --tags all: (quita DURATION)"]
+    end
+    AUD --> VID --> MUX
+```
 
 Ver los comandos exactos en [comandos.md](comandos.md).
 

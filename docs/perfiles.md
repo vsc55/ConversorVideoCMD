@@ -2,6 +2,21 @@
 
 En la fase PREPARAR se elige **un** perfil que se aplica a todo el lote y se **congela** dentro de cada `.job.json`. Definidos en `lib\Profile.psm1`.
 
+Flujo de selección (`Select-Profile`):
+
+```mermaid
+flowchart TD
+    M["Menú USAR PERFIL"] --> S{"opción"}
+    S -- "1–7" --> B["Perfil de serie"]
+    S -- "8, 9, … (si hay)" --> C["Perfil propio de config.json (profiles)"]
+    S -- "0" --> CU["Custom interactivo (New-CustomProfile)"]
+    S -- "X" --> Q["Salir (cierre limpio)"]
+    CU -- "C / ESC" --> M
+    B --> F["Perfil elegido → se congela en cada .job.json"]
+    C --> F
+    CU -- "confirmar" --> F
+```
+
 ## Perfiles predefinidos
 
 Menú (`Select-Profile`):

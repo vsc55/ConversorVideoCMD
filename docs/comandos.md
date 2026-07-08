@@ -2,6 +2,25 @@
 
 Comandos de **ffmpeg / ffprobe / ffplay / aacgain** que se lanzan en cada fase. Todos se ejecutan con las herramientas de la versión en uso (`$ctx.FFmpeg`, `$ctx.FFprobe`, `$ctx.FFplay`, `$ctx.AacGain`), que apuntan a `tools\<app>\<version>\<plataforma>\`. Los placeholders (`<...>`) provienen del contexto/perfil/job.
 
+Qué herramienta se lanza en cada momento:
+
+```mermaid
+flowchart TD
+    subgraph PREP["PREPARAR (interactivo)"]
+      P1["ffprobe -show_streams/-show_format (analizar)"] --> P2["ffmpeg -vf cropdetect (bordes, varios puntos)"]
+      P2 --> P3["ffplay (preview de bordes / pista de audio / pista de vídeo)"]
+      P3 --> P4["ffmpeg ashowinfo (desfase de audio para sincronía)"]
+    end
+    subgraph WORK["WORKER (desatendido)"]
+      W1["ffmpeg volumedetect (medir pico, si volume=peak)"] --> W2["ffmpeg -c:a aac (audio → .m4a)"]
+      W2 --> WA["aacgain (si volume=aacgain)"]
+      WA --> W3["ffmpeg codec de vídeo (vídeo → .mkv)"]
+      W3 --> W4["ffmpeg mux (unir pistas → _fix.mkv)"]
+      W4 --> W5["mkvpropedit --tags all: (quitar DURATION)"]
+    end
+    PREP --> WORK
+```
+
 Leyenda de placeholders comunes:
 - `<file>` = ruta del vídeo original (`Original\...`).
 - `<N>` = `$ctx.Threads` (`encode.threads`, 0 = auto).
