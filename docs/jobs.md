@@ -49,11 +49,12 @@ Reclamo atómico entre workers. Se crea un fichero con `FileMode.CreateNew`, que
 
 ```powershell
 $fs = [System.IO.File]::Open($lock, [FileMode]::CreateNew, [FileAccess]::Write, [FileShare]::None)
-$fs.Close()   # Enter-Lock devuelve $true; si lanza, otro worker lo tiene
+# se escribe "PID=<pid>;HOST=<equipo>" y se cierra; si Open lanza, otro worker lo tiene
 ```
 
 - Solo un worker gana el archivo; los demás siguen al siguiente.
 - Se libera siempre en el `finally` (`Exit-Lock` → `[IO.File]::Delete`), incluso si la codificación falla.
+- **Locks huérfanos**: en el lock se guarda `PID`+equipo. Si otro worker encuentra un lock cuyo proceso dueño **ya no existe** (mismo equipo), lo considera caducado (`Test-CvLockStale`) y lo roba. En otra máquina no se puede verificar, así que no se roba.
 - Es literal-safe (compatible con nombres con corchetes).
 
 ## Temporales (`Get-CvTempPaths`)

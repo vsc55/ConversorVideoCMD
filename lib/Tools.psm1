@@ -213,16 +213,25 @@ function Install-CvTool {
     try { [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 } catch {}
     $oldPref = $ProgressPreference
     $ProgressPreference = 'SilentlyContinue'
-    try {
-        Invoke-WebRequest -Uri $url -OutFile $dl -UseBasicParsing
-    } catch {
-        Write-CvLog 'GLOBAL' ("{0} - [ERR] - No se pudo descargar: {1}" -f $tag, $_.Exception.Message)
-        $ProgressPreference = $oldPref
+    # Descarga con reintentos (fallos de red transitorios).
+    $attempts = 3
+    $downloaded = $false
+    for ($i = 1; $i -le $attempts; $i++) {
+        try {
+            Invoke-WebRequest -Uri $url -OutFile $dl -UseBasicParsing
+            $downloaded = $true; break
+        } catch {
+            Write-CvLog 'GLOBAL' ("{0} - [AVISO] - Descarga fallida (intento {1}/{2}): {3}" -f $tag, $i, $attempts, $_.Exception.Message)
+            if (Test-Path $dl) { Remove-Item -Force $dl -ErrorAction SilentlyContinue }
+            if ($i -lt $attempts) { Start-Sleep -Seconds (2 * $i) }
+        }
+    }
+    $ProgressPreference = $oldPref
+    if (-not $downloaded -or -not (Test-Path $dl)) {
+        Write-CvLog 'GLOBAL' ("{0} - [ERR] - No se pudo descargar tras {1} intentos" -f $tag, $attempts)
         Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
         return $false
     }
-    $ProgressPreference = $oldPref
-    if (-not (Test-Path $dl)) { Write-CvLog 'GLOBAL' ("{0} - [ERR] - No se descargo el fichero" -f $tag); return $false }
 
     if (-not [string]::IsNullOrWhiteSpace($sha)) {
         $got = (Get-FileHash -Path $dl -Algorithm SHA256).Hash

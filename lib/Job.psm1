@@ -67,17 +67,40 @@ function Remove-CvTemps {
 }
 
 
+function Test-CvLockStale {
+    <#
+        Un lock esta caducado si su worker dueño ya no existe. En el lock se guarda
+        "PID=<pid>;HOST=<equipo>". Solo se considera caducado si es de ESTE equipo y el
+        proceso con ese PID ya no corre (en otra maquina no se puede verificar -> no se roba).
+    #>
+    param([string]$LockPath)
+    if (-not (Test-Path -LiteralPath $LockPath)) { return $false }
+    try { $txt = [System.IO.File]::ReadAllText($LockPath) } catch { return $false }
+    $m = [regex]::Match("$txt", 'PID=(\d+);HOST=(.+)')
+    if (-not $m.Success) { return $false }
+    if ($m.Groups[2].Value.Trim() -ne $env:COMPUTERNAME) { return $false }
+    $lockPid = [int]$m.Groups[1].Value
+    return ($null -eq (Get-Process -Id $lockPid -ErrorAction SilentlyContinue))
+}
+
 function Enter-Lock {
     <#
         Reclama el archivo creando un fichero-lock con modo CreateNew (atomico: falla si ya
-        existe). Se usa .NET (ruta literal) porque los nombres pueden llevar corchetes.
-        Devuelve $true si lo consigue.
+        existe). Guarda PID+equipo para poder detectar y robar locks caducados (worker
+        muerto). Ruta literal (los nombres pueden llevar corchetes). Devuelve $true si lo consigue.
     #>
     param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)][string]$Name)
     $lock = Join-Path $Context.Proceso ("{0}.lock" -f $Name)
+    # Si hay un lock de un worker que ya no existe, robarlo.
+    if (Test-CvLockStale $lock) {
+        try { [System.IO.File]::Delete($lock) } catch {}
+    }
     try {
         $fs = [System.IO.File]::Open($lock, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
-        $fs.Close()
+        try {
+            $bytes = [System.Text.Encoding]::UTF8.GetBytes(("PID={0};HOST={1}" -f $PID, $env:COMPUTERNAME))
+            $fs.Write($bytes, 0, $bytes.Length)
+        } finally { $fs.Close() }
         return $true
     } catch {
         return $false

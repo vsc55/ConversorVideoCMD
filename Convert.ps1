@@ -1,12 +1,12 @@
 <#
     Convert.ps1 - Conversor de video por lotes (modelo preparar/procesar).
-    Version 4.0 - Migracion a PowerShell 5.1 del antiguo LimpiarBorde.cmd, modular en lib\.
+    PowerShell 5.1, modular en lib\ (migracion del antiguo LimpiarBorde.cmd).
 
     FLUJO:
       - Si hay algun archivo sin .job (y sin convertir) -> FASE PREPARAR: pregunta
         la configuracion de cada archivo y escribe Proceso\<nombre>.job.json.
       - Despues, en la misma ventana -> FASE WORKER: codifica los preparados sin
-        preguntar, reclamando cada archivo con un lock atomico (mkdir).
+        preguntar, reclamando cada archivo con un lock atomico (fichero .lock).
       - Se pueden abrir varias ventanas: cuando todos tienen .job, cada una entra
         directa como worker y se reparten los archivos por el lock.
 
@@ -15,8 +15,6 @@
 
 [CmdletBinding()]
 param()
-
-$CvVersion = '4.0'
 
 $ErrorActionPreference = 'Stop'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
@@ -34,7 +32,10 @@ $ctx = New-CvContext -Root $Root
 $cvLog = Start-CvLog -Context $ctx -Prefix 'Convert'
 
 # Colores, fuente, tamano y titulo de la ventana (config.json).
-Set-CvAppearance -Context $ctx -Title ("ConversorVideoCMD {0}" -f $CvVersion)
+Set-CvAppearance -Context $ctx -Title ("ConversorVideoCMD {0}" -f $ctx.Version)
+
+# Cabecera (app + version).
+Show-CvHeader -Context $ctx
 
 # Separador de secciones (ancho del cuadro de los menus).
 $sepLine = ('=' * 64)
@@ -138,9 +139,11 @@ foreach ($f in $files) {
 if ($needPrepare) {
     $cfgProfile = Select-Profile
     if ($null -eq $cfgProfile) {
-        Write-CvLog 'GLOBAL' 'ERROR: no se ha seleccionado perfil.'
+        # El usuario eligio salir (X): cierre limpio.
+        Write-CvLog 'GLOBAL' '[SALIR] - Cancelado por el usuario.'
         if ($ctx.LockClose) { Set-CvCloseButton -Enabled $true }
-        exit 1
+        if ($cvLog) { Stop-CvLog }
+        exit 0
     }
     Write-ProfileInfo -Profile $cfgProfile
 
@@ -196,8 +199,11 @@ if ($needPrepare) {
 Write-Host ''
 Write-CvLog 'GLOBAL' '[WORKER] - Buscando archivos preparados para codificar...'
 
-# Archivos que no se pueden procesar (p.ej. no se pudo instalar su ffmpeg): no reintentar.
+# Reintentos: nº de fallos por archivo; a partir de $maxRetries se abandona (evita bucle
+# infinito con inputs corruptos, perfiles que fallan o ffmpeg que no arranca).
 $skip = New-Object 'System.Collections.Generic.HashSet[string]'
+$fail = @{}
+$maxRetries = 2
 
 $didAny = $true
 while ($didAny) {
@@ -240,25 +246,31 @@ while ($didAny) {
             }
 
             $info = Get-MediaInfo -Context $jctx -File $f.FullName
-            if ($null -eq $info) { Write-CvLog 'WORKER' '[ERR] - No se pudo leer el archivo'; continue }
+            if ($null -eq $info) {
+                Write-CvLog 'WORKER' '[ERR] - No se pudo leer el archivo; se descarta'
+                [void]$skip.Add($name); continue
+            }
 
             # ---------- AUDIO ----------
             Write-Host ''
+            $audioOk = $true
             if ($job.audio.skip) { Write-CvLog 'AUDIO' '[SKIP] - se omite (copy/omitido)' }
-            else {
-                [void](Invoke-AudioRun -Context $jctx -Profile $prof -File $f.FullName -Sync ([double]$job.audio.sync) -Index ([int]$job.audio.index))
-            }
+            else { $audioOk = Invoke-AudioRun -Context $jctx -Profile $prof -File $f.FullName -Sync ([double]$job.audio.sync) -Index ([int]$job.audio.index) }
 
             # ---------- VIDEO ----------
             Write-Host ''
+            $videoOk = $true
             if ($job.video.skip) { Write-CvLog 'VIDEO' '[SKIP] - se omite (copy)' }
-            else {
-                [void](Invoke-VideoRun -Context $jctx -Profile $prof -File $f.FullName -Crop $job.video.crop -Resize $job.video.resize -Anim ([bool]$job.video.anim))
-            }
+            else { $videoOk = Invoke-VideoRun -Context $jctx -Profile $prof -File $f.FullName -Crop $job.video.crop -Resize $job.video.resize -Anim ([bool]$job.video.anim) }
 
             # ---------- MULTIPLEX ----------
-            Write-Host ''
-            $ok = Invoke-Multiplex -Context $jctx -File $f.FullName -Info $info -VideoSkipped ([bool]$job.video.skip) -AudioSkipped ([bool]$job.audio.skip) -Subtitles $job.subtitles
+            if ((-not $audioOk) -or (-not $videoOk)) {
+                Write-CvLog 'WORKER' '[ERR] - Fallo la codificacion de audio o video; no se multiplexa'
+                $ok = $false
+            } else {
+                Write-Host ''
+                $ok = Invoke-Multiplex -Context $jctx -File $f.FullName -Info $info -VideoSkipped ([bool]$job.video.skip) -AudioSkipped ([bool]$job.audio.skip) -Subtitles $job.subtitles
+            }
 
             if ($ok) {
                 # limpieza de temporales (activable/desactivable con el marcador 'keep_temp')
@@ -273,9 +285,21 @@ while ($didAny) {
                 Write-CvLog 'WORKER' ("[OK] - Finalizado: {0}" -f $name)
                 Write-ConversionSummary -Context $jctx -File $f.FullName -Info $info -Output $out -Elapsed $sw.Elapsed
             } else {
+                $n = 1 + [int]$fail[$name]; $fail[$name] = $n
                 Write-Host ''
-                Write-CvLog 'WORKER' ("[ERR] - No se genero la salida, se reintentara: {0}" -f $name)
+                if ($n -ge $maxRetries) {
+                    Write-CvLog 'WORKER' ("[ERR] - Fallo {0} intento(s), se abandona: {1}" -f $n, $name)
+                    [void]$skip.Add($name)
+                } else {
+                    Write-CvLog 'WORKER' ("[ERR] - No se genero la salida (intento {0}/{1}), se reintentara: {2}" -f $n, $maxRetries, $name)
+                }
             }
+        }
+        catch {
+            # Error inesperado: no abortar todo el lote; contar el fallo y pasar al siguiente.
+            $n = 1 + [int]$fail[$name]; $fail[$name] = $n
+            Write-CvLog 'WORKER' ("[ERR] - Error inesperado en {0}: {1}" -f $name, $_.Exception.Message)
+            if ($n -ge $maxRetries) { [void]$skip.Add($name) }
         }
         finally {
             Exit-Lock -Context $ctx -Name $name

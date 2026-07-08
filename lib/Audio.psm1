@@ -171,7 +171,13 @@ function Invoke-AudioRun {
     $ffArgs += $outM4a
 
     Write-CvLog 'AUDIO' 'Recodificando audio...'
-    Invoke-ToolShow -Exe $Context.FFmpeg -Arguments $ffArgs -Context $Context | Out-Null
+    $code = Invoke-ToolShow -Exe $Context.FFmpeg -Arguments $ffArgs -Context $Context
+    if ($code -ne 0) {
+        Write-CvLog 'AUDIO' ("[ERR] - ffmpeg devolvio codigo {0}" -f $code)
+        if (Test-Path -LiteralPath $outM4a)      { Remove-Item -Force -LiteralPath $outM4a -ErrorAction SilentlyContinue }
+        if (Test-Path -LiteralPath $tmp.SyncWav) { Remove-Item -Force -LiteralPath $tmp.SyncWav -ErrorAction SilentlyContinue }
+        return $false
+    }
 
     # AACGAIN: aplicar la ganancia ReplayGain sobre el m4a ya codificado (sin recodificar).
     if ($method -eq 'aacgain' -and (Test-Path -LiteralPath $outM4a)) {

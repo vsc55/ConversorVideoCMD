@@ -56,7 +56,7 @@ Los módulos se llaman entre sí (p. ej. `New-CvContext` de Context usa `Get-CvC
 | **Log** | `Write-CvLog` (log de consola; resalta `[ERR]` en rojo y `[AVISO]`/`[NO SOPORTADO]` en amarillo), `Start-CvLog`/`Stop-CvLog` (transcript a `logs\`), `Get-CvLogFiles`/`Remove-CvLogFiles`. |
 | **Config** | `Get-CvConfigDefaults` (fuente única de defaults), `Get-CvConfig` (carga + fusión), `Reset-CvConfig`, serialización (`ConvertTo-CvJson`, `Read/Save-CvConfigFile`). |
 | **Context** | `New-CvContext` (`$ctx`), `Get-CvWorkDirs`, `Test-CvLanguage`, `ConvertTo-InvDouble`. |
-| **Console** | Apariencia (`Set-CvAppearance`…), ventana nativa (`Set-CvCloseButton`, `Initialize-CvNative`), menús (`Show-Menu`, `Select-FromList`), prompts (`Read-*`). |
+| **Console** | Cabecera (`Show-CvHeader`), apariencia (`Set-CvAppearance`…), ventana nativa (`Set-CvCloseButton`, `Initialize-CvNative`), menús (`Show-Menu` con separadores `----`, `Show-CvBox` con cuadro para avisos, `Select-FromList`, `Get-CvMenuLines`), prompts con soporte de `ESC` (`Read-CvLine`, `Read-*`). |
 | **Exec** | `Invoke-ToolCapture`, `Invoke-ToolShow`, `ConvertTo-ArgString`, `Write-CvDebug`. |
 | **Job** | Jobs (`*-CvJob`), lock (`Enter/Exit-Lock`), temporales (`Get-CvTempPaths`, `Remove-CvTemps`), salida (`Get-OutputPath`). |
 | **Tools** | Descargas y versiones: `Install-CvTool`, `Confirm-CvTool`, `Select-CvToolVersion`, `Get-CvToolDir`, `Test-CvToolInstalled`, `Get-CvInstalledVersions`, `Test-CvToolSupported`, `New-CvToolContext`, `Test-CvTools`. |

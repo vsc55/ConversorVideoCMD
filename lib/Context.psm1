@@ -3,6 +3,11 @@
     y helpers de contexto (idiomas, parseo de numeros invariante).
 #>
 
+function Get-CvVersion {
+    <# Version del proyecto (fuente unica; la usan Convert.ps1 y setup.ps1). #>
+    '4.1'
+}
+
 function Get-CvWorkDirs {
     <# Unica fuente de verdad de las carpetas de trabajo del proyecto (crear/comprobar). #>
     param([Parameter(Mandatory)]$Context)
@@ -34,6 +39,7 @@ function New-CvContext {
 
     $ctx = [pscustomobject]@{
         Root           = $Root
+        Version        = Get-CvVersion
         # Carpetas de trabajo (configurables en config.json 'paths'; vacio = junto al programa).
         Original       = Resolve-CvPath $Root "$($cfg.paths.original)"   'Original'
         Proceso        = Resolve-CvPath $Root "$($cfg.paths.proceso)"    'Proceso'

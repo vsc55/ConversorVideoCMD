@@ -28,7 +28,8 @@ foreach ($m in $modules) {
 }
 
 $ctx = New-CvContext -Root $Root
-Set-CvAppearance -Context $ctx -Title 'ConversorVideoCMD - Setup'
+Set-CvAppearance -Context $ctx -Title ("ConversorVideoCMD {0} - Setup" -f $ctx.Version)
+Show-CvHeader -Context $ctx -Subtitle 'Setup'
 
 $CfgPath = Join-Path $Root 'config.json'
 
@@ -381,8 +382,10 @@ function Show-Estado {
 #  Menu principal
 # ===========================================================================
 $exit = $false
+$firstMenu = $true
 while (-not $exit) {
-    Clear-Host
+    if (-not $firstMenu) { Clear-Host }   # la 1a vuelta no limpia: deja ver la cabecera
+    $firstMenu = $false
     $ctx = New-CvContext -Root $Root   # recargar por si cambio config.json
 
     $names   = @(Get-AppNames)

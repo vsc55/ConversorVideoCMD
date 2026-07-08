@@ -90,8 +90,9 @@ Ver los comandos exactos en [comandos.md](comandos.md).
 
 - El reclamo de cada archivo es un **fichero-lock** `Proceso\<nombre>.lock` creado con `FileMode.CreateNew` (falla atómicamente si ya existe). Solo un worker gana.
 - Se pueden lanzar **varias ventanas** (`Convert.cmd`) a la vez: cuando todos los archivos tienen `.job`, cada ventana entra como worker y se reparten los archivos por el lock.
-- El lock se libera siempre en el `finally`, incluso si la codificación falla.
-- Si un archivo no se puede procesar (p. ej. su ffmpeg no se puede instalar), se marca en un conjunto `skip` para no reintentarlo en bucle.
+- El lock se libera siempre en el `finally`, incluso si la codificación falla. Si un worker muere a mitad, otro puede **robar el lock caducado** (guarda `PID`+equipo; ver [jobs.md](jobs.md)).
+- **Reintentos con límite**: un archivo que falla se reintenta hasta un máximo; superado, se **abandona** (se marca en `skip`). Los ilegibles se descartan y un error inesperado se captura por archivo (no aborta el lote). Esto evita el bucle infinito con inputs corruptos o ffmpeg que no arranca.
+- La codificación de audio/vídeo debe terminar con éxito (ffmpeg código 0 + salida no vacía) para que se multiplexe; si no, el archivo cuenta como fallo (no se genera un MKV con vídeo sin recodificar).
 
 ## Protección de la ventana
 

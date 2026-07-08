@@ -130,6 +130,30 @@ function Set-CvConsoleFont {
 }
 
 
+function Read-CvLine {
+    <#
+        Lee una linea del teclado con soporte de la tecla ESC. Devuelve el texto; con
+        -AllowCancel, pulsar ESC lanza CV_CANCEL. Maneja Enter y Retroceso. Si la entrada
+        esta redirigida (sin consola interactiva), cae a Read-Host (sin ESC).
+    #>
+    param([string]$Prompt = '', [switch]$AllowCancel)
+    $interactive = $true
+    try { $null = [Console]::KeyAvailable } catch { $interactive = $false }
+    if (-not $interactive) { return (Read-Host $Prompt) }
+
+    Write-Host ("{0}: " -f $Prompt) -NoNewline
+    $sb = New-Object System.Text.StringBuilder
+    while ($true) {
+        $key = [Console]::ReadKey($true)   # $true = no eco automatico
+        if ($key.Key -eq 'Enter')     { Write-Host ''; return $sb.ToString() }
+        if ($key.Key -eq 'Escape')    { if ($AllowCancel) { Write-Host ''; throw 'CV_CANCEL' } ; continue }
+        if ($key.Key -eq 'Backspace') { if ($sb.Length -gt 0) { [void]$sb.Remove($sb.Length - 1, 1); Write-Host "`b `b" -NoNewline } ; continue }
+        $ch = $key.KeyChar
+        if ($ch -and -not [char]::IsControl($ch)) { [void]$sb.Append($ch); Write-Host $ch -NoNewline }
+    }
+}
+
+
 function Read-IntOrDefault {
     <# Lee un entero por teclado; si se deja vacio o no es valido, devuelve el valor por defecto. #>
     param([string]$Prompt, [int]$Default)
@@ -142,10 +166,13 @@ function Read-IntOrDefault {
 
 
 function Read-QOrNull {
-    <# Lee un cuantizador (0-51). Vacio o negativo => $null (desactivado). #>
-    param([string]$Prompt, [object]$Default)
+    <# Lee un cuantizador (0-51). Vacio o negativo => $null (desactivado). Con -AllowCancel, 'C' lanza CV_CANCEL. #>
+    param([string]$Prompt, [object]$Default, [switch]$AllowCancel)
     $dtxt = if ($null -eq $Default) { '-' } else { "$Default" }
-    $v = (Read-Host ("{0} [{1}] (-1 = desactivar)" -f $Prompt, $dtxt)).Trim()
+    $hint = if ($AllowCancel) { '-1 = desactivar, C/ESC = cancelar' } else { '-1 = desactivar' }
+    $pr   = "{0} [{1}] ({2})" -f $Prompt, $dtxt, $hint
+    $v = (& { if ($AllowCancel) { Read-CvLine -Prompt $pr -AllowCancel } else { Read-Host $pr } }).Trim()
+    if ($AllowCancel -and $v -match '^[Cc]$') { throw 'CV_CANCEL' }
     if ($v -eq '') { return $Default }
     $n = 0
     if ([int]::TryParse($v, [ref]$n)) { if ($n -lt 0) { return $null } return $n }
@@ -154,27 +181,63 @@ function Read-QOrNull {
 
 
 function Read-YesNo {
-    <# Pregunta si/no. Devuelve $true/$false. #>
-    param([string]$Prompt, [bool]$Default = $true)
+    <# Pregunta si/no. Devuelve $true/$false. Con -AllowCancel, 'C' lanza CV_CANCEL. #>
+    param([string]$Prompt, [bool]$Default = $true, [switch]$AllowCancel)
     $d = if ($Default) { 'S' } else { 'N' }
-    $a = (Read-Host ("{0} (s/n) [{1}]" -f $Prompt, $d)).Trim()
+    $opts = if ($AllowCancel) { 's/n/c' } else { 's/n' }
+    $pr = "{0} ({1}) [{2}]" -f $Prompt, $opts, $d
+    $a = (& { if ($AllowCancel) { Read-CvLine -Prompt $pr -AllowCancel } else { Read-Host $pr } }).Trim()
+    if ($AllowCancel -and $a -match '^[Cc]$') { throw 'CV_CANCEL' }
     if ($a -eq '') { return $Default }
     return ($a -match '^[SsYy]')
 }
 
 
+function Show-CvHeader {
+    <# Cabecera al arrancar: nombre de la app + version (y subtitulo opcional). #>
+    param([Parameter(Mandatory)]$Context, [string]$Subtitle = '')
+    $name = 'ConversorVideoCMD {0}' -f $Context.Version
+    if ($Subtitle) { $name = "$name - $Subtitle" }
+    $sep = '=' * 64
+    Write-Host ''
+    Write-Host $sep  -ForegroundColor Cyan
+    Write-Host ("  {0}" -f $name) -ForegroundColor Cyan
+    Write-Host $sep  -ForegroundColor Cyan
+    Write-Host ''
+}
+
 function Show-Menu {
     <#
-        Dibuja un cuadro de doble linea (estilo clasico) alrededor del contenido.
-        $Title = titulo; $Lines = lineas (una cadena vacia deja una linea en blanco dentro).
-        Usa codigos [char] para los bordes, asi no depende de la codificacion del fichero.
+        Muestra un bloque de menu enmarcado con lineas de guiones (antes y despues),
+        sin recuadro. $Title = titulo; $Lines = opciones (cadena vacia = linea en blanco).
+        No trunca: las lineas largas se imprimen enteras.
     #>
     param([string]$Title, [string[]]$Lines = @())
+    $sep = '-' * 64
+    Write-Host ''
+    Write-Host $sep
+    if ($Title) {
+        Write-Host ("  {0}" -f $Title)
+        Write-Host $sep
+    }
+    foreach ($l in $Lines) {
+        if ($l -eq '') { Write-Host '' } else { Write-Host ("    {0}" -f $l) }
+    }
+    Write-Host $sep
+}
+
+function Show-CvBox {
+    <#
+        Dibuja un CUADRO de doble linea alrededor del contenido. Pensado para mensajes
+        destacados (avisos, errores, resumenes...). -Color aplica color a todo el cuadro.
+        Usa codigos [char] para los bordes (no depende de la codificacion del fichero).
+    #>
+    param([string]$Title, [string[]]$Lines = @(), [System.ConsoleColor]$Color)
     $inner = 62
-    $H  = [char]0x2550   # horizontal
-    $V  = [char]0x2551   # vertical
-    $TL = [char]0x2554; $TR = [char]0x2557   # esquinas superiores
-    $BL = [char]0x255A; $BR = [char]0x255D   # esquinas inferiores
+    $H  = [char]0x2550
+    $V  = [char]0x2551
+    $TL = [char]0x2554; $TR = [char]0x2557
+    $BL = [char]0x255A; $BR = [char]0x255D
     $hbar = [string]$H * $inner
 
     $rows = New-Object System.Collections.Generic.List[string]
@@ -187,13 +250,48 @@ function Show-Menu {
     & $add ''
     if ($Title) { & $add ("   {0}" -f $Title); & $add '' }
     foreach ($l in $Lines) {
-        if ($l -eq '') { & $add '' } else { & $add ("       {0}" -f $l) }
+        if ($l -eq '') { & $add '' } else { & $add ("   {0}" -f $l) }
     }
     & $add ''
     $rows.Add(("{0}{1}{2}" -f $BL, $hbar, $BR))
 
+    $col = @{}
+    if ($PSBoundParameters.ContainsKey('Color')) { $col.ForegroundColor = $Color }
     Write-Host ''
-    foreach ($r in $rows) { Write-Host $r }
+    foreach ($r in $rows) { Write-Host $r @col }
+}
+
+
+function Get-CvMenuLines {
+    <#
+        Genera las lineas de un menu a partir de un [ordered] de opciones (clave -> valor),
+        para no duplicar los datos entre el mapa y el texto del menu. El valor puede ser:
+          - una cadena            -> "clave. valor"
+          - @{ Value=..; Text=.. } -> "clave. valor<pad> Text"  (Text descripcion, opcional)
+        Se usa el MISMO mapa para el lookup (Get-CvOptionValue).
+    #>
+    param([Parameter(Mandatory)]$Options)
+    $lines = @()
+    foreach ($key in $Options.Keys) {
+        $v = $Options[$key]
+        if ($v -is [System.Collections.IDictionary]) {
+            $txt = "$($v.Text)"
+            if ($txt) { $lines += ("{0}. {1,-12}{2}" -f $key, "$($v.Value)", $txt) }
+            else      { $lines += ("{0}. {1}"        -f $key, "$($v.Value)") }
+        } else {
+            $lines += ("{0}. {1}" -f $key, "$v")
+        }
+    }
+    $lines
+}
+
+function Get-CvOptionValue {
+    <# Valor de una opcion por su clave (Value si es hashtable, la cadena si no); '' si no existe. #>
+    param([Parameter(Mandatory)]$Options, [string]$Key)
+    if (-not $Options.Contains($Key)) { return '' }
+    $v = $Options[$Key]
+    if ($v -is [System.Collections.IDictionary]) { return "$($v.Value)" }
+    return "$v"
 }
 
 
@@ -211,7 +309,8 @@ function Select-FromList {
         [string]$NoneLabel = 'ninguno',
         [string]$NoneValue = '',
         [int]$DefaultIndex = 0,
-        [hashtable]$Headers = $null
+        [hashtable]$Headers = $null,
+        [switch]$AllowCancel
     )
     $lines = @()
     for ($i = 0; $i -lt $Options.Count; $i++) {
@@ -223,9 +322,12 @@ function Select-FromList {
     }
     $lines += ''
     $lines += ("0. {0}" -f $NoneLabel)
+    if ($AllowCancel) { $lines += 'C / ESC. Cancelar' }
     Show-Menu -Title $Title -Lines $lines
     while ($true) {
-        $k = (Read-Host ("   Opcion [{0}]" -f $DefaultIndex)).Trim()
+        $pr = "   Opcion [{0}]" -f $DefaultIndex
+        $k = (& { if ($AllowCancel) { Read-CvLine -Prompt $pr -AllowCancel } else { Read-Host $pr } }).Trim()
+        if ($AllowCancel -and $k -match '^[Cc]$') { throw 'CV_CANCEL' }
         if ($k -eq '') { $k = "$DefaultIndex" }
         $n = 0
         if ([int]::TryParse($k, [ref]$n)) {

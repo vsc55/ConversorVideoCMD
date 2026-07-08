@@ -220,8 +220,12 @@ function Invoke-VideoRun {
 
     Write-CvLog 'VIDEO' 'Procesando...'
     $code = Invoke-ToolShow -Exe $Context.FFmpeg -Arguments $ffArgs -Context $Context
-    if ($code -ne 0) { Write-CvLog 'VIDEO' ("[ERR] - ffmpeg devolvio codigo {0}" -f $code) }
-    return (Test-Path -LiteralPath $outTmp)
+    if ($code -ne 0) {
+        Write-CvLog 'VIDEO' ("[ERR] - ffmpeg devolvio codigo {0}" -f $code)
+        if (Test-Path -LiteralPath $outTmp) { Remove-Item -Force -LiteralPath $outTmp -ErrorAction SilentlyContinue }
+        return $false
+    }
+    return ((Test-Path -LiteralPath $outTmp) -and ((Get-Item -LiteralPath $outTmp).Length -gt 0))
 }
 
 Export-ModuleMember -Function *

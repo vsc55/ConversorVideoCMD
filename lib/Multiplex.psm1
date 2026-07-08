@@ -74,9 +74,14 @@ function Invoke-Multiplex {
 
     Write-CvLog 'MULTIPLEX' 'Uniendo pistas...'
     $code = Invoke-ToolShow -Exe $Context.FFmpeg -Arguments $ffArgs -Context $Context
-    if ($code -ne 0) { Write-CvLog 'MULTIPLEX' ("[ERR] - ffmpeg devolvio codigo {0}" -f $code) }
+    if ($code -ne 0) {
+        Write-CvLog 'MULTIPLEX' ("[ERR] - ffmpeg devolvio codigo {0}" -f $code)
+        # Borrar la salida parcial para no darla por buena ni bloquear el reintento.
+        if (Test-Path -LiteralPath $out) { Remove-Item -Force -LiteralPath $out -ErrorAction SilentlyContinue }
+        return $false
+    }
 
-    if (Test-Path -LiteralPath $out) {
+    if ((Test-Path -LiteralPath $out) -and ((Get-Item -LiteralPath $out).Length -gt 0)) {
         $mb = [math]::Round((Get-Item -LiteralPath $out).Length / 1MB, 1)
         Write-CvLog 'MULTIPLEX' ("[OK] - {0}  ({1} MB)" -f (Split-Path $out -Leaf), $mb)
         return $true

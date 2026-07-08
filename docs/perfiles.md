@@ -39,6 +39,8 @@ Menú (`Select-Profile`):
 
 Cómo se traducen estos campos a argumentos de ffmpeg: ver "Vídeo: codificación" en [comandos.md](comandos.md).
 
+En el menú de perfiles, la opción **`X. Salir`** cierra el conversor de forma limpia.
+
 ## Perfil custom (`New-CustomProfile`)
 
 Construcción interactiva:
@@ -50,6 +52,9 @@ Construcción interactiva:
    - **Perfil** y **Level** del codec (selectores; opciones distintas para H.264 vs H.265).
    - **Control de tasa**: CRF (CPU) o QMIN/QMAX (NVENC).
 3. **Bitrate de audio**: copy / 128k / 160k / 192k / 256k / 320k / custom.
+4. **Resumen** + confirmación: `[ENTER]` usar / `[R]` rehacer.
+
+En **cualquier** pregunta del custom se puede **cancelar** con `C` o la tecla **`ESC`**: se limpia la pantalla y se vuelve al menú de perfiles (útil si te equivocaste en algún paso).
 
 ## Preguntas por archivo en PREPARAR
 
