@@ -1,5 +1,12 @@
 # ConversorVideoCMD
 
+![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-5391FE)
+![Platform](https://img.shields.io/badge/platform-Windows-0078D6)
+[![Release](https://img.shields.io/github/v/release/vsc55/ConversorVideoCMD)](https://github.com/vsc55/ConversorVideoCMD/releases)
+[![Lint](https://github.com/vsc55/ConversorVideoCMD/actions/workflows/lint.yml/badge.svg)](https://github.com/vsc55/ConversorVideoCMD/actions/workflows/lint.yml)
+![Author](https://img.shields.io/badge/author-VSC55-lightgrey)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/vsc55/ConversorVideoCMD)
+
 Conversor/recodificador de vídeo por lotes para Windows, escrito en **PowerShell 5.1**, que usa **FFmpeg** como motor. Diseño modular en `lib\` y toda la configuración en `config.json`.
 
 Recodifica a **MKV** (H.265/H.264 por GPU NVIDIA o CPU), con detección y recorte de bandas negras, selección de pistas (vídeo/audio/subtítulos, con preview), corrección de sincronía, normalización de volumen y **MKV final limpio** (sin metadatos heredados ni etiquetas `DURATION`).
