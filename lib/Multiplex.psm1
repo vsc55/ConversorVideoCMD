@@ -18,8 +18,9 @@ function Invoke-Multiplex {
     )
     $name  = [System.IO.Path]::GetFileNameWithoutExtension($File)
     $out   = Get-OutputPath $Context $name
-    $vTmp  = Join-Path $Context.Proceso ("{0}.mkv" -f $name)
-    $aTmp  = Join-Path $Context.Proceso ("{0}.m4a" -f $name)
+    $tmp   = Get-CvTempPaths -Context $Context -Name $name
+    $vTmp  = $tmp.Video
+    $aTmp  = $tmp.Audio
 
     # Fuente de video: recodificado si existe, si no el original (caso copy).
     $videoSrc = if (Test-Path -LiteralPath $vTmp) { $vTmp } else { $File }

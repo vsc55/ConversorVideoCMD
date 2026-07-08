@@ -104,7 +104,8 @@ function Invoke-AudioRun {
         [Parameter(Mandatory)][string]$File, [double]$Sync = 0, [int]$Index = 0
     )
     $name   = [System.IO.Path]::GetFileNameWithoutExtension($File)
-    $outM4a = Join-Path $Context.Proceso ("{0}.m4a" -f $name)
+    $tmp    = Get-CvTempPaths -Context $Context -Name $name
+    $outM4a = $tmp.Audio
     if (Test-Path -LiteralPath $outM4a) { Remove-Item -Force -LiteralPath $outM4a -ErrorAction SilentlyContinue }
 
     $hz = if ($Profile.AudioHz) { $Profile.AudioHz } else { $Context.DefaultAudioHz }
@@ -113,7 +114,7 @@ function Invoke-AudioRun {
     $sourceInput = $null   # args de -i para medir y para codificar
     $mapPre      = @()     # -map o filtro previo
     if ($Sync -gt 0) {
-        $wav = Join-Path $Context.Proceso ("{0}_concat.wav" -f $name)
+        $wav = $tmp.SyncWav
         if (Test-Path -LiteralPath $wav) { Remove-Item -Force -LiteralPath $wav -ErrorAction SilentlyContinue }
         $fc = ("[0:{0}]aformat=channel_layouts=stereo[a2];aevalsrc=0:d={1}:sample_rate={2}:channel_layout=stereo[sil];[sil][a2]concat=n=2:v=0:a=1[out]" -f $Index, $Sync, $hz)
         Write-CvLog 'AUDIO' ("[SYNC] - [FIX] - Generando silencio de {0}s + pista..." -f $Sync)
@@ -183,8 +184,7 @@ function Invoke-AudioRun {
     }
 
     # limpieza del wav temporal
-    $wav = Join-Path $Context.Proceso ("{0}_concat.wav" -f $name)
-    if (Test-Path -LiteralPath $wav) { Remove-Item -Force -LiteralPath $wav -ErrorAction SilentlyContinue }
+    if (Test-Path -LiteralPath $tmp.SyncWav) { Remove-Item -Force -LiteralPath $tmp.SyncWav -ErrorAction SilentlyContinue }
 
     return (Test-Path -LiteralPath $outM4a)
 }

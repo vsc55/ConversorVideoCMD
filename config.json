@@ -1,17 +1,18 @@
 {
     "downloads": {
         "ffmpeg": {
-            "selected": "8.1.2",
+            "selected": "7.1.1",
             "type": "zip",
             "url": "https://github.com/GyanD/codexffmpeg/releases/download/{version}/ffmpeg-{version}-full_build.zip",
             "binPath": "ffmpeg-{version}-full_build/bin",
             "files": ["ffmpeg.exe", "ffprobe.exe", "ffplay.exe"],
-            "dest": "tools\\x64",
+            "platform": "x86_64",
             "versionExe": "ffmpeg.exe",
-            "versionArgs": ["-version"],
+            "versionArgs": "-version",
             "versionRegex": "ffmpeg version (\\d+\\.\\d+(?:\\.\\d+)?)",
             "versions": {
                 "8.1.2": "b8cdefab5f50590a076c27c2b56b0294a0e6154faded28ba1ba05ebc4f801f57",
+                "7.1.1": "d760e1b3574402ed18b4865851f87d87e73965a982e6453212df8621fed1c508",
                 "5.1.2": "1f4056c147694228fddaeb925083338e35d952e4b65e3bd3c5a0a2c13c7800d6"
             }
         },
@@ -19,10 +20,10 @@
             "selected": "2.0.0",
             "type": "file",
             "url": "https://github.com/dgilman/aacgain/releases/download/{version}/aacgain-{version}-windows-amd64.exe",
-            "files": ["aacgain.exe"],
-            "dest": "tools",
+            "files": "aacgain.exe",
+            "platform": "x86_64",
             "versionExe": "aacgain.exe",
-            "versionArgs": ["/v"],
+            "versionArgs": "/v",
             "versionRegex": "[Vv]ersion (\\d+\\.\\d+(?:\\.\\d+)?)",
             "versions": {
                 "2.0.0": "d960cedbd274881badd3dd914475ca23bb31c27b3a5cab881ff0d1515a37371a"
@@ -30,18 +31,8 @@
         }
     },
     "languages": {
-        "audio": [
-            "es"
-        ],
-        "subtitle": [
-            "spa",
-            "es",
-            "esp",
-            "es-es",
-            "es_es",
-            "castellano",
-            "spanish"
-        ]
+        "audio": "es",
+        "subtitle": ["spa", "es", "esp", "es-es", "es_es", "castellano", "spanish"]
     },
     "encode": {
         "outputExtension": "mkv",
@@ -65,7 +56,8 @@
         "cleanTemps": true,
         "separateWindow": true,
         "lockCloseButton": true,
-        "debug": false
+        "debug": false,
+        "log": true
     },
     "console": {
         "background": "DarkBlue",

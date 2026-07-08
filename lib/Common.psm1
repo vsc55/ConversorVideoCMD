@@ -73,7 +73,7 @@ function Get-CvConfig {
         encode    = [ordered]@{ outputExtension = 'mkv'; threads = 0; fps = '23.976'; audioHz = 44100 }
         border    = [ordered]@{ start = 120; duration = 120 }
         volume    = [ordered]@{ method = 'peak'; loudnorm = [ordered]@{ I = -16; TP = -1.5; LRA = 11 } }
-        behavior  = [ordered]@{ cleanTemps = $true; separateWindow = $true; lockCloseButton = $true; debug = $false }
+        behavior  = [ordered]@{ cleanTemps = $true; separateWindow = $true; lockCloseButton = $true; debug = $false; log = $true }
         console   = [ordered]@{ background = 'DarkBlue'; foreground = 'Yellow'; font = 'Consolas'; fontSize = 18; windowWidth = 100; windowHeight = 50 }
     }
     $path = Join-Path $Root 'config.json'
@@ -88,13 +88,20 @@ function Get-CvConfig {
     return $cfg
 }
 
+function Get-CvWorkDirs {
+    <# Unica fuente de verdad de las carpetas de trabajo del proyecto (crear/comprobar). #>
+    param([Parameter(Mandatory)]$Context)
+    @($Context.Original, $Context.Proceso, $Context.Convertido, $Context.Tools, $Context.Logs)
+}
+
 function New-CvContext {
     <# Crea el objeto de contexto con rutas, herramientas y opciones (de config.json). #>
     param([Parameter(Mandatory)][string]$Root)
 
     $cfg = Get-CvConfig -Root $Root
-    $toolsX64 = Join-Path $Root 'tools\x64'
+    $plat  = Get-CvPlatform
     $ffSel = "$($cfg.downloads.ffmpeg.selected)"
+    $agSel = "$($cfg.downloads.aacgain.selected)"
 
     $ctx = [pscustomobject]@{
         Root           = $Root
@@ -102,11 +109,16 @@ function New-CvContext {
         Proceso        = Join-Path $Root 'Proceso'
         Convertido     = Join-Path $Root 'Convertido'
         Tools          = Join-Path $Root 'tools'
-        FFmpeg         = Join-Path $toolsX64 'ffmpeg.exe'
-        FFprobe        = Join-Path $toolsX64 'ffprobe.exe'
-        FFplay         = Join-Path $toolsX64 'ffplay.exe'
-        AacGain        = Join-Path $Root 'tools\aacgain.exe'
+        Logs           = Join-Path $Root 'logs'
+        # Rutas de herramientas: las rellena New-CvToolContext mas abajo (fuente unica de
+        # los nombres de exe), apuntando a la version 'selected'.
+        FFmpeg         = $null
+        FFprobe        = $null
+        FFplay         = $null
+        AacGain        = $null
         FFmpegVersion  = $ffSel
+        AacGainVersion = $agSel
+        Platform       = $plat
         Downloads      = $cfg.downloads
         VolumeMethod   = "$($cfg.volume.method)"
         LoudnormI      = $cfg.volume.loudnorm.I
@@ -127,6 +139,8 @@ function New-CvContext {
         CleanTemps     = ([bool]$cfg.behavior.cleanTemps     -and -not (Test-Path (Join-Path $Root 'keep_temp')))
         SeparateWindow = ([bool]$cfg.behavior.separateWindow -and -not (Test-Path (Join-Path $Root 'same_window')))
         LockClose      = [bool]$cfg.behavior.lockCloseButton
+        # log: transcript de la ejecucion a logs\; el marcador 'no_log' lo desactiva.
+        Log            = ([bool]$cfg.behavior.log -and -not (Test-Path (Join-Path $Root 'no_log')))
         ConsoleBackground = "$($cfg.console.background)"
         ConsoleForeground = "$($cfg.console.foreground)"
         ConsoleFont       = "$($cfg.console.font)"
@@ -136,8 +150,12 @@ function New-CvContext {
         Extensions     = @('*.avi','*.flv','*.mp4','*.mov','*.mkv')
     }
 
-    foreach ($d in @($ctx.Proceso, $ctx.Convertido)) {
-        if (-not (Test-Path $d)) { New-Item -ItemType Directory -Path $d | Out-Null }
+    # Rutas de las herramientas para la version 'selected' (fuente unica en New-CvToolContext).
+    $ctx = New-CvToolContext -Context $ctx -FFmpegVersion $ffSel -AacGainVersion $agSel
+
+    # Crear las carpetas de trabajo que falten (lista en Get-CvWorkDirs).
+    foreach ($d in (Get-CvWorkDirs -Context $ctx)) {
+        if (-not (Test-Path -LiteralPath $d)) { New-Item -ItemType Directory -Path $d | Out-Null }
     }
     return $ctx
 }
@@ -161,19 +179,6 @@ function Test-CvLanguage {
     return $false
 }
 
-function Test-CvTools {
-    <# Devuelve la lista de herramientas que faltan (vacia = todo OK). #>
-    param([Parameter(Mandatory)]$Context)
-    $missing = @()
-    foreach ($t in 'FFmpeg','FFprobe','FFplay') {
-        if (-not (Test-Path $Context.$t)) { $missing += $Context.$t }
-    }
-    # aacgain solo es necesario si el metodo de volumen es 'aacgain'.
-    if ("$($Context.VolumeMethod)".ToLower() -eq 'aacgain' -and -not (Test-Path $Context.AacGain)) {
-        $missing += $Context.AacGain
-    }
-    return $missing
-}
 
 function Set-CvWindowSize {
     <#
@@ -302,162 +307,6 @@ function Write-CvLog {
     Write-Host ("[{0}] {1}" -f $Tag, $Message)
 }
 
-function Get-CvToolInstalledVersion {
-    <#
-        Lee la version realmente instalada ejecutando la app (segun versionExe/versionArgs/
-        versionRegex del descriptor). Devuelve la version detectada o '' si no se puede leer.
-    #>
-    param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)][string]$Name)
-    $apps = $Context.Downloads
-    $app  = $null
-    if ($apps -is [System.Collections.IDictionary] -and $apps.Contains($Name)) { $app = $apps[$Name] }
-    elseif ($apps -and $apps.PSObject.Properties[$Name]) { $app = $apps.$Name }
-    if ($null -eq $app) { return '' }
-
-    $exe   = "$($app.versionExe)"
-    $regex = "$($app.versionRegex)"
-    if ([string]::IsNullOrWhiteSpace($exe) -or [string]::IsNullOrWhiteSpace($regex)) { return '' }
-    $path = Join-Path (Join-Path $Context.Root "$($app.dest)") $exe
-    if (-not (Test-Path $path)) { return '' }
-
-    $vargs = @()
-    if ($app.versionArgs) { $vargs = @($app.versionArgs) }
-    $r = Invoke-ToolCapture -Exe $path -Arguments $vargs -Context $Context
-    $text = "$($r.StdOut)`n$($r.StdErr)"
-    $m = [regex]::Match($text, $regex)
-    if ($m.Success) {
-        if ($m.Groups.Count -gt 1 -and $m.Groups[1].Success) { return $m.Groups[1].Value }
-        return $m.Value
-    }
-    return ''
-}
-
-function Select-CvToolVersion {
-    <#
-        Muestra el catalogo de versiones de una app (seccion 'downloads') y devuelve la
-        elegida. La 'selected' del config es la opcion por defecto. Devuelve '' si se cancela.
-    #>
-    param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)][string]$Name)
-    $apps = $Context.Downloads
-    $app  = $null
-    if ($apps -is [System.Collections.IDictionary] -and $apps.Contains($Name)) { $app = $apps[$Name] }
-    elseif ($apps -and $apps.PSObject.Properties[$Name]) { $app = $apps.$Name }
-    if ($null -eq $app) { return '' }
-
-    $versions = @()
-    if ($app.versions -is [System.Collections.IDictionary]) { $versions = @($app.versions.Keys) }
-    elseif ($app.versions) { $versions = @($app.versions.PSObject.Properties.Name) }
-    if ($versions.Count -eq 0) { return "$($app.selected)" }
-    if ($versions.Count -eq 1) { return "$($versions[0])" }
-
-    $sel = "$($app.selected)"
-    $defIdx = [array]::IndexOf($versions, $sel) + 1
-    if ($defIdx -lt 1) { $defIdx = 1 }
-    return (Select-FromList -Title ("Version de {0} a instalar:" -f $Name) -Options $versions -NoneLabel 'cancelar' -DefaultIndex $defIdx)
-}
-
-function Install-CvTool {
-    <#
-        Descarga e instala una app del catalogo 'downloads' del config: descarga el zip de
-        la version seleccionada, verifica el SHA256 (si hay), extrae y copia los ficheros
-        indicados a su carpeta destino. Generico: sirve para ffmpeg u otras apps.
-        Devuelve $true si quedan todos los ficheros instalados.
-    #>
-    param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)][string]$Name, [string]$Version = '')
-    $tag  = "[{0}]" -f $Name.ToUpper()
-    $apps = $Context.Downloads
-    $app  = $null
-    if ($apps -is [System.Collections.IDictionary] -and $apps.Contains($Name)) { $app = $apps[$Name] }
-    elseif ($apps -and $apps.PSObject.Properties[$Name]) { $app = $apps.$Name }
-    if ($null -eq $app) { Write-CvLog 'GLOBAL' ("{0} - [ERR] - No hay descriptor de descarga para '{1}'" -f $tag, $Name); return $false }
-
-    $ver = if (-not [string]::IsNullOrWhiteSpace($Version)) { $Version } else { "$($app.selected)" }
-    if ([string]::IsNullOrWhiteSpace($ver)) { Write-CvLog 'GLOBAL' ("{0} - [ERR] - Version no seleccionada" -f $tag); return $false }
-    $url    = ("$($app.url)")     -replace '\{version\}', $ver
-    $binRel = ("$($app.binPath)") -replace '\{version\}', $ver
-    $files  = @($app.files)
-    $destDir = Join-Path $Context.Root ("$($app.dest)")
-
-    # SHA del catalogo de versiones.
-    $versions = $app.versions
-    $sha = ''
-    if ($versions -is [System.Collections.IDictionary]) { if ($versions.Contains($ver)) { $sha = "$($versions[$ver])" } }
-    elseif ($versions -and $versions.PSObject.Properties[$ver]) { $sha = "$($versions.$ver)" }
-
-    if (-not (Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir -Force | Out-Null }
-    $tmp = Join-Path $env:TEMP ("cv_dl_{0}_{1}" -f $Name, $ver)
-    if (Test-Path $tmp) { Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue }
-    New-Item -ItemType Directory -Path $tmp -Force | Out-Null
-    # Tipo de descarga: 'zip' (extrae) o 'file' (ejecutable directo). Por defecto 'zip'.
-    $type = "$($app.type)"; if ([string]::IsNullOrWhiteSpace($type)) { $type = 'zip' }
-    $dl = Join-Path $tmp $(if ($type -eq 'zip') { 'pkg.zip' } else { 'pkg.dat' })
-
-    Write-CvLog 'GLOBAL' ("{0} - Descargando {1} {2} (puede tardar)..." -f $tag, $Name, $ver)
-    Write-CvLog 'GLOBAL' ("{0} - {1}" -f $tag, $url)
-    try { [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 } catch {}
-    $oldPref = $ProgressPreference
-    $ProgressPreference = 'SilentlyContinue'
-    try {
-        Invoke-WebRequest -Uri $url -OutFile $dl -UseBasicParsing
-    } catch {
-        Write-CvLog 'GLOBAL' ("{0} - [ERR] - No se pudo descargar: {1}" -f $tag, $_.Exception.Message)
-        $ProgressPreference = $oldPref
-        Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
-        return $false
-    }
-    $ProgressPreference = $oldPref
-    if (-not (Test-Path $dl)) { Write-CvLog 'GLOBAL' ("{0} - [ERR] - No se descargo el fichero" -f $tag); return $false }
-
-    if (-not [string]::IsNullOrWhiteSpace($sha)) {
-        $got = (Get-FileHash -Path $dl -Algorithm SHA256).Hash
-        if ($got.ToUpper() -ne $sha.Trim().ToUpper()) {
-            Write-CvLog 'GLOBAL' ("{0} - [ERR] - SHA256 no coincide." -f $tag)
-            Write-CvLog 'GLOBAL' ("{0} -   esperado: {1}" -f $tag, $sha)
-            Write-CvLog 'GLOBAL' ("{0} -   obtenido: {1}" -f $tag, $got)
-            Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
-            return $false
-        }
-        Write-CvLog 'GLOBAL' ("{0} - SHA256 verificado [OK]" -f $tag)
-    } else {
-        Write-CvLog 'GLOBAL' ("{0} - [AVISO] - Sin SHA256 para la version {1}, se omite la verificacion" -f $tag, $ver)
-    }
-
-    $ok = $true
-    if ($type -eq 'file') {
-        # Ejecutable directo: se copia (renombrando) al destino.
-        $target = if ($files.Count -ge 1) { $files[0] } else { Split-Path $url -Leaf }
-        try { Copy-Item -Force -Path $dl -Destination (Join-Path $destDir $target) }
-        catch { Write-CvLog 'GLOBAL' ("{0} - [ERR] - No se pudo copiar: {1}" -f $tag, $_.Exception.Message); $ok = $false }
-    } else {
-        Write-CvLog 'GLOBAL' ("{0} - Extrayendo..." -f $tag)
-        try { Expand-Archive -Path $dl -DestinationPath $tmp -Force }
-        catch {
-            Write-CvLog 'GLOBAL' ("{0} - [ERR] - No se pudo extraer: {1}" -f $tag, $_.Exception.Message)
-            Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
-            return $false
-        }
-        # Carpeta con los binarios dentro del zip; si no esta, se busca cada fichero.
-        $bin = if ([string]::IsNullOrWhiteSpace($binRel)) { $tmp } else { Join-Path $tmp $binRel }
-        foreach ($file in $files) {
-            $src = Join-Path $bin $file
-            if (-not (Test-Path $src)) {
-                $alt = Get-ChildItem -Path $tmp -Recurse -File -Filter $file -ErrorAction SilentlyContinue | Select-Object -First 1
-                if ($alt) { $src = $alt.FullName }
-            }
-            if (Test-Path $src) { Copy-Item -Force -Path $src -Destination (Join-Path $destDir $file) }
-            else { Write-CvLog 'GLOBAL' ("{0} - [ERR] - No se encontro {1} en el paquete" -f $tag, $file); $ok = $false }
-        }
-    }
-    Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
-
-    if ($ok) {
-        $iv = Get-CvToolInstalledVersion -Context $Context -Name $Name
-        if ($iv) { Write-CvLog 'GLOBAL' ("{0} - [OK] - {1} instalado en {2} (version detectada: {3})" -f $tag, $Name, $destDir, $iv) }
-        else     { Write-CvLog 'GLOBAL' ("{0} - [OK] - {1} {2} instalado en {3}" -f $tag, $Name, $ver, $destDir) }
-    }
-    return $ok
-}
-
 function Write-CvDebug {
     param([Parameter(Mandatory)]$Context, [string]$Message)
     if ($Context.Debug) { Write-Host ("[DEBUG] {0}" -f $Message) -ForegroundColor DarkGray }
@@ -583,21 +432,29 @@ function Remove-CvJob {
     if (Test-Path -LiteralPath $f) { Remove-Item -Force -LiteralPath $f -ErrorAction SilentlyContinue }
 }
 
+function Get-CvTempPaths {
+    <#
+        UNICA FUENTE de los nombres de los ficheros temporales de un archivo en Proceso.
+        La usan los que los crean (Video/Audio/Multiplex) y el que los limpia (Remove-CvTemps).
+    #>
+    param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)][string]$Name)
+    [pscustomobject]@{
+        Video   = Join-Path $Context.Proceso ("{0}.mkv" -f $Name)           # video recodificado temporal
+        Audio   = Join-Path $Context.Proceso ("{0}.m4a" -f $Name)           # audio recodificado temporal
+        SyncWav = Join-Path $Context.Proceso ("{0}_concat.wav" -f $Name)    # wav de sincronizacion (silencio + audio)
+        JobTmp  = Join-Path $Context.Proceso ("{0}.job.json.tmp" -f $Name)  # job a medio escribir (si quedo colgado)
+    }
+}
+
 function Remove-CvTemps {
     <#
         Borra los ficheros temporales de un archivo en Proceso.
-        Usa nombres EXACTOS (no comodines) para no tocar temporales de otro archivo
+        Usa rutas EXACTAS (no comodines) para no tocar temporales de otro archivo
         cuyo nombre empiece igual (ej "Peli" vs "Peli 2").
     #>
     param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)][string]$Name)
-    $temps = @(
-        "$Name.mkv",              # video recodificado temporal
-        "$Name.m4a",              # audio recodificado temporal
-        "${Name}_concat.wav",     # wav de sincronizacion (silencio + audio)
-        "$Name.job.json.tmp"      # job a medio escribir (si quedo colgado)
-    )
-    foreach ($t in $temps) {
-        $p = Join-Path $Context.Proceso $t
+    $tmp = Get-CvTempPaths -Context $Context -Name $Name
+    foreach ($p in @($tmp.Video, $tmp.Audio, $tmp.SyncWav, $tmp.JobTmp)) {
         if (Test-Path -LiteralPath $p) { Remove-Item -Force -LiteralPath $p -ErrorAction SilentlyContinue }
     }
 }

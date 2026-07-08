@@ -1,5 +1,5 @@
 <#
-    LimpiarBorde.ps1 - Conversor de video por lotes (modelo preparar/procesar).
+    Convert.ps1 - Conversor de video por lotes (modelo preparar/procesar).
     Version 4.0 - Migracion a PowerShell 5.1 del antiguo LimpiarBorde.cmd, modular en lib\.
 
     FLUJO:
@@ -23,11 +23,19 @@ try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 
 $Root = $PSScriptRoot
 $Lib  = Join-Path $Root 'lib'
-foreach ($m in 'Common','MediaInfo','Profile','Video','Audio','Subtitle','Multiplex') {
+foreach ($m in 'Common','Tools','MediaInfo','Profile','Video','Audio','Subtitle','Multiplex') {
     Import-Module (Join-Path $Lib ("{0}.psm1" -f $m)) -Force
 }
 
 $ctx = New-CvContext -Root $Root
+
+# Log de la ejecucion (transcript) a logs\. Se desactiva con behavior.log=false o el
+# marcador 'no_log'. Cada ventana/worker crea su propio fichero (fecha + PID).
+$cvTranscript = $false
+if ($ctx.Log) {
+    $logFile = Join-Path $ctx.Logs ("Convert_{0}_{1}.log" -f (Get-Date -Format 'yyyyMMdd_HHmmss'), $PID)
+    try { Start-Transcript -LiteralPath $logFile -Append -ErrorAction Stop | Out-Null; $cvTranscript = $true } catch {}
+}
 
 # Colores, fuente, tamano y titulo de la ventana (config.json).
 Set-CvAppearance -Context $ctx -Title ("ConversorVideoCMD {0}" -f $CvVersion)
@@ -39,24 +47,37 @@ $sepLine = ('=' * 64)
 # Si faltan herramientas, ofrecer descargarlas. $didInstall marca si se instalo algo.
 $didInstall = $false
 
-# ffmpeg (siempre necesario).
-$ffMissing = @('FFmpeg','FFprobe','FFplay' | Where-Object { -not (Test-Path $ctx.$_) })
-if ($ffMissing.Count -gt 0) {
-    Write-CvLog 'GLOBAL' ("[FFMPEG] - No se encontro ffmpeg/ffprobe/ffplay en {0}" -f (Split-Path $ctx.FFmpeg))
+# ffmpeg (siempre necesario): debe existir la version 'selected'.
+if (-not (Test-CvToolInstalled -Context $ctx -Name 'ffmpeg' -Version $ctx.FFmpegVersion)) {
+    if (-not (Test-CvToolSupported -Context $ctx -Name 'ffmpeg')) {
+        Write-Host ("ERROR: ffmpeg no tiene build para la plataforma de este equipo ({0})." -f $ctx.Platform) -ForegroundColor Red
+        exit 1
+    }
+    Write-CvLog 'GLOBAL' ("[FFMPEG] - Falta la version {0}." -f $ctx.FFmpegVersion)
     $ffVer = Select-CvToolVersion -Context $ctx -Name 'ffmpeg'
     if (-not [string]::IsNullOrWhiteSpace($ffVer)) {
-        if (Install-CvTool -Context $ctx -Name 'ffmpeg' -Version $ffVer) { $didInstall = $true }
+        if (Install-CvTool -Context $ctx -Name 'ffmpeg' -Version $ffVer) {
+            $didInstall = $true
+            $ctx = New-CvToolContext -Context $ctx -FFmpegVersion $ffVer   # usar la version instalada
+        }
     } else {
         Write-CvLog 'GLOBAL' '[FFMPEG] - Descarga cancelada.'
     }
 }
 
 # aacgain (solo si el metodo de volumen es 'aacgain').
-if ("$($ctx.VolumeMethod)".ToLower() -eq 'aacgain' -and -not (Test-Path $ctx.AacGain)) {
-    Write-CvLog 'GLOBAL' ("[AACGAIN] - No se encontro aacgain.exe en {0}" -f (Split-Path $ctx.AacGain))
+if ("$($ctx.VolumeMethod)".ToLower() -eq 'aacgain' -and -not (Test-CvToolInstalled -Context $ctx -Name 'aacgain' -Version $ctx.AacGainVersion)) {
+    if (-not (Test-CvToolSupported -Context $ctx -Name 'aacgain')) {
+        Write-Host ("ERROR: aacgain no tiene build para la plataforma de este equipo ({0})." -f $ctx.Platform) -ForegroundColor Red
+        exit 1
+    }
+    Write-CvLog 'GLOBAL' ("[AACGAIN] - Falta la version {0}." -f $ctx.AacGainVersion)
     $agVer = Select-CvToolVersion -Context $ctx -Name 'aacgain'
     if (-not [string]::IsNullOrWhiteSpace($agVer)) {
-        if (Install-CvTool -Context $ctx -Name 'aacgain' -Version $agVer) { $didInstall = $true }
+        if (Install-CvTool -Context $ctx -Name 'aacgain' -Version $agVer) {
+            $didInstall = $true
+            $ctx = New-CvToolContext -Context $ctx -AacGainVersion $agVer
+        }
     } else {
         Write-CvLog 'GLOBAL' '[AACGAIN] - Descarga cancelada.'
     }
@@ -65,7 +86,7 @@ if ("$($ctx.VolumeMethod)".ToLower() -eq 'aacgain' -and -not (Test-Path $ctx.Aac
 $missing = Test-CvTools -Context $ctx
 if ($missing.Count -gt 0) {
     # Si algo falta (o una descarga fallo) se deja el error en pantalla, no se limpia.
-    Write-Host 'ERROR: faltan herramientas en tools\:' -ForegroundColor Red
+    Write-Host 'ERROR: faltan herramientas:' -ForegroundColor Red
     $missing | ForEach-Object { Write-Host ("  - {0}" -f $_) -ForegroundColor Red }
     exit 1
 }
@@ -73,11 +94,13 @@ if ($missing.Count -gt 0) {
 # Si se instalo algo y todo fue bien, limpiar la pantalla para dejarla despejada.
 if ($didInstall) { Clear-Host }
 
-# Versiones realmente instaladas (leidas de las propias apps).
-$ffInstalled = Get-CvToolInstalledVersion -Context $ctx -Name 'ffmpeg'
-if ($ffInstalled) { Write-CvLog 'GLOBAL' ("[FFMPEG] - Version instalada: {0}" -f $ffInstalled) }
-$agInstalled = Get-CvToolInstalledVersion -Context $ctx -Name 'aacgain'
-if ($agInstalled) { Write-CvLog 'GLOBAL' ("[AACGAIN] - Version instalada: {0}" -f $agInstalled) }
+# Version en uso (leida de la propia app de la version seleccionada).
+$ffInstalled = Get-CvToolInstalledVersion -Context $ctx -Name 'ffmpeg' -Version $ctx.FFmpegVersion
+if ($ffInstalled) { Write-CvLog 'GLOBAL' ("[FFMPEG] - Version en uso: {0}" -f $ffInstalled) }
+if ("$($ctx.VolumeMethod)".ToLower() -eq 'aacgain') {
+    $agInstalled = Get-CvToolInstalledVersion -Context $ctx -Name 'aacgain' -Version $ctx.AacGainVersion
+    if ($agInstalled) { Write-CvLog 'GLOBAL' ("[AACGAIN] - Version en uso: {0}" -f $agInstalled) }
+}
 
 function Get-SourceFiles {
     param($Context)
@@ -100,7 +123,11 @@ if ($files.Count -eq 0) {
 # Bloquear el boton X de la ventana para no cerrarla por error a mitad de proceso.
 # El trap garantiza reactivarlo si algo falla; tambien se reactiva al terminar bien.
 if ($ctx.LockClose) { Set-CvCloseButton -Enabled $false }
-trap { if ($ctx.LockClose) { try { Set-CvCloseButton -Enabled $true } catch {} } ; break }
+trap {
+    if ($ctx.LockClose) { try { Set-CvCloseButton -Enabled $true } catch {} }
+    if ($cvTranscript)  { try { Stop-Transcript | Out-Null } catch {} }
+    break
+}
 
 $needPrepare = $false
 foreach ($f in $files) {
@@ -149,13 +176,16 @@ if ($needPrepare) {
         Write-Host ''
         $subSel = Select-Subtitles -Context $ctx -Info $info
 
-        # Congelar el perfil + las respuestas en el job (autosuficiente para el worker).
+        # Congelar el perfil + las respuestas + las versiones de herramientas en el job
+        # (autosuficiente: el worker usara estas versiones y las instalara si faltan).
         $job = [ordered]@{
-            file      = $f.FullName
-            profile   = $cfgProfile
-            video     = @{ skip = $vAsk.Skip; crop = $vAsk.Crop; resize = $vAsk.Resize; anim = $vAsk.Anim }
-            audio     = @{ skip = $aAsk.Skip; index = $aAsk.Index; is51 = $aAsk.Is51; sync = $aAsk.Sync }
-            subtitles = @($subSel)
+            file           = $f.FullName
+            profile        = $cfgProfile
+            ffmpegVersion  = $ctx.FFmpegVersion
+            aacgainVersion = $ctx.AacGainVersion
+            video          = @{ skip = $vAsk.Skip; crop = $vAsk.Crop; resize = $vAsk.Resize; anim = $vAsk.Anim }
+            audio          = @{ skip = $aAsk.Skip; index = $aAsk.Index; is51 = $aAsk.Is51; sync = $aAsk.Sync }
+            subtitles      = @($subSel)
         }
         Write-CvJob -Context $ctx -Name $name -Job $job
         Write-Host ''
@@ -170,18 +200,21 @@ if ($needPrepare) {
 Write-Host ''
 Write-CvLog 'GLOBAL' '[WORKER] - Buscando archivos preparados para codificar...'
 
+# Archivos que no se pueden procesar (p.ej. no se pudo instalar su ffmpeg): no reintentar.
+$skip = New-Object 'System.Collections.Generic.HashSet[string]'
+
 $didAny = $true
 while ($didAny) {
     $didAny = $false
     foreach ($f in (Get-SourceFiles -Context $ctx)) {
         $name = $f.BaseName
+        if ($skip.Contains($name)) { continue }                        # marcado como no procesable
         $out  = Get-OutputPath $ctx $name
         if (Test-Path -LiteralPath $out) { continue }                       # ya hecho
         if (-not (Test-CvJob -Context $ctx -Name $name)) { continue }  # sin preparar
 
         # Reclamo atomico
         if (-not (Enter-Lock -Context $ctx -Name $name)) { continue }  # lo tiene otro worker
-        $didAny = $true
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
         try {
             Write-Host ''
@@ -192,26 +225,44 @@ while ($didAny) {
 
             $job  = Read-CvJob -Context $ctx -Name $name
             $prof = $job.profile
-            $info = Get-MediaInfo -Context $ctx -File $f.FullName
+
+            # Versiones de herramientas fijadas en el job (fallback a la del contexto).
+            $ffVer = "$($job.ffmpegVersion)";  if ([string]::IsNullOrWhiteSpace($ffVer)) { $ffVer = $ctx.FFmpegVersion }
+            $agVer = "$($job.aacgainVersion)"; if ([string]::IsNullOrWhiteSpace($agVer)) { $agVer = $ctx.AacGainVersion }
+
+            # Asegurar ffmpeg de la version del job (se instala si falta). Si no se puede,
+            # se marca para no reintentar en bucle y se pasa al siguiente.
+            if (-not (Confirm-CvTool -Context $ctx -Name 'ffmpeg' -Version $ffVer)) {
+                Write-CvLog 'WORKER' ("[ERR] - No se pudo obtener ffmpeg {0}; se omite este archivo" -f $ffVer)
+                [void]$skip.Add($name); continue
+            }
+            $didAny = $true
+            $jctx = New-CvToolContext -Context $ctx -FFmpegVersion $ffVer -AacGainVersion $agVer
+            Write-CvLog 'WORKER' ("[INFO] - ffmpeg {0}" -f $ffVer)
+            if ("$($jctx.VolumeMethod)".ToLower() -eq 'aacgain' -and -not (Confirm-CvTool -Context $ctx -Name 'aacgain' -Version $agVer)) {
+                Write-CvLog 'WORKER' ("[AVISO] - No se pudo obtener aacgain {0}; el ajuste de volumen se omitira" -f $agVer)
+            }
+
+            $info = Get-MediaInfo -Context $jctx -File $f.FullName
             if ($null -eq $info) { Write-CvLog 'WORKER' '[ERR] - No se pudo leer el archivo'; continue }
 
             # ---------- AUDIO ----------
             Write-Host ''
             if ($job.audio.skip) { Write-CvLog 'AUDIO' '[SKIP] - se omite (copy/omitido)' }
             else {
-                [void](Invoke-AudioRun -Context $ctx -Profile $prof -File $f.FullName -Sync ([double]$job.audio.sync) -Index ([int]$job.audio.index))
+                [void](Invoke-AudioRun -Context $jctx -Profile $prof -File $f.FullName -Sync ([double]$job.audio.sync) -Index ([int]$job.audio.index))
             }
 
             # ---------- VIDEO ----------
             Write-Host ''
             if ($job.video.skip) { Write-CvLog 'VIDEO' '[SKIP] - se omite (copy)' }
             else {
-                [void](Invoke-VideoRun -Context $ctx -Profile $prof -File $f.FullName -Crop $job.video.crop -Resize $job.video.resize -Anim ([bool]$job.video.anim))
+                [void](Invoke-VideoRun -Context $jctx -Profile $prof -File $f.FullName -Crop $job.video.crop -Resize $job.video.resize -Anim ([bool]$job.video.anim))
             }
 
             # ---------- MULTIPLEX ----------
             Write-Host ''
-            $ok = Invoke-Multiplex -Context $ctx -File $f.FullName -Info $info -VideoSkipped ([bool]$job.video.skip) -AudioSkipped ([bool]$job.audio.skip) -Subtitles $job.subtitles
+            $ok = Invoke-Multiplex -Context $jctx -File $f.FullName -Info $info -VideoSkipped ([bool]$job.video.skip) -AudioSkipped ([bool]$job.audio.skip) -Subtitles $job.subtitles
 
             if ($ok) {
                 # limpieza de temporales (activable/desactivable con el marcador 'keep_temp')
@@ -224,7 +275,7 @@ while ($didAny) {
                 $sw.Stop()
                 Write-Host ''
                 Write-CvLog 'WORKER' ("[OK] - Finalizado: {0}" -f $name)
-                Write-ConversionSummary -Context $ctx -File $f.FullName -Info $info -Output $out -Elapsed $sw.Elapsed
+                Write-ConversionSummary -Context $jctx -File $f.FullName -Info $info -Output $out -Elapsed $sw.Elapsed
             } else {
                 Write-Host ''
                 Write-CvLog 'WORKER' ("[ERR] - No se genero la salida, se reintentara: {0}" -f $name)
@@ -241,3 +292,6 @@ Write-CvLog 'GLOBAL' '[END] - No quedan archivos libres por procesar'
 
 # Reactivar el boton X al terminar.
 if ($ctx.LockClose) { Set-CvCloseButton -Enabled $true }
+
+# Cerrar el log de la ejecucion.
+if ($cvTranscript) { try { Stop-Transcript | Out-Null } catch {} }

@@ -204,7 +204,7 @@ function Invoke-VideoRun {
         [string]$Crop = '', [string]$Resize = '', [bool]$Anim = $false
     )
     $name = [System.IO.Path]::GetFileNameWithoutExtension($File)
-    $outTmp = Join-Path $Context.Proceso ("{0}.mkv" -f $name)
+    $outTmp = (Get-CvTempPaths -Context $Context -Name $name).Video
     if (Test-Path -LiteralPath $outTmp) { Remove-Item -Force -LiteralPath $outTmp -ErrorAction SilentlyContinue }
 
     # filtro de video

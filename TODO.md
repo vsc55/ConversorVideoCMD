@@ -22,4 +22,4 @@ elegir una sola. Sería simétrico con cómo se tratan hoy los subtítulos.
 2. Si hay 2+ pistas del MISMO idioma: ¿preguntar cuál (menú), mantener todas, o la mejor de cada idioma?
 
 **Archivos que tocaría:** `lib/MediaInfo.psm1` (selección), `lib/Audio.psm1` (ASK/RUN),
-`lib/Multiplex.psm1` (mapeo), `LimpiarBorde.ps1` (job con lista de pistas de audio).
+`lib/Multiplex.psm1` (mapeo), `Convert.ps1` (job con lista de pistas de audio).
