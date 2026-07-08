@@ -74,3 +74,7 @@ La documentación técnica y detallada (cómo trabaja, flujos, diagramas y **los
 - [Herramientas](docs/herramientas.md) — versiones, plataforma, descargas y `setup`.
 - [Jobs](docs/jobs.md) — formato del job, lock y temporales.
 - [Pruebas](docs/pruebas.md) — muestras de test, batería del pipeline y fuentes/licencias.
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=vsc55/ConversorVideoCMD&type=Date)](https://star-history.com/#vsc55/ConversorVideoCMD&Date)
