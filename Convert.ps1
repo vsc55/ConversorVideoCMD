@@ -34,12 +34,9 @@ foreach ($m in $modules) {
 }
 
 # Resolver el fichero de config (-Config): relativo al directorio actual; vacio = Root\config.json.
-$cfgPath = ''
-if (-not [string]::IsNullOrWhiteSpace($Config)) {
-    $cfgPath = if ([System.IO.Path]::IsPathRooted($Config)) { $Config } else { Join-Path (Get-Location).Path $Config }
-    if (-not (Test-Path -LiteralPath $cfgPath)) {
-        Write-Host ("AVISO: no existe el config indicado ({0}); se usan los valores por defecto." -f $cfgPath) -ForegroundColor Yellow
-    }
+$cfgPath = Resolve-CvConfigPathArg -Root $Root -Config $Config
+if (-not [string]::IsNullOrWhiteSpace($Config) -and -not (Test-Path -LiteralPath $cfgPath)) {
+    Write-Host ("AVISO: no existe el config indicado ({0}); se usan los valores por defecto." -f $cfgPath) -ForegroundColor Yellow
 }
 
 $ctx = New-CvContext -Root $Root -ConfigPath $cfgPath
@@ -320,9 +317,10 @@ if ($needPrepare) {
     $extra = $nw - 1
     if ($extra -gt 0) {
         $cmdPath = Join-Path $Root 'Convert.cmd'
-        # Los workers extra heredan el mismo -Config (ruta absoluta ya resuelta).
+        # Los workers extra heredan el mismo -Config (ruta absoluta ya resuelta), solo si el
+        # usuario lo indico (sin -Config cada ventana resuelve su config.json por defecto).
         $wArgs = @('-WorkerOnly')
-        if (-not [string]::IsNullOrWhiteSpace($cfgPath)) { $wArgs += @('-Config', ('"{0}"' -f $cfgPath)) }
+        if (-not [string]::IsNullOrWhiteSpace($Config)) { $wArgs += @('-Config', ('"{0}"' -f $cfgPath)) }
         $opened = 0
         for ($i = 1; $i -le $extra; $i++) {
             try { Start-Process -FilePath $cmdPath -ArgumentList $wArgs -WorkingDirectory $Root | Out-Null; $opened++ }

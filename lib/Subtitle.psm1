@@ -51,13 +51,8 @@ function Show-SubtitlePreview {
         [Parameter(Mandatory)]$Context, [Parameter(Mandatory)][string]$File,
         [int]$SubPos, [string]$Label = 'SUBTITULO', [int]$Seconds = -1, [int]$Start = -1, [double]$Duration = 0
     )
-    $start = if ($Start -ge 0) { $Start } else { [int]$Context.PreviewStart }
-    $start = Get-CvSafeStart -Start $start -Duration $Duration -Window 1
-    if ($Seconds -lt 0) { $Seconds = [int]$Context.PreviewSeconds }
-    $ffArgs = @('-hide_banner','-loglevel','error','-ss', "$start", '-t', "$Seconds", '-autoexit', '-sst', ("s:{0}" -f $SubPos))
-    $ffArgs += @('-window_title', $Label, $File)
     Write-CvLog 'SUB' ("[TEST] - Reproduciendo con {0}; se cierra solo o pulsa ESC/Q" -f $Label) -Indent 3
-    Invoke-ToolShow -Exe $Context.FFplay -Arguments $ffArgs -Context $Context -Preview | Out-Null
+    Invoke-CvPreview -Context $Context -File $File -ExtraArgs @('-sst', ("s:{0}" -f $SubPos)) -Label $Label -Start $Start -Seconds $Seconds -Duration $Duration
 }
 
 function Select-SubtitleInteractive {
@@ -82,12 +77,10 @@ function Select-SubtitleInteractive {
         if ($a -eq '') { $a = "$DefaultIndex" }
 
         # Reproducir el video con el subtitulo N superpuesto; 3er numero = segundo de inicio.
-        $mPlay = [regex]::Match($a, '^[Pp]\s*(\d+)(?:\s+(\d+))?$')
-        if ($mPlay.Success) {
-            $pi = [int]$mPlay.Groups[1].Value
-            $st = if ($mPlay.Groups[2].Success) { [int]$mPlay.Groups[2].Value } else { -1 }
-            $m = $Subs | Where-Object { [int]$_.index -eq $pi } | Select-Object -First 1
-            if ($m) { Show-SubtitlePreview -Context $Context -File $File -SubPos (Get-SubtitleStreamPos -Info $Info -Index $pi) -Label ("SUBTITULO {0}" -f $pi) -Start $st -Duration $Duration }
+        $play = ConvertFrom-CvPlayCommand $a
+        if ($play) {
+            $m = $Subs | Where-Object { [int]$_.index -eq $play.Index } | Select-Object -First 1
+            if ($m) { Show-SubtitlePreview -Context $Context -File $File -SubPos (Get-SubtitleStreamPos -Info $Info -Index $play.Index) -Label ("SUBTITULO {0}" -f $play.Index) -Start $play.Start -Duration $Duration }
             else { Write-Host '   Indice no valido.' -ForegroundColor Yellow }
             continue
         }

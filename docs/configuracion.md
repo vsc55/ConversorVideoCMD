@@ -35,7 +35,7 @@ Esquema completo (tras la fusión con los defaults):
   "encode":      { "outputExtension": "mkv", "extensions": ["avi","flv","mp4","mov","mkv"], "threads": 0, "fps": "23.976", "audioHz": 44100, "audioChannels": 2 },
   "border":      { "start": 120, "duration": 120 },
   "preview":     { "start": 120, "seconds": 30 },
-  "volume":      { "method": "peak", "loudnorm": { "I": -16, "TP": -1.5, "LRA": 11 } },
+  "volume":      { "method": "peak", "peakTarget": 0, "loudnorm": { "I": -16, "TP": -1.5, "LRA": 11 } },
   "postprocess": { "stripTags": true, "mkvpropedit": "", "attachments": { "keep": false, "fonts": true, "covers": false, "other": false } },
   "behavior":    { "cleanTemps": true, "separateWindow": true, "lockCloseButton": true, "debug": false, "log": true, "workers": 2, "retries": 2 },
   "console":     { "background": "DarkBlue", "foreground": "Yellow", "font": "Cascadia Code", "fontSize": 18, "windowWidth": 150, "windowHeight": 40 },
@@ -104,6 +104,7 @@ Reproducción con ffplay en PREPARAR (previews de **pista de audio**, **pista de
 | Clave | Valores | Uso |
 |---|---|---|
 | `method` | `peak` / `loudnorm` / `aacgain` | Método de normalización (ver "Audio" en [comandos.md](comandos.md)). |
+| `peakTarget` | `0` | Pico objetivo (dBFS) del método `peak`: `0` = máximo sin recorte; `-1` deja margen (*headroom*) contra el clipping inter-sample del AAC. Solo amplifica (si el pico ya supera el objetivo, no atenúa). Se limita a ≤ 0. |
 | `loudnorm.I` | ej. `-16` | Integrated loudness (LUFS) — solo `loudnorm`. |
 | `loudnorm.TP` | ej. `-1.5` | True peak (dBTP). |
 | `loudnorm.LRA` | ej. `11` | Loudness range (LU). |

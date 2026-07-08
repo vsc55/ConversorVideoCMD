@@ -32,13 +32,7 @@ foreach ($m in $modules) {
 }
 
 # Resolver el fichero de config (-Config): relativo al directorio actual; vacio = Root\config.json.
-$CfgPath = if ([string]::IsNullOrWhiteSpace($Config)) {
-    Join-Path $Root 'config.json'
-} elseif ([System.IO.Path]::IsPathRooted($Config)) {
-    $Config
-} else {
-    Join-Path (Get-Location).Path $Config
-}
+$CfgPath = Resolve-CvConfigPathArg -Root $Root -Config $Config
 
 $ctx = New-CvContext -Root $Root -ConfigPath $CfgPath
 Set-CvMarkStyle -Ascii $ctx.AsciiMarks   # [OK]/[ERROR] en vez de simbolos si behavior.asciiMarks

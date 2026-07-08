@@ -37,15 +37,11 @@ function Show-AudioPreview {
         [Parameter(Mandatory)]$Context, [Parameter(Mandatory)][string]$File,
         [int]$AudioPos, [string]$Label = 'AUDIO', [switch]$AudioOnly, [int]$Seconds = -1, [int]$Start = -1, [double]$Duration = 0
     )
-    $start = if ($Start -ge 0) { $Start } else { [int]$Context.PreviewStart }
-    $start = Get-CvSafeStart -Start $start -Duration $Duration -Window 1
-    if ($Seconds -lt 0) { $Seconds = [int]$Context.PreviewSeconds }
-    $ffArgs = @('-hide_banner','-loglevel','error','-ss', "$start", '-t', "$Seconds", '-autoexit', '-ast', ("a:{0}" -f $AudioPos))
-    if ($AudioOnly) { $ffArgs += '-nodisp' }
-    $ffArgs += @('-window_title', $Label, $File)
+    $extra = @('-ast', ("a:{0}" -f $AudioPos))
+    if ($AudioOnly) { $extra += '-nodisp' }
     $modo = if ($AudioOnly) { 'solo audio' } else { 'video + audio' }
     Write-CvLog 'AUDIO' ("[TEST] - Reproduciendo {0} ({1}); se cierra solo o pulsa ESC/Q" -f $Label, $modo) -Indent 3
-    Invoke-ToolShow -Exe $Context.FFplay -Arguments $ffArgs -Context $Context -Preview | Out-Null
+    Invoke-CvPreview -Context $Context -File $File -ExtraArgs $extra -Label $Label -Start $Start -Seconds $Seconds -Duration $Duration
 }
 
 function Select-AudioInteractive {
@@ -77,13 +73,10 @@ function Select-AudioInteractive {
         if ($a -eq '') { $a = "$DefaultIndex" }
 
         # Reproducir para revisar: 'P N' (video+audio) o 'A N' (solo audio); 3er numero opcional.
-        $mPlay = [regex]::Match($a, '^([PpAa])\s*(\d+)(?:\s+(\d+))?$')
-        if ($mPlay.Success) {
-            $pi = [int]$mPlay.Groups[2].Value
-            $st = if ($mPlay.Groups[3].Success) { [int]$mPlay.Groups[3].Value } else { -1 }
-            if ($posByIndex.ContainsKey($pi)) {
-                $audioOnly = ($mPlay.Groups[1].Value -match '^[Aa]$')
-                Show-AudioPreview -Context $Context -File $File -AudioPos $posByIndex[$pi] -Label ("PISTA {0}" -f $pi) -AudioOnly:$audioOnly -Start $st -Duration $Duration
+        $play = ConvertFrom-CvPlayCommand $a -AllowAudioOnly
+        if ($play) {
+            if ($posByIndex.ContainsKey($play.Index)) {
+                Show-AudioPreview -Context $Context -File $File -AudioPos $posByIndex[$play.Index] -Label ("PISTA {0}" -f $play.Index) -AudioOnly:$play.AudioOnly -Start $play.Start -Duration $Duration
             } else { Write-Host '   Indice no valido.' -ForegroundColor Yellow }
             continue
         }
@@ -129,13 +122,10 @@ function Select-AudioFallback {
 
         # Reproducir para revisar: 'P N' (video+audio) o 'A N' (solo audio); 3er numero = segundo
         # de inicio opcional (para buscar dialogo cuando el punto por defecto no tiene voces).
-        $mPlay = [regex]::Match($a, '^([PpAa])\s*(\d+)(?:\s+(\d+))?$')
-        if ($mPlay.Success) {
-            $pi = [int]$mPlay.Groups[2].Value
-            $st = if ($mPlay.Groups[3].Success) { [int]$mPlay.Groups[3].Value } else { -1 }
-            if ($posByIndex.ContainsKey($pi)) {
-                $audioOnly = ($mPlay.Groups[1].Value -match '^[Aa]$')
-                Show-AudioPreview -Context $Context -File $File -AudioPos $posByIndex[$pi] -Label ("PISTA {0}" -f $pi) -AudioOnly:$audioOnly -Start $st -Duration $Duration
+        $play = ConvertFrom-CvPlayCommand $a -AllowAudioOnly
+        if ($play) {
+            if ($posByIndex.ContainsKey($play.Index)) {
+                Show-AudioPreview -Context $Context -File $File -AudioPos $posByIndex[$play.Index] -Label ("PISTA {0}" -f $play.Index) -AudioOnly:$play.AudioOnly -Start $play.Start -Duration $Duration
             } else { Write-Host '   Indice no valido.' -ForegroundColor Yellow }
             continue
         }
@@ -293,10 +283,13 @@ function Invoke-AudioRun {
     $ffArgs = @('-hide_banner','-y','-threads',"$($Context.Threads)") + $sourceInput
 
     if ($method -eq 'peak') {
-        # PEAK: medir el pico (volumedetect) y llevarlo a 0 dB con el filtro volume.
+        # PEAK: medir el pico (volumedetect) y subirlo hasta el objetivo volume.peakTarget
+        # (0 dBFS por defecto; -1 deja margen contra el clipping inter-sample del AAC).
+        # Solo se AMPLIFICA (gain > 0): si el pico ya supera el objetivo no se atenua.
+        $target = [double]$Context.PeakTarget
         $peak = Get-MaxVolume -Context $Context -InputArgs ($sourceInput + $mapPre)
         $gain = 0.0
-        if ($null -ne $peak -and $peak -lt 0) { $gain = [math]::Round(-$peak, 1) }
+        if ($null -ne $peak -and $peak -lt $target) { $gain = [math]::Round($target - $peak, 1) }
         if ($gain -gt 0) {
             Write-CvInfoStep $Context 'AUDIO' ("Aplicando ganancia +{0} dB" -f $gain)
             $gtxt = $gain.ToString([System.Globalization.CultureInfo]::InvariantCulture)

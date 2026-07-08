@@ -159,5 +159,24 @@ function Invoke-ToolShow {
     return $p.ExitCode
 }
 
+function Invoke-CvPreview {
+    <#
+        Nucleo comun de las previews con ffplay (bordes, pista de video/audio, subtitulo):
+        tramo -ss/-t/-autoexit con inicio/duracion de config (preview.start/seconds), ajustado
+        a la duracion real del video (Get-CvSafeStart), + los args de seleccion/filtro que
+        aporta cada llamador (-vst/-ast/-sst/-vf/-nodisp).
+    #>
+    param(
+        [Parameter(Mandatory)]$Context, [Parameter(Mandatory)][string]$File,
+        [string[]]$ExtraArgs = @(), [string]$Label = 'PREVIEW',
+        [int]$Start = -1, [int]$Seconds = -1, [double]$Duration = 0
+    )
+    $s = if ($Start -ge 0) { $Start } else { [int]$Context.PreviewStart }
+    $s = Get-CvSafeStart -Start $s -Duration $Duration -Window 1
+    if ($Seconds -lt 0) { $Seconds = [int]$Context.PreviewSeconds }
+    $a = @('-hide_banner','-loglevel','error','-ss',"$s",'-t',"$Seconds",'-autoexit') + $ExtraArgs + @('-window_title',$Label,$File)
+    Invoke-ToolShow -Exe $Context.FFplay -Arguments $a -Context $Context -Preview | Out-Null
+}
+
 
 Export-ModuleMember -Function *

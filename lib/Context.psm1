@@ -64,6 +64,8 @@ function New-CvContext {
         Platform       = $plat
         Downloads      = $cfg.downloads
         VolumeMethod   = "$($cfg.volume.method)"
+        # Pico objetivo (dBFS) del metodo 'peak'; se limita a <= 0 (positivo recortaria).
+        PeakTarget     = [Math]::Min(0.0, [double]$cfg.volume.peakTarget)
         LoudnormI      = $cfg.volume.loudnorm.I
         LoudnormTP     = $cfg.volume.loudnorm.TP
         LoudnormLRA    = $cfg.volume.loudnorm.LRA

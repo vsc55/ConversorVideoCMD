@@ -113,7 +113,9 @@ function Get-CvConfigDefaults {
         # Previsualizacion con ffplay (audio/video/bordes en PREPARAR): desde que segundo empieza
         # y cuantos dura la muestra. Util para buscar dialogo y saber el idioma de una pista.
         preview   = [ordered]@{ start = 120; seconds = 30 }
-        volume    = [ordered]@{ method = 'peak'; loudnorm = [ordered]@{ I = -16; TP = -1.5; LRA = 11 } }
+        # volume: metodo de normalizacion. peakTarget = pico objetivo en dBFS del metodo 'peak'
+        # (0 = maximo sin recorte; -1 deja margen/headroom contra el clipping inter-sample del AAC).
+        volume    = [ordered]@{ method = 'peak'; peakTarget = 0; loudnorm = [ordered]@{ I = -16; TP = -1.5; LRA = 11 } }
         # Postproceso del MKV final:
         #  - stripTags: limpiar con mkvpropedit las etiquetas DURATION por pista que anade el
         #    muxer de ffmpeg (mkvpropedit vacio = usar la version descargada en tools\).
@@ -135,6 +137,17 @@ function Get-CvConfigDefaults {
         # Ejemplo: { "label":"Anime 1080p", "videoEncoder":"libx265", "crf":18, "changeSize":"1920:-1" }
         profiles  = @()
     }
+}
+
+function Resolve-CvConfigPathArg {
+    <#
+        Resuelve el argumento -Config de Convert.ps1/setup.ps1 a una ruta completa:
+        vacio = <Root>\config.json; relativo = respecto al directorio actual; absoluto = tal cual.
+    #>
+    param([Parameter(Mandatory)][string]$Root, [string]$Config = '')
+    if ([string]::IsNullOrWhiteSpace($Config)) { return (Join-Path $Root 'config.json') }
+    if ([System.IO.Path]::IsPathRooted($Config)) { return $Config }
+    return (Join-Path (Get-Location).Path $Config)
 }
 
 function Get-CvConfig {

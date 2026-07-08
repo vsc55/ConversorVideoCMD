@@ -130,6 +130,24 @@ function Set-CvConsoleFont {
 }
 
 
+function ConvertFrom-CvPlayCommand {
+    <#
+        Parsea el comando de reproduccion de los menus de seleccion de pista:
+        'P N [seg]' (video + pista) y, con -AllowAudioOnly, tambien 'A N [seg]' (solo audio).
+        Devuelve @{ AudioOnly; Index; Start } (Start = -1 si no se indico) o $null si el texto
+        no es un comando de reproduccion.
+    #>
+    param([string]$Text, [switch]$AllowAudioOnly)
+    $pat = if ($AllowAudioOnly) { '^([PpAa])\s*(\d+)(?:\s+(\d+))?$' } else { '^([Pp])\s*(\d+)(?:\s+(\d+))?$' }
+    $m = [regex]::Match("$Text", $pat)
+    if (-not $m.Success) { return $null }
+    [pscustomobject]@{
+        AudioOnly = ($m.Groups[1].Value -match '^[Aa]$')
+        Index     = [int]$m.Groups[2].Value
+        Start     = $(if ($m.Groups[3].Success) { [int]$m.Groups[3].Value } else { -1 })
+    }
+}
+
 function Read-CvLine {
     <#
         Lee una linea del teclado con soporte de la tecla ESC. Devuelve el texto; con

@@ -76,16 +76,13 @@ function Show-Preview {
         [Parameter(Mandatory)]$Context, [Parameter(Mandatory)][string]$File,
         [string]$Crop = '', [int]$Seconds = -1, [int]$VideoPos = -1, [double]$Duration = 0
     )
-    $start = Get-CvSafeStart -Start ([int]$Context.PreviewStart) -Duration $Duration -Window 1
-    if ($Seconds -lt 0) { $Seconds = [int]$Context.PreviewSeconds }
     $title = 'ORIGINAL'
-    $ffArgs  = @('-hide_banner','-loglevel','error','-ss', "$start", '-t', "$Seconds", '-autoexit')
+    $extra = @()
     # Si se indica -VideoPos, reproducir ESA pista de video (posicion entre las de video).
-    if ($VideoPos -ge 0) { $ffArgs += @('-vst', ("v:{0}" -f $VideoPos)) }
-    if ($Crop) { $ffArgs += @('-vf', "crop=$Crop"); $title = "RECORTADO $Crop" }
-    $ffArgs += @('-window_title', $title, $File)
+    if ($VideoPos -ge 0) { $extra += @('-vst', ("v:{0}" -f $VideoPos)) }
+    if ($Crop) { $extra += @('-vf', "crop=$Crop"); $title = "RECORTADO $Crop" }
     Write-CvLog 'VIDEO' ("[BORDE] - [TEST] - Reproduciendo: {0}  (se cierra solo o pulsa ESC)" -f $title)
-    Invoke-ToolShow -Exe $Context.FFplay -Arguments $ffArgs -Context $Context -Preview | Out-Null
+    Invoke-CvPreview -Context $Context -File $File -ExtraArgs $extra -Label $title -Seconds $Seconds -Duration $Duration
 }
 
 function Show-VideoPreview {
@@ -97,13 +94,8 @@ function Show-VideoPreview {
         [Parameter(Mandatory)]$Context, [Parameter(Mandatory)][string]$File,
         [int]$VideoPos, [string]$Label = 'VIDEO', [int]$Seconds = -1, [int]$Start = -1, [double]$Duration = 0
     )
-    $start = if ($Start -ge 0) { $Start } else { [int]$Context.PreviewStart }
-    $start = Get-CvSafeStart -Start $start -Duration $Duration -Window 1
-    if ($Seconds -lt 0) { $Seconds = [int]$Context.PreviewSeconds }
-    $ffArgs = @('-hide_banner','-loglevel','error','-ss', "$start", '-t', "$Seconds", '-autoexit', '-vst', ("v:{0}" -f $VideoPos))
-    $ffArgs += @('-window_title', $Label, $File)
     Write-CvLog 'VIDEO' ("[TEST] - Reproduciendo {0}; se cierra solo o pulsa ESC/Q" -f $Label) -Indent 3
-    Invoke-ToolShow -Exe $Context.FFplay -Arguments $ffArgs -Context $Context -Preview | Out-Null
+    Invoke-CvPreview -Context $Context -File $File -ExtraArgs @('-vst', ("v:{0}" -f $VideoPos)) -Label $Label -Start $Start -Seconds $Seconds -Duration $Duration
 }
 
 function Select-VideoInteractive {
@@ -130,12 +122,10 @@ function Select-VideoInteractive {
         $a = (Read-Host ("   [VIDEO] - Indice / 'P N'=reproducir (opc. seg inicio: 'P N 300') [{0}]" -f $DefaultIndex)).Trim()
         if ($a -eq '') { $a = "$DefaultIndex" }
 
-        $mPlay = [regex]::Match($a, '^[Pp]\s*(\d+)(?:\s+(\d+))?$')
-        if ($mPlay.Success) {
-            $pi = [int]$mPlay.Groups[1].Value
-            $st = if ($mPlay.Groups[2].Success) { [int]$mPlay.Groups[2].Value } else { -1 }
-            $match = $streams | Where-Object { [int]$_.index -eq $pi } | Select-Object -First 1
-            if ($match) { Show-VideoPreview -Context $Context -File $File -VideoPos (Get-VideoStreamPos -Info $Info -Index $pi) -Label ("PISTA {0}" -f $pi) -Start $st -Duration $vdur }
+        $play = ConvertFrom-CvPlayCommand $a
+        if ($play) {
+            $match = $streams | Where-Object { [int]$_.index -eq $play.Index } | Select-Object -First 1
+            if ($match) { Show-VideoPreview -Context $Context -File $File -VideoPos (Get-VideoStreamPos -Info $Info -Index $play.Index) -Label ("PISTA {0}" -f $play.Index) -Start $play.Start -Duration $vdur }
             else { Write-Host '   Indice no valido.' -ForegroundColor Yellow }
             continue
         }

@@ -8,7 +8,7 @@ Qué herramienta se lanza en cada momento:
 flowchart TD
     subgraph PREP["PREPARAR (interactivo)"]
       P1["ffprobe -show_streams/-show_format (analizar)"] --> P2["ffmpeg -vf cropdetect (bordes, varios puntos)"]
-      P2 --> P3["ffplay (preview de bordes / pista de audio / pista de vídeo)"]
+      P2 --> P3["ffplay (preview de bordes / pista de audio / pista de vídeo / subtítulo)"]
       P3 --> P4["ffmpeg ashowinfo (desfase de audio para sincronía)"]
     end
     subgraph WORK["WORKER (desatendido)"]
@@ -26,7 +26,7 @@ Leyenda de placeholders comunes:
 - `<N>` = `$ctx.Threads` (`encode.threads`, 0 = auto).
 - `<fps>` = `$ctx.Fps` (`encode.fps`).
 - `<hz>` = bitrate/samplerate de audio (`Profile.AudioHz` o `encode.audioHz`).
-- `<start>`/`<dur>` = `border.start` / `border.duration`.
+- `<start>`/`<dur>` = `border.start` / `border.duration` en el scan de bordes; `preview.start` / `preview.seconds` en las previews de ffplay. Ambos se ajustan solos si el vídeo es más corto (`Get-CvSafeStart`).
 
 ---
 
@@ -56,19 +56,34 @@ De la salida (`stderr`) se extraen las líneas `crop=W:H:X:Y` y se agrupan; gana
 
 ---
 
-## 3. Previsualización de bordes (`Show-Preview`, ffplay)
+## 3. Previsualización (ffplay)
 
-Reproduce un tramo para revisar visualmente. Primero el original, luego con el recorte aplicado:
+Todas las previews reproducen un tramo y se cierran solas (`-autoexit`, o antes con ESC/Q). `<start>`/`<seg>` salen de `preview.start`/`preview.seconds` (ver [configuracion.md](configuracion.md#preview)); si el vídeo es más corto que `<start>`, el inicio se ajusta solo (`Get-CvSafeStart`). En los menús se puede indicar un inicio puntual (`P N <seg>`). La preview se ejecuta en la consola principal (no en ventana aparte).
+
+**Bordes** (`Show-Preview`) — primero el original, luego con el recorte aplicado; con varias pistas de vídeo apunta a la elegida (`-vst`):
 
 ```
-# Original
-ffplay -hide_banner -loglevel error -ss <start> -t <seg> -autoexit -window_title "ORIGINAL" <file>
-
-# Con recorte
-ffplay -hide_banner -loglevel error -ss <start> -t <seg> -autoexit -vf "crop=<W:H:X:Y>" -window_title "RECORTADO <crop>" <file>
+ffplay -hide_banner -loglevel error -ss <start> -t <seg> -autoexit [-vst v:<pos>] -window_title "ORIGINAL" <file>
+ffplay -hide_banner -loglevel error -ss <start> -t <seg> -autoexit [-vst v:<pos>] -vf "crop=<W:H:X:Y>" -window_title "RECORTADO <crop>" <file>
 ```
 
-La preview se ejecuta en la consola principal (no en ventana aparte).
+**Pista de vídeo** (`Show-VideoPreview`, menú de 2+ pistas de vídeo) — selecciona la pista con `-vst v:<pos>` (posición 0-based entre las de vídeo, `Get-VideoStreamPos`):
+
+```
+ffplay -hide_banner -loglevel error -ss <start> -t <seg> -autoexit -vst v:<pos> -window_title "PISTA <idx>" <file>
+```
+
+**Pista de audio** (`Show-AudioPreview`, menús de audio) — selecciona la pista con `-ast a:<pos>`; con `A N` (solo audio) añade `-nodisp`:
+
+```
+ffplay -hide_banner -loglevel error -ss <start> -t <seg> -autoexit -ast a:<pos> [-nodisp] -window_title "PISTA <idx>" <file>
+```
+
+**Subtítulo** (`Show-SubtitlePreview`, menú de 2+ subtítulos completos) — vídeo con ese subtítulo superpuesto vía `-sst s:<pos>` (útil para distinguir normal vs SDH):
+
+```
+ffplay -hide_banner -loglevel error -ss <start> -t <seg> -autoexit -sst s:<pos> -window_title "SUBTITULO <idx>" <file>
+```
 
 ---
 
@@ -115,17 +130,17 @@ Donde `<input>` es `-i <file> -map 0:<i> ...` o `-i <name>_concat.wav -map 0:a` 
 Base común del comando (la fuente es `<file>` o el WAV sincronizado):
 
 ```
-ffmpeg -hide_banner -y -threads <N> -i <fuente> <VOLUMEN> -c:a aac -aac_coder twoloop -ac 2 -ar <hz> [-b:a <bitrate>] <name>.m4a
+ffmpeg -hide_banner -y -threads <N> -i <fuente> <VOLUMEN> -c:a aac -aac_coder twoloop -ac <canales> -ar <hz> [-b:a <bitrate>] <name>.m4a
 ```
 
-La parte `<VOLUMEN>` depende de `volume.method` (`$ctx.VolumeMethod`):
+`<canales>` = `encode.audioChannels` (2 por defecto; 6 = 5.1, 8 = 7.1). La parte `<VOLUMEN>` depende de `volume.method` (`$ctx.VolumeMethod`):
 
 ### peak (por defecto)
-Mide el pico y lo lleva a 0 dB con el filtro `volume`:
+Mide el pico y lo sube hasta el objetivo `volume.peakTarget` (0 dBFS por defecto; `-1` deja *headroom* contra el clipping inter-sample del AAC) con el filtro `volume`:
 ```
 -filter_complex "[<label>]volume=<gain>dB:precision=fixed[a]" -map "[a]"
 ```
-`<gain> = -max_volume` (redondeado). Si el pico ya es 0 no se aplica filtro.
+`<gain> = peakTarget - max_volume` (redondeado). Solo **amplifica**: si el pico ya alcanza o supera el objetivo, no se aplica filtro (no atenúa).
 
 ### loudnorm (EBU R128)
 Normalización de sonoridad con `I`/`TP`/`LRA` de `config.volume.loudnorm`:
