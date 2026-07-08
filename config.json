@@ -66,5 +66,11 @@
         "fontSize": 18,
         "windowWidth": 150,
         "windowHeight": 40
+    },
+    "paths": {
+        "original": "",
+        "proceso": "",
+        "convertido": "",
+        "logs": ""
     }
 }

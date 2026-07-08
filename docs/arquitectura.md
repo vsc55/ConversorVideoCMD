@@ -28,8 +28,11 @@ ConversorVideoCMD/
 ├── Convertido/             Salida: <nombre>_fix.mkv
 ├── tools/<app>/<ver>/<plat>/   Ejecutables (ffmpeg/ffprobe/ffplay, aacgain)
 ├── logs/                   Transcript de cada ejecución (fecha + PID)
-└── docs/                   Esta documentación
+├── docs/                   Esta documentación
+└── .github/workflows/      CI: release.yml (empaqueta y publica al pushear un tag v*)
 ```
+
+Las carpetas de trabajo (`Original`, `Proceso`, `Convertido`, `logs`) se pueden reubicar en `config.json` (sección `paths`); ver [configuracion.md](configuracion.md).
 
 Las carpetas de trabajo (`Original`, `Proceso`, `Convertido`, `tools`) se crean automáticamente si faltan.
 

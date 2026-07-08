@@ -14,7 +14,8 @@ La forma cómoda de editarlo es `setup.cmd` → **Editar configuración** (ver [
   "border":    { "start": 120, "duration": 120 },
   "volume":    { "method": "peak", "loudnorm": { "I": -16, "TP": -1.5, "LRA": 11 } },
   "behavior":  { "cleanTemps": true, "separateWindow": true, "lockCloseButton": true, "debug": false },
-  "console":   { "background": "DarkBlue", "foreground": "Yellow", "font": "Consolas", "fontSize": 18, "windowWidth": 150, "windowHeight": 40 }
+  "console":   { "background": "DarkBlue", "foreground": "Yellow", "font": "Consolas", "fontSize": 18, "windowWidth": 150, "windowHeight": 40 },
+  "paths":     { "original": "", "proceso": "", "convertido": "", "logs": "" }
 }
 ```
 
@@ -87,3 +88,16 @@ Los marcadores son ficheros vacíos en la raíz del proyecto que fuerzan el comp
 | `font` | `"Consolas"` | Fuente de la consola (`SetCurrentConsoleFontEx`). |
 | `fontSize` | `18` | Tamaño de fuente. |
 | `windowWidth` / `windowHeight` | `150` / `40` | Tamaño de la ventana (con buffer alto para scroll). |
+
+## `paths` — carpetas de trabajo
+
+Permite ubicar las carpetas fuera de la carpeta del programa. Cada valor admite **ruta absoluta** (`E:\Media\Original`, `\\servidor\share\in`) o **relativa** al programa; **vacío** = por defecto junto al programa. La carpeta se crea sola si no existe.
+
+| Clave | Vacío (por defecto) | Uso |
+|---|---|---|
+| `original` | `<programa>\Original` | Vídeos de entrada. |
+| `proceso` | `<programa>\Proceso` | Jobs, lock y temporales. |
+| `convertido` | `<programa>\Convertido` | Salida. |
+| `logs` | `<programa>\logs` | Transcript de las ejecuciones. |
+
+> La carpeta `tools\` (binarios) no es configurable: siempre va junto al programa.

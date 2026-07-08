@@ -9,6 +9,19 @@ function Get-CvWorkDirs {
     @($Context.Original, $Context.Proceso, $Context.Convertido, $Context.Tools, $Context.Logs)
 }
 
+function Resolve-CvPath {
+    <#
+        Resuelve una carpeta de trabajo desde config.json (seccion 'paths'):
+        - vacio       -> por defecto en la carpeta del programa ($Root\<DefaultName>).
+        - ruta absoluta (C:\..., D:\..., \\servidor\...) -> se usa tal cual.
+        - ruta relativa -> relativa a $Root.
+    #>
+    param([string]$Root, [string]$Configured, [string]$DefaultName)
+    if ([string]::IsNullOrWhiteSpace($Configured)) { return (Join-Path $Root $DefaultName) }
+    if ([System.IO.Path]::IsPathRooted($Configured)) { return $Configured }
+    return (Join-Path $Root $Configured)
+}
+
 
 function New-CvContext {
     <# Crea el objeto de contexto con rutas, herramientas y opciones (de config.json). #>
@@ -21,11 +34,12 @@ function New-CvContext {
 
     $ctx = [pscustomobject]@{
         Root           = $Root
-        Original       = Join-Path $Root 'Original'
-        Proceso        = Join-Path $Root 'Proceso'
-        Convertido     = Join-Path $Root 'Convertido'
+        # Carpetas de trabajo (configurables en config.json 'paths'; vacio = junto al programa).
+        Original       = Resolve-CvPath $Root "$($cfg.paths.original)"   'Original'
+        Proceso        = Resolve-CvPath $Root "$($cfg.paths.proceso)"    'Proceso'
+        Convertido     = Resolve-CvPath $Root "$($cfg.paths.convertido)" 'Convertido'
+        Logs           = Resolve-CvPath $Root "$($cfg.paths.logs)"       'logs'
         Tools          = Join-Path $Root 'tools'
-        Logs           = Join-Path $Root 'logs'
         # Rutas de herramientas: las rellena New-CvToolContext mas abajo (fuente unica de
         # los nombres de exe), apuntando a la version 'selected'.
         FFmpeg         = $null

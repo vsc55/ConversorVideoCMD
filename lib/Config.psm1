@@ -73,6 +73,8 @@ function Get-CvConfigDefaults {
         volume    = [ordered]@{ method = 'peak'; loudnorm = [ordered]@{ I = -16; TP = -1.5; LRA = 11 } }
         behavior  = [ordered]@{ cleanTemps = $true; separateWindow = $true; lockCloseButton = $true; debug = $false; log = $true }
         console   = [ordered]@{ background = 'DarkBlue'; foreground = 'Yellow'; font = 'Consolas'; fontSize = 18; windowWidth = 100; windowHeight = 50 }
+        # Carpetas de trabajo: vacio = junto al programa; admite ruta absoluta o relativa.
+        paths     = [ordered]@{ original = ''; proceso = ''; convertido = ''; logs = '' }
     }
 }
 

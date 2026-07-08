@@ -1,0 +1,32 @@
+name: Release
+
+# Se dispara al publicar un tag de version (v1.2, v4.0, ...).
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write   # necesario para crear la Release y subir el asset
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del tag
+        uses: actions/checkout@v4
+
+      - name: Empaquetar (zip de los ficheros versionados)
+        run: |
+          NAME="ConversorVideoCMD-${GITHUB_REF_NAME}"
+          # git archive respeta .gitignore/.gitattributes: no incluye tools\ ni
+          # las carpetas de trabajo, ni .github (export-ignore).
+          git archive --format=zip --prefix="${NAME}/" -o "${NAME}.zip" HEAD
+          echo "ASSET=${NAME}.zip" >> "$GITHUB_ENV"
+
+      - name: Crear Release y adjuntar el zip
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ConversorVideoCMD ${{ github.ref_name }}
+          files: ${{ env.ASSET }}
+          generate_release_notes: true
