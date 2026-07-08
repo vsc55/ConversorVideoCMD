@@ -24,10 +24,33 @@ jobs:
           git archive --format=zip --prefix="${NAME}/" -o "${NAME}.zip" HEAD
           echo "ASSET=${NAME}.zip" >> "$GITHUB_ENV"
 
-      - name: Crear Release y adjuntar el zip
+      - name: Notas de la release (seccion del changelog)
+        run: |
+          VER="${GITHUB_REF_NAME#v}"   # v4.0 -> 4.0
+          awk -v ver="$VER" '
+            $0 ~ ("^## VERSION " ver " ") { flag=1; print; next }
+            flag && /^## VERSION / { flag=0 }
+            flag { print }
+          ' changelog.md | sed '/^---$/d' > notes.md
+          if [ -s notes.md ]; then echo "HAVE_NOTES=1" >> "$GITHUB_ENV"; else echo "HAVE_NOTES=0" >> "$GITHUB_ENV"; fi
+
+      - name: Crear/actualizar Release y adjuntar el zip
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" "${ASSET}" \
-            --title "ConversorVideoCMD ${GITHUB_REF_NAME}" \
-            --generate-notes
+          TITLE="ConversorVideoCMD ${GITHUB_REF_NAME}"
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            # La release ya existe: actualizar notas (si hay) y reemplazar el asset.
+            if [ "${HAVE_NOTES}" = "1" ]; then
+              gh release edit "${GITHUB_REF_NAME}" --title "${TITLE}" --notes-file notes.md
+            else
+              gh release edit "${GITHUB_REF_NAME}" --title "${TITLE}"
+            fi
+            gh release upload "${GITHUB_REF_NAME}" "${ASSET}" --clobber
+          else
+            if [ "${HAVE_NOTES}" = "1" ]; then
+              gh release create "${GITHUB_REF_NAME}" "${ASSET}" --title "${TITLE}" --notes-file notes.md
+            else
+              gh release create "${GITHUB_REF_NAME}" "${ASSET}" --title "${TITLE}" --generate-notes
+            fi
+          fi
