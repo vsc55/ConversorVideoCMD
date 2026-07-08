@@ -41,9 +41,35 @@ function ConvertTo-SubSel {
     }
 }
 
+function Show-SubtitlePreview {
+    <#
+        Reproduce un tramo del video CON un subtitulo concreto superpuesto (ffplay -sst s:N),
+        para distinguir entre varios subtitulos (p. ej. normal vs SDH) antes de elegir.
+        -SubPos: posicion 0-based entre las pistas de subtitulo.
+    #>
+    param(
+        [Parameter(Mandatory)]$Context, [Parameter(Mandatory)][string]$File,
+        [int]$SubPos, [string]$Label = 'SUBTITULO', [int]$Seconds = -1, [int]$Start = -1, [double]$Duration = 0
+    )
+    $start = if ($Start -ge 0) { $Start } else { [int]$Context.PreviewStart }
+    $start = Get-CvSafeStart -Start $start -Duration $Duration -Window 1
+    if ($Seconds -lt 0) { $Seconds = [int]$Context.PreviewSeconds }
+    $ffArgs = @('-hide_banner','-loglevel','error','-ss', "$start", '-t', "$Seconds", '-autoexit', '-sst', ("s:{0}" -f $SubPos))
+    $ffArgs += @('-window_title', $Label, $File)
+    Write-CvLog 'SUB' ("[TEST] - Reproduciendo con {0}; se cierra solo o pulsa ESC/Q" -f $Label) -Indent 3
+    Invoke-ToolShow -Exe $Context.FFplay -Arguments $ffArgs -Context $Context -Preview | Out-Null
+}
+
 function Select-SubtitleInteractive {
-    <# Menu para elegir el subtitulo principal cuando hay varios completos del mismo idioma. #>
-    param([Parameter(Mandatory)]$Subs, [int]$DefaultIndex)
+    <#
+        Menu para elegir el subtitulo principal cuando hay varios completos del mismo idioma.
+        Permite REPRODUCIR el video con cada subtitulo ('P N', con segundo de inicio opcional)
+        para distinguirlos (p. ej. normal vs SDH) antes de elegir.
+    #>
+    param(
+        [Parameter(Mandatory)]$Context, [Parameter(Mandatory)][string]$File,
+        [Parameter(Mandatory)]$Info, [Parameter(Mandatory)]$Subs, [int]$DefaultIndex, [double]$Duration = 0
+    )
     $lines = @()
     foreach ($s in $Subs) {
         $t = Get-Tag $s 'title'; $tt = ''; if ($t) { $tt = "'$t'" }
@@ -52,8 +78,20 @@ function Select-SubtitleInteractive {
     }
     Show-Menu -Title 'SELECCIONAR SUBTITULO PRINCIPAL (mismo idioma) [* = por defecto]:' -Lines $lines -Indent 3
     while ($true) {
-        $a = (Read-Host ("   [SUB] - Indice de pista [{0}]" -f $DefaultIndex)).Trim()
+        $a = (Read-Host ("   [SUB] - Indice / 'P N'=ver con ese subtitulo (opc. seg inicio: 'P N 300') [{0}]" -f $DefaultIndex)).Trim()
         if ($a -eq '') { $a = "$DefaultIndex" }
+
+        # Reproducir el video con el subtitulo N superpuesto; 3er numero = segundo de inicio.
+        $mPlay = [regex]::Match($a, '^[Pp]\s*(\d+)(?:\s+(\d+))?$')
+        if ($mPlay.Success) {
+            $pi = [int]$mPlay.Groups[1].Value
+            $st = if ($mPlay.Groups[2].Success) { [int]$mPlay.Groups[2].Value } else { -1 }
+            $m = $Subs | Where-Object { [int]$_.index -eq $pi } | Select-Object -First 1
+            if ($m) { Show-SubtitlePreview -Context $Context -File $File -SubPos (Get-SubtitleStreamPos -Info $Info -Index $pi) -Label ("SUBTITULO {0}" -f $pi) -Start $st -Duration $Duration }
+            else { Write-Host '   Indice no valido.' -ForegroundColor Yellow }
+            continue
+        }
+
         $n = 0
         if ([int]::TryParse($a, [ref]$n)) {
             $m = $Subs | Where-Object { [int]$_.index -eq $n } | Select-Object -First 1
@@ -89,7 +127,7 @@ function Select-Subtitles {
         $result += (ConvertTo-SubSel $full[0] -Default $true)
     } elseif ($full.Count -gt 1) {
         if ($null -ne $Manual) { $Manual.Value = $true }   # se abre menu -> intervencion manual
-        $chosen = Select-SubtitleInteractive -Subs $full -DefaultIndex ([int]$full[0].index)
+        $chosen = Select-SubtitleInteractive -Context $Context -File $Info.format.filename -Info $Info -Subs $full -DefaultIndex ([int]$full[0].index) -Duration (Get-MediaDuration $Info)
         $result += (ConvertTo-SubSel $chosen -Default $true)
     }
     foreach ($fs in $forced) { $result += (ConvertTo-SubSel $fs) }

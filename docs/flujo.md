@@ -39,7 +39,9 @@ flowchart TD
     A["Ficheros en Original\\ (nivel superior, NO recursivo)"] --> B{"¿extensión en<br/>encode.extensions?"}
     B -- "no" --> X["Ignorado (no es candidato)"]
     B -- "sí" --> C["Candidato<br/>clave = BaseName (nombre sin extensión)"]
-    C --> D{"¿existe<br/>Convertido\\&lt;n&gt;_fix.&lt;ext&gt;?"}
+    C --> DUP{"¿BaseName duplicado<br/>(otra extensión)?"}
+    DUP -- "sí" --> XI["IGNORADO + aviso<br/>(renombra o quita uno)"]
+    DUP -- "no" --> D{"¿existe<br/>Convertido\\&lt;n&gt;_fix.&lt;ext&gt;?"}
     D -- "sí" --> E["YA CONVERTIDO → saltar"]
     D -- "no" --> F{"¿existe<br/>Proceso\\&lt;n&gt;.job.json?"}
     F -- "no" --> G["POR PREPARAR → fase PREPARAR"]
@@ -60,7 +62,7 @@ No hay más criterios: cualquier fichero con esa extensión en `Original\` es un
 
 Todo cuelga del **nombre sin extensión** (`BaseName`): el job (`Proceso\<nombre>.job.json`), la salida (`Convertido\<nombre>_fix.<outputExtension>`) y el lock (`Proceso\<nombre>.lock`).
 
-> ⚠️ **Colisión por nombre**: dos entradas con el mismo `BaseName` y distinta extensión (p. ej. `peli.mp4` y `peli.mkv`) comparten job/salida/lock y se pisarían. Evita nombres iguales con distinta extensión en `Original\`.
+> ⚠️ **Colisión por nombre**: dos entradas con el mismo `BaseName` y distinta extensión (p. ej. `peli.mp4` y `peli.mkv`) comparten job/salida/lock, así que **se ignoran TODOS los archivos del grupo** (para no procesar el equivocado) y se muestra un **aviso** al arrancar (`▐ AVISO - Nombre duplicado en Original: 'peli' (.mkv, .mp4); se IGNORAN… ▌`). Renombra o quita uno para procesarlos. (`Get-ProcessableFiles`; el worker aplica la misma exclusión en cada re-escaneo, sin repetir el aviso.)
 
 ### Estado de cada candidato
 

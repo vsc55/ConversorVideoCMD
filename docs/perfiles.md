@@ -95,7 +95,7 @@ Aunque el perfil es común al lote, en PREPARAR se pregunta/detecta por archivo:
 - **Bordes** (si el perfil los activa o el nombre empieza por `_`): se escanea con `cropdetect` en **varios puntos** del vídeo (`border.samples`, ver [comandos.md](comandos.md)) y se agrupan los recortes por votos. Si todos coinciden → preview del original y del recorte (sobre la pista de vídeo elegida) + confirmar; si discrepan → aviso y **menú de recortes por votos** para elegir cuál probar. Opciones en la preview: usar / volver / valor manual / sin recorte.
 - **Animación** (solo `libx264`/`libx265`): añade `-tune animation`.
 - **Audio**:
-  - Si hay **2+ pistas del idioma preferido**, menú para elegir cuál.
+  - Si hay **2+ pistas del idioma preferido**, menú para elegir cuál — también con **reproducción** (`P N` = vídeo+audio, `A N` = solo audio, `P N <seg>` para otro segundo) para distinguirlas.
   - Si **ninguna pista** está en el idioma preferido, se muestra la lista y se puede **reproducir** cada pista con ffplay para confirmar cuál es (`P N` = vídeo+audio, `A N` = solo audio; opcionalmente un segundo de inicio, `P N <seg>`, p. ej. `A 2 300`, para buscar diálogo) antes de elegirla; tras elegirla se pregunta qué **idioma asignar** (el de la pista con `ENTER`, otro código con `O` o tecleándolo, o `und` con `U`), por si el tag de idioma es una errata. (`Select-AudioFallback` en `lib\Audio.psm1`.)
   - Detección de **sincronía** (silencio a añadir al inicio si el audio empieza más tarde).
-- **Subtítulos**: selección por idioma (completo + forzados).
+- **Subtítulos**: selección por idioma (completo + forzados). Con **2+ completos** del idioma preferido, menú para elegir el principal — con **reproducción** del vídeo con cada subtítulo superpuesto (`P N`, `P N <seg>`) para distinguirlos (p. ej. normal vs SDH). (`Select-SubtitleInteractive`/`Show-SubtitlePreview`, vía ffplay `-sst s:N`.)

@@ -32,8 +32,12 @@ function Write-CvLog {
     param([string]$Tag = 'GLOBAL', [string]$Message = '', [int]$Indent = 0)
     $pad = ' ' * $Indent
     if ($Message -match '\[(ERR|AVISO|WARN|NO SOPORTADO)\]') {
-        # "[AVISO] - x" -> "AVISO - x" (con un espacio de padding a cada lado DENTRO del bloque).
-        $inner = ($Message -replace '^\s*\[([^\]]+)\]', '$1').Trim()
+        # Quitar los corchetes de TODOS los tokens iniciales, no solo del primero: "[AVISO] - x"
+        # -> "AVISO - x", y tambien "[FFMPEG] - [ERR] - x" -> "FFMPEG - ERR - x" (el nivel puede
+        # no ser el primer token). El padding del bloque lo aportan los espacios de abajo.
+        $inner = $Message.Trim()
+        $mTok = [regex]::Match($inner, '^(?:\[[^\]]+\]\s*-\s*)+')
+        if ($mTok.Success) { $inner = ($mTok.Value -replace '[\[\]]', '') + $inner.Substring($mTok.Value.Length) }
         # Badge con extremos de MEDIO BLOQUE (▐ ... ▌) coloreados como el fondo: el bloque se ve
         # como una etiqueta solida con los bordes a media celda. El ultimo caracter (▌) se pinta
         # con FONDO por defecto, asi la ultima celda de la linea no lleva fondo y no se reproduce

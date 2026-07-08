@@ -135,7 +135,34 @@ function Get-SourceFiles {
     foreach ($ext in $Context.Extensions) {
         $files += @(Get-ChildItem -LiteralPath $Context.Original -Filter $ext -File -ErrorAction SilentlyContinue)
     }
-    return ($files | Sort-Object Name)
+    # -Filter hereda el comodin 8.3 de Windows ('*.mp4' tambien casa '.mp4v', '*.avi' casa
+    # '.avix'): re-filtrar por extension EXACTA. -Unique dedupe por si dos patrones solapan.
+    $allowed = @($Context.Extensions | ForEach-Object { "$_".TrimStart('*').ToLower() })   # '.mp4'
+    return @($files | Where-Object { $allowed -contains $_.Extension.ToLower() } | Sort-Object Name -Unique)
+}
+
+function Get-ProcessableFiles {
+    <#
+        Candidatos realmente procesables: los de Get-SourceFiles MENOS los que colisionan por
+        nombre. Dos entradas con el mismo BaseName y distinta extension (peli.mp4 + peli.mkv)
+        comparten job/salida/lock (todo cuelga del nombre sin extension); para no procesar el
+        equivocado se IGNORAN TODOS los del grupo. -Quiet omite el aviso (lo usa el bucle del
+        worker, que re-escanea en cada pasada; el aviso ya se dio al arrancar).
+    #>
+    param($Context, [switch]$Quiet)
+    $files = @(Get-SourceFiles -Context $Context)
+    $dups  = @($files | Group-Object BaseName | Where-Object { $_.Count -gt 1 })
+    if ($dups.Count -gt 0) {
+        if (-not $Quiet) {
+            foreach ($d in $dups) {
+                $exts = (@($d.Group | ForEach-Object { $_.Extension }) -join ', ')
+                Write-CvLog 'GLOBAL' ("[AVISO] - Nombre duplicado en Original: '{0}' ({1}); se IGNORAN (renombra o quita uno)." -f $d.Name, $exts)
+            }
+        }
+        $dupNames = @($dups | ForEach-Object { $_.Name })
+        $files = @($files | Where-Object { $dupNames -notcontains $_.BaseName })
+    }
+    return $files
 }
 
 function Write-PrepareHeader {
@@ -171,9 +198,11 @@ function Write-PrepareStatus {
 # ============================================================
 #  CLASIFICAR: hay algun archivo POR PREPARAR?
 # ============================================================
-$files = Get-SourceFiles -Context $ctx
+# Candidatos: carpeta Original + extension exacta, EXCLUYENDO los que colisionan por nombre
+# (mismo BaseName con distinta extension: se avisa aqui y se ignoran; ver Get-ProcessableFiles).
+$files = @(Get-ProcessableFiles -Context $ctx)
 if ($files.Count -eq 0) {
-    Write-CvLog 'GLOBAL' ("[FIN] - No hay archivos en {0}" -f $ctx.Original)
+    Write-CvLog 'GLOBAL' ("[FIN] - No hay archivos procesables en {0}" -f $ctx.Original)
     exit 0
 }
 
@@ -318,7 +347,7 @@ $maxRetries = [int]$ctx.Retries; if ($maxRetries -lt 1) { $maxRetries = 1 }
 $didAny = $true
 while ($didAny) {
     $didAny = $false
-    foreach ($f in (Get-SourceFiles -Context $ctx)) {
+    foreach ($f in (Get-ProcessableFiles -Context $ctx -Quiet)) {
         $name = $f.BaseName
         if ($skip.Contains($name)) { continue }                        # marcado como no procesable
         $out  = Get-OutputPath $ctx $name

@@ -105,6 +105,27 @@ function Get-VideoSize {
     "{0}x{1}" -f [int]$VideoStream.width, [int]$VideoStream.height
 }
 
+function Get-MediaDuration {
+    <# Duracion del contenedor en segundos (double), o 0 si ffprobe no la trae. #>
+    param([Parameter(Mandatory)]$Info)
+    if ($Info.PSObject.Properties['format'] -and $Info.format.PSObject.Properties['duration']) {
+        $d = ConvertTo-InvDouble $Info.format.duration
+        if ($null -ne $d) { return [double]$d }
+    }
+    return 0.0
+}
+
+function Get-SubtitleStreamPos {
+    <#
+        Posicion 0-based de una pista (por su indice absoluto) entre TODAS las de subtitulo,
+        para el stream specifier 's:N' de ffplay (-sst).
+    #>
+    param([Parameter(Mandatory)]$Info, [int]$Index)
+    $all = @($Info.streams | Where-Object { $_.codec_type -eq 'subtitle' })
+    for ($i = 0; $i -lt $all.Count; $i++) { if ([int]$all[$i].index -eq $Index) { return $i } }
+    return 0
+}
+
 function Get-DurationText {
     <# Duracion formateada H:MM:SS a partir de format.duration (segundos). #>
     param([Parameter(Mandatory)]$Info)

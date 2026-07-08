@@ -49,10 +49,22 @@ function Show-AudioPreview {
 }
 
 function Select-AudioInteractive {
-    <# Menu para elegir pista de audio cuando hay ambiguedad. Devuelve el objeto de seleccion. #>
-    param([Parameter(Mandatory)]$AudioStreams, [int]$DefaultIndex)
+    <#
+        Menu para elegir pista de audio cuando hay ambiguedad (2+ del idioma preferido).
+        Permite REPRODUCIR cada una ('P N' = video+audio, 'A N' = solo audio, con segundo de
+        inicio opcional) para distinguirlas antes de elegir. Devuelve el objeto de seleccion.
+    #>
+    param(
+        [Parameter(Mandatory)]$Context, [Parameter(Mandatory)][string]$File,
+        [Parameter(Mandatory)]$AudioStreams, [int]$DefaultIndex, [double]$Duration = 0
+    )
+    $streams = @($AudioStreams)
+    # Posicion 0-based de cada pista de audio (para '-ast a:N' en la reproduccion).
+    $posByIndex = @{}
+    for ($i = 0; $i -lt $streams.Count; $i++) { $posByIndex[[int]$streams[$i].index] = $i }
+
     $lines = @()
-    foreach ($s in $AudioStreams) {
+    foreach ($s in $streams) {
         $lang  = Get-Tag $s 'language'
         $title = Get-Tag $s 'title'
         $mark  = ' '; if ([int]$s.index -eq $DefaultIndex) { $mark = '*' }
@@ -61,11 +73,24 @@ function Select-AudioInteractive {
     }
     Show-Menu -Title 'SELECCIONAR PISTA DE AUDIO (mismo idioma) [* = por defecto]:' -Lines $lines -Indent 3
     while ($true) {
-        $a = (Read-Host ("   [AUDIO] - Indice de pista a usar [{0}]" -f $DefaultIndex)).Trim()
+        $a = (Read-Host ("   [AUDIO] - Indice / 'P N'=video+audio / 'A N'=solo audio (opc. seg inicio: 'P N 300') [{0}]" -f $DefaultIndex)).Trim()
         if ($a -eq '') { $a = "$DefaultIndex" }
+
+        # Reproducir para revisar: 'P N' (video+audio) o 'A N' (solo audio); 3er numero opcional.
+        $mPlay = [regex]::Match($a, '^([PpAa])\s*(\d+)(?:\s+(\d+))?$')
+        if ($mPlay.Success) {
+            $pi = [int]$mPlay.Groups[2].Value
+            $st = if ($mPlay.Groups[3].Success) { [int]$mPlay.Groups[3].Value } else { -1 }
+            if ($posByIndex.ContainsKey($pi)) {
+                $audioOnly = ($mPlay.Groups[1].Value -match '^[Aa]$')
+                Show-AudioPreview -Context $Context -File $File -AudioPos $posByIndex[$pi] -Label ("PISTA {0}" -f $pi) -AudioOnly:$audioOnly -Start $st -Duration $Duration
+            } else { Write-Host '   Indice no valido.' -ForegroundColor Yellow }
+            continue
+        }
+
         $n = 0
         if ([int]::TryParse($a, [ref]$n)) {
-            $match = $AudioStreams | Where-Object { [int]$_.index -eq $n } | Select-Object -First 1
+            $match = $streams | Where-Object { [int]$_.index -eq $n } | Select-Object -First 1
             if ($match) { Write-Host ''; return (ConvertTo-AudioSel $match) }
         }
         Write-Host '   Indice no valido.' -ForegroundColor Yellow
@@ -169,19 +194,18 @@ function Invoke-AudioAsk {
         return [pscustomobject]$res
     }
 
-    $sel = Select-AudioStream -Info $Info -PrefLangs $Context.AudioLangs
+    $sel  = Select-AudioStream -Info $Info -PrefLangs $Context.AudioLangs
+    $adur = Get-MediaDuration $Info
     $prefTracks = @($aud | Where-Object { Test-CvLanguage (Get-Tag $_ 'language') $Context.AudioLangs })
     if ($prefTracks.Count -gt 1) {
-        # Ambiguedad: 2+ pistas en el idioma preferido, preguntar cual usar.
-        $sel = Select-AudioInteractive -AudioStreams $aud -DefaultIndex $sel.Index
+        # Ambiguedad: 2+ pistas en el idioma preferido, preguntar cual usar (con reproduccion).
+        $sel = Select-AudioInteractive -Context $Context -File $Info.format.filename -AudioStreams $aud -DefaultIndex $sel.Index -Duration $adur
         $res.Manual = $true   # se eligio pista de audio a mano (varias del idioma preferido)
     }
     elseif ($prefTracks.Count -eq 0) {
         # No hay NINGUNA pista en el idioma preferido: elegir a mano (con reproduccion para
         # confirmar) y decidir que idioma asignar (el tag puede ser una errata).
         Write-CvLog 'AUDIO' ("[AVISO] - No hay pista de audio en el idioma preferido ({0}); elige una manualmente." -f ($Context.AudioLangs -join '/')) -Indent 3
-        $adur = 0.0
-        if ($Info.format.PSObject.Properties['duration']) { $dd = ConvertTo-InvDouble $Info.format.duration; if ($null -ne $dd) { $adur = [double]$dd } }
         $sel = Select-AudioFallback -Context $Context -File $Info.format.filename -AudioStreams $aud -DefaultIndex $sel.Index -Duration $adur
         $res.Manual = $true   # se eligio pista/idioma a mano (no habia idioma preferido)
     }

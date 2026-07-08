@@ -116,8 +116,7 @@ function Select-VideoInteractive {
         [Parameter(Mandatory)]$Info, [Parameter(Mandatory)]$VideoStreams, [int]$DefaultIndex
     )
     $streams = @($VideoStreams)
-    $vdur = 0.0
-    if ($Info.format.PSObject.Properties['duration']) { $d = ConvertTo-InvDouble $Info.format.duration; if ($null -ne $d) { $vdur = [double]$d } }
+    $vdur    = Get-MediaDuration $Info
     $chosen  = $null
     while ($null -eq $chosen) {
         $lines = @()
@@ -204,8 +203,7 @@ function Invoke-VideoAsk {
     if ($detect) {
         $res.Manual = $true   # la deteccion de bordes hace preguntas interactivas
         # Duracion del video (para repartir los puntos de escaneo entre inicio y final).
-        $vdur = 0.0
-        if ($Info.format.PSObject.Properties['duration']) { $d = ConvertTo-InvDouble $Info.format.duration; if ($null -ne $d) { $vdur = [double]$d } }
+        $vdur  = Get-MediaDuration $Info
         $start = [int]$Context.BorderStart
         $dur   = [int]$Context.BorderDur
         $done  = $false
