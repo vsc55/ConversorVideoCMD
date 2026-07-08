@@ -23,19 +23,15 @@ try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 
 $Root = $PSScriptRoot
 $Lib  = Join-Path $Root 'lib'
-foreach ($m in 'Common','Tools','MediaInfo','Profile','Video','Audio','Subtitle','Multiplex') {
+$modules = @('Log','Config','Context','Console','Exec','Job','Tools','MediaInfo','Profile','Video','Audio','Subtitle','Multiplex')
+foreach ($m in $modules) {
     Import-Module (Join-Path $Lib ("{0}.psm1" -f $m)) -Force
 }
 
 $ctx = New-CvContext -Root $Root
 
-# Log de la ejecucion (transcript) a logs\. Se desactiva con behavior.log=false o el
-# marcador 'no_log'. Cada ventana/worker crea su propio fichero (fecha + PID).
-$cvTranscript = $false
-if ($ctx.Log) {
-    $logFile = Join-Path $ctx.Logs ("Convert_{0}_{1}.log" -f (Get-Date -Format 'yyyyMMdd_HHmmss'), $PID)
-    try { Start-Transcript -LiteralPath $logFile -Append -ErrorAction Stop | Out-Null; $cvTranscript = $true } catch {}
-}
+# Log de la ejecucion (transcript) a logs\ (behavior.log / marcador 'no_log').
+$cvLog = Start-CvLog -Context $ctx -Prefix 'Convert'
 
 # Colores, fuente, tamano y titulo de la ventana (config.json).
 Set-CvAppearance -Context $ctx -Title ("ConversorVideoCMD {0}" -f $CvVersion)
@@ -125,7 +121,7 @@ if ($files.Count -eq 0) {
 if ($ctx.LockClose) { Set-CvCloseButton -Enabled $false }
 trap {
     if ($ctx.LockClose) { try { Set-CvCloseButton -Enabled $true } catch {} }
-    if ($cvTranscript)  { try { Stop-Transcript | Out-Null } catch {} }
+    if ($cvLog) { Stop-CvLog }
     break
 }
 
@@ -294,4 +290,4 @@ Write-CvLog 'GLOBAL' '[END] - No quedan archivos libres por procesar'
 if ($ctx.LockClose) { Set-CvCloseButton -Enabled $true }
 
 # Cerrar el log de la ejecucion.
-if ($cvTranscript) { try { Stop-Transcript | Out-Null } catch {} }
+if ($cvLog) { Stop-CvLog }

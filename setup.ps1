@@ -8,9 +8,8 @@
         bordes, volumen, comportamiento, consola, descargas...) sin tocarlo a mano.
 
     Reutiliza el catalogo 'downloads' de config.json y las funciones de descarga de
-    lib\Common.psm1 (las mismas que usa Convert.ps1 cuando falta una herramienta).
-    El guardado usa un serializador propio (indentacion de 4 espacios, CRLF) para no
-    depender de ConvertTo-Json (que en PS 5.1 reordena/reformatea).
+    lib\Tools.psm1 (las mismas que usa Convert.ps1 cuando falta una herramienta).
+    El guardado/reset de config.json vive en lib\Config.psm1.
 
     Lanzar:  setup.cmd   (o)   powershell -NoProfile -ExecutionPolicy Bypass -File setup.ps1
 #>
@@ -22,121 +21,19 @@ $ErrorActionPreference = 'Stop'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 
 $Root = $PSScriptRoot
-Import-Module (Join-Path $Root 'lib\Common.psm1') -Force
-Import-Module (Join-Path $Root 'lib\Tools.psm1')  -Force
+$Lib  = Join-Path $Root 'lib'
+$modules = @('Log','Config','Context','Console','Exec','Tools')   # setup no usa el pipeline de conversion
+foreach ($m in $modules) {
+    Import-Module (Join-Path $Lib ("{0}.psm1" -f $m)) -Force
+}
 
 $ctx = New-CvContext -Root $Root
 Set-CvAppearance -Context $ctx -Title 'ConversorVideoCMD - Setup'
 
 $CfgPath = Join-Path $Root 'config.json'
 
-# Log de la sesion (transcript) a logs\. Desactivable con behavior.log=false o marcador no_log.
-$cvTranscript = $false
-if ($ctx.Log) {
-    $logFile = Join-Path $ctx.Logs ("setup_{0}_{1}.log" -f (Get-Date -Format 'yyyyMMdd_HHmmss'), $PID)
-    try { Start-Transcript -LiteralPath $logFile -Append -ErrorAction Stop | Out-Null; $cvTranscript = $true } catch {}
-}
-
-# ===========================================================================
-#  Acceso generico a nodos (soporta PSCustomObject de ConvertFrom-Json e IDictionary)
-# ===========================================================================
-function Get-NodeKind($v) {
-    if ($null -eq $v)                                        { return 'null' }
-    if ($v -is [bool])                                       { return 'bool' }
-    if ($v -is [string])                                     { return 'string' }
-    if ($v -is [int] -or $v -is [long] -or $v -is [double] -or $v -is [single] -or $v -is [decimal]) { return 'number' }
-    if ($v -is [System.Collections.IDictionary])             { return 'object' }
-    if ($v -is [System.Management.Automation.PSCustomObject]){ return 'object' }
-    if ($v -is [System.Collections.IEnumerable])             { return 'array' }
-    return 'string'
-}
-function Get-Keys($node) {
-    if ($node -is [System.Collections.IDictionary]) { return @($node.Keys) }
-    if ($node) { return @($node.PSObject.Properties.Name) }
-    return @()
-}
-function Get-Val($node, $key) {
-    # La coma unaria evita que PowerShell desenvuelva un array de 1 elemento al retornar
-    # (si no, ["-version"] se convertiria en la cadena "-version" al serializar).
-    if ($node -is [System.Collections.IDictionary]) { return , $node[$key] }
-    return , $node.$key
-}
-function Set-Val($node, $key, $value) {
-    if ($node -is [System.Collections.IDictionary]) { $node[$key] = $value }
-    else { $node.$key = $value }
-}
-
-# ===========================================================================
-#  Serializador JSON propio (4 espacios, arrays de escalares en linea)
-# ===========================================================================
-function ConvertTo-JsonString([string]$s) {
-    $e = $s.Replace('\','\\').Replace('"','\"').Replace("`r",'\r').Replace("`n",'\n').Replace("`t",'\t')
-    return '"' + $e + '"'
-}
-function Format-CvNumber($n) {
-    $inv = [System.Globalization.CultureInfo]::InvariantCulture
-    if ($n -is [double] -or $n -is [single] -or $n -is [decimal]) { return ([double]$n).ToString($inv) }
-    return ([long]$n).ToString($inv)
-}
-function ConvertTo-CvJson {
-    param($Node, [int]$Indent = 0)
-    $pad  = '    ' * $Indent
-    $pad1 = '    ' * ($Indent + 1)
-    switch (Get-NodeKind $Node) {
-        'object' {
-            $keys = @(Get-Keys $Node)
-            if ($keys.Count -eq 0) { return '{}' }
-            $parts = @()
-            foreach ($k in $keys) {
-                $parts += ('{0}{1}: {2}' -f $pad1, (ConvertTo-JsonString "$k"), (ConvertTo-CvJson (Get-Val $Node $k) ($Indent + 1)))
-            }
-            return "{`n" + ($parts -join ",`n") + "`n$pad}"
-        }
-        'array' {
-            $items = @($Node)
-            if ($items.Count -eq 0) { return '[]' }
-            $allScalar = $true
-            foreach ($it in $items) { if ((Get-NodeKind $it) -in @('object','array')) { $allScalar = $false; break } }
-            if ($allScalar) {
-                $vals = foreach ($it in $items) { ConvertTo-CvJson $it 0 }
-                return '[' + ($vals -join ', ') + ']'
-            }
-            $parts = foreach ($it in $items) { $pad1 + (ConvertTo-CvJson $it ($Indent + 1)) }
-            return "[`n" + ($parts -join ",`n") + "`n$pad]"
-        }
-        'bool'   { if ($Node) { return 'true' } else { return 'false' } }
-        'number' { return (Format-CvNumber $Node) }
-        'null'   { return 'null' }
-        default  { return (ConvertTo-JsonString "$Node") }
-    }
-}
-function Repair-ConfigArrays($cfg) {
-    <#
-        PS 5.1 ConvertFrom-Json desenvuelve los arrays de 1 elemento a escalar
-        (["es"] -> "es"). Forzamos a array los campos que del esquema deben serlo,
-        para que se editen como lista y se serialicen como [...].
-    #>
-    if ($cfg.languages) {
-        if ($null -ne $cfg.languages.audio)    { $cfg.languages.audio    = @($cfg.languages.audio) }
-        if ($null -ne $cfg.languages.subtitle) { $cfg.languages.subtitle = @($cfg.languages.subtitle) }
-    }
-    if ($cfg.downloads) {
-        foreach ($p in $cfg.downloads.PSObject.Properties) {
-            $app = $p.Value
-            if ($null -ne $app.files)       { $app.files       = @($app.files) }
-            if ($null -ne $app.versionArgs) { $app.versionArgs = @($app.versionArgs) }
-        }
-    }
-}
-function Read-ConfigFile {
-    $cfg = Get-Content -Raw -LiteralPath $CfgPath | ConvertFrom-Json
-    Repair-ConfigArrays $cfg
-    return $cfg
-}
-function Save-ConfigFile($obj) {
-    $json = (ConvertTo-CvJson -Node $obj -Indent 0) -replace "`n", "`r`n"
-    [System.IO.File]::WriteAllText($CfgPath, $json + "`r`n", (New-Object System.Text.UTF8Encoding($false)))
-}
+# Log de la sesion (transcript) a logs\ (behavior.log / marcador no_log).
+$logFile = Start-CvLog -Context $ctx -Prefix 'setup'
 
 function Wait-Setup {
     # Pausa antes de limpiar la pantalla, para poder leer la info mostrada.
@@ -226,11 +123,11 @@ function Edit-Node {
     param($Node, [string]$Path)
     while ($true) {
         Clear-Host
-        $keys = @(Get-Keys $Node)
+        $keys = @(Get-CvNodeKeys $Node)
         $opts = @()
         foreach ($k in $keys) {
-            $v = Get-Val $Node $k
-            $kind = Get-NodeKind $v
+            $v = Get-CvNodeVal $Node $k
+            $kind = Get-CvNodeKind $v
             $preview = switch ($kind) {
                 'object' { '{...}' }
                 'array'  { '[' + ((@($v) | ForEach-Object { "$_" }) -join ', ') + ']' }
@@ -245,19 +142,19 @@ function Edit-Node {
         $sel = Select-FromList -Title $title -Options $opts -NoneLabel 'volver' -DefaultIndex 0
         if ($sel -eq '') { break }
         $key  = $keys[[array]::IndexOf($opts, $sel)]
-        $val  = Get-Val $Node $key
-        $kind = Get-NodeKind $val
+        $val  = Get-CvNodeVal $Node $key
+        $kind = Get-CvNodeKind $val
         if ($kind -eq 'object') {
             $sub = if ($Path) { "$Path/$key" } else { "$key" }
             Edit-Node -Node $val -Path $sub
         }
         elseif ($kind -eq 'array') {
             $r = Edit-Array -Key $key -Arr $val
-            if ($r.changed) { Set-Val $Node $key $r.value; $script:dirty = $true }
+            if ($r.changed) { Set-CvNodeVal $Node $key $r.value; $script:dirty = $true }
         }
         else {
             $r = Edit-Scalar -Key $key -Current $val -Kind $kind
-            if ($r.changed) { Set-Val $Node $key $r.value; $script:dirty = $true }
+            if ($r.changed) { Set-CvNodeVal $Node $key $r.value; $script:dirty = $true }
         }
     }
 }
@@ -265,19 +162,48 @@ function Edit-Node {
 function Edit-Config {
     Clear-Host
     Write-CvLog 'SETUP' 'Editor de config.json (0 = volver en cada nivel).'
-    $cfg = Read-ConfigFile
+    $cfg = Read-CvConfigFile -Path $CfgPath
     $script:dirty = $false
     Edit-Node -Node $cfg -Path ''
     if ($script:dirty) {
         $a = (Read-Host 'Guardar cambios en config.json? (S/n)').Trim()
         if ($a -eq '' -or $a -match '^[SsYy]') {
-            Save-ConfigFile $cfg
+            Save-CvConfigFile -Path $CfgPath -Config $cfg
             Write-CvLog 'SETUP' '[OK] - config.json guardado.'
         } else {
             Write-CvLog 'SETUP' 'Cambios descartados.'
         }
     } else {
         Write-CvLog 'SETUP' 'Sin cambios.'
+    }
+    Wait-Setup
+}
+
+function Reset-Config {
+    # UI del reset; la logica vive en Reset-CvConfig (modulo Config).
+    Clear-Host
+    Write-CvLog 'SETUP' 'Restablecer config.json a los valores por defecto.'
+    Write-CvLog 'SETUP' 'Se CONSERVA el catalogo de herramientas (downloads). El resto vuelve al valor por defecto.'
+    $a = (Read-Host 'Continuar? (s/N)').Trim()
+    if ($a -notmatch '^[SsYy]') { Write-CvLog 'SETUP' 'Cancelado.'; Wait-Setup; return }
+    [void](Reset-CvConfig -Path $CfgPath)
+    Write-CvLog 'SETUP' '[OK] - config.json restablecido (copia en config.json.bak; catalogo de herramientas conservado).'
+    Wait-Setup
+}
+
+function Clear-Logs {
+    # UI de limpieza de logs; la logica vive en Log.psm1 (excluye el log de la sesion actual).
+    Clear-Host
+    $files = @(Get-CvLogFiles -Context $ctx -ExceptPath $logFile)
+    if ($files.Count -eq 0) { Write-CvLog 'SETUP' 'No hay logs que eliminar.'; Wait-Setup; return }
+    Write-CvLog 'SETUP' ("Se eliminaran {0} log(s):" -f $files.Count)
+    $files | ForEach-Object { Write-Host ("   - {0}" -f $_.Name) }
+    $a = (Read-Host 'Confirmar borrado? (s/N)').Trim()
+    if ($a -match '^[SsYy]') {
+        [void](Remove-CvLogFiles -Files $files)
+        Write-CvLog 'SETUP' '[OK] - Logs eliminados.'
+    } else {
+        Write-CvLog 'SETUP' 'Cancelado.'
     }
     Wait-Setup
 }
@@ -304,10 +230,10 @@ function Remove-AppVersion {
 }
 function Set-AppSelected {
     param([string]$Name, [string]$Version)
-    $cfg = Read-ConfigFile
+    $cfg = Read-CvConfigFile -Path $CfgPath
     if ($cfg.downloads -and $cfg.downloads.PSObject.Properties[$Name]) {
         $cfg.downloads.$Name.selected = $Version
-        Save-ConfigFile $cfg
+        Save-CvConfigFile -Path $CfgPath -Config $cfg
         return $true
     }
     return $false
@@ -365,6 +291,28 @@ function Invoke-InstallApp {
 }
 
 # ===========================================================================
+#  Compatibilidad GPU (NVENC) de las versiones de ffmpeg instaladas
+# ===========================================================================
+function Show-NvencCheck {
+    Clear-Host
+    if (-not (Test-CvToolSupported -Context $ctx -Name 'ffmpeg')) {
+        Write-CvLog 'SETUP' ("ffmpeg [NO SOPORTADO] en esta plataforma ({0})." -f (Get-CvPlatform))
+        Wait-Setup; return
+    }
+    $vers = @(Get-CvInstalledVersions -Context $ctx -Name 'ffmpeg')
+    if ($vers.Count -eq 0) {
+        Write-CvLog 'SETUP' 'No hay ninguna version de ffmpeg instalada. Instala una primero.'
+        Wait-Setup; return
+    }
+    Write-CvLog 'SETUP' ("Comprobando NVENC (codificacion por GPU) en {0} version(es) de ffmpeg..." -f $vers.Count)
+    foreach ($v in $vers) {
+        Write-Host ''
+        [void](Write-CvNvencReport -Context $ctx -Version $v -Tag ("[FFMPEG {0}]" -f $v))
+    }
+    Wait-Setup
+}
+
+# ===========================================================================
 #  Mantenimiento de la carpeta Proceso (jobs / bloqueos / temporales)
 # ===========================================================================
 function Clear-Proceso {
@@ -417,30 +365,70 @@ function Show-CleanMenu {
 }
 
 # ===========================================================================
+#  Estado general (directorios de trabajo + herramientas)
+# ===========================================================================
+function Show-Estado {
+    $sep = '=' * 64
+    Write-Host $sep
+    Write-Host 'ESTADO'
+    Write-Host $sep
+    Show-Dirs
+    Show-Status
+    Write-Host $sep
+}
+
+# ===========================================================================
 #  Menu principal
 # ===========================================================================
 $exit = $false
 while (-not $exit) {
     Clear-Host
     $ctx = New-CvContext -Root $Root   # recargar por si cambio config.json
-    Show-Dirs
-    Show-Status
 
-    $names = @(Get-AppNames)
-    $opts  = @()
+    $names   = @(Get-AppNames)
+    $opts    = @()
+    $headers = @{}
+
+    $headers[$opts.Count] = 'Instalacion'
     foreach ($n in $names) { $opts += ("Instalar / cambiar version de {0}" -f $n) }
     $opts += 'Reinstalar TODO (version por defecto de cada app)'
-    $opts += 'Editar configuracion (config.json)'
-    $opts += 'Limpiar jobs / bloqueos (carpeta Proceso)'
 
-    $choice = Select-FromList -Title 'SETUP - Que quieres hacer?' -Options $opts -NoneLabel 'salir' -DefaultIndex 1
+    $headers[$opts.Count] = 'Estado'
+    $opts += 'Ver estado (directorios y herramientas)'
+
+    $headers[$opts.Count] = 'Compatibilidad'
+    $opts += 'Comprobar compatibilidad GPU (NVENC de ffmpeg)'
+
+    $headers[$opts.Count] = 'Configuracion'
+    $opts += 'Editar configuracion (config.json)'
+    $opts += 'Restablecer config.json (valores por defecto)'
+
+    $headers[$opts.Count] = 'Limpieza'
+    $opts += 'Limpiar jobs / bloqueos (carpeta Proceso)'
+    $opts += 'Limpiar logs (carpeta logs)'
+
+    $choice = Select-FromList -Title 'SETUP - Que quieres hacer?' -Options $opts -NoneLabel 'salir' -DefaultIndex 1 -Headers $headers
     if ($choice -eq '') { $exit = $true; continue }
 
-    if ($choice -eq 'Editar configuracion (config.json)') {
+    if ($choice -eq 'Ver estado (directorios y herramientas)') {
+        Clear-Host
+        Show-Estado
+        Wait-Setup
+    }
+    elseif ($choice -eq 'Editar configuracion (config.json)') {
         Edit-Config                          # limpia y pausa por su cuenta
+    }
+    elseif ($choice -eq 'Restablecer config.json (valores por defecto)') {
+        Reset-Config                         # limpia y pausa por su cuenta
     }
     elseif ($choice -eq 'Limpiar jobs / bloqueos (carpeta Proceso)') {
         Show-CleanMenu                       # limpia y pausa por su cuenta
+    }
+    elseif ($choice -eq 'Limpiar logs (carpeta logs)') {
+        Clear-Logs                           # limpia y pausa por su cuenta
+    }
+    elseif ($choice -eq 'Comprobar compatibilidad GPU (NVENC de ffmpeg)') {
+        Show-NvencCheck                      # limpia y pausa por su cuenta
     }
     elseif ($choice -like 'Reinstalar TODO*') {
         Clear-Host
@@ -461,4 +449,4 @@ Clear-Host
 Write-CvLog 'SETUP' 'Hecho.'
 
 # Cerrar el log de la sesion.
-if ($cvTranscript) { try { Stop-Transcript | Out-Null } catch {} }
+if ($logFile) { Stop-CvLog }

@@ -3,8 +3,8 @@
 
     Estructura en disco: tools\<app>\<version>\<plataforma>. El catalogo de apps,
     versiones (con SHA256) y plataforma esta en config.json (seccion 'downloads').
-    Reutiliza funciones de Common.psm1 (Write-CvLog, Invoke-ToolCapture, Select-FromList);
-    ambos modulos se importan en la misma sesion.
+    Reutiliza funciones de otros modulos (Log: Write-CvLog; Exec: Invoke-ToolCapture;
+    Console: Select-FromList), todos importados en la misma sesion.
 #>
 
 # ---------- HERRAMIENTAS VERSIONADAS: tools\<app>\<version>\<plataforma> ----------
@@ -270,10 +270,76 @@ function Install-CvTool {
         $iv = Get-CvToolInstalledVersion -Context $Context -Name $Name -Version $ver
         if ($iv) { Write-CvLog 'GLOBAL' ("{0} - [OK] - {1} instalado en {2} (version detectada: {3})" -f $tag, $Name, $destDir, $iv) }
         else     { Write-CvLog 'GLOBAL' ("{0} - [OK] - {1} {2} instalado en {3}" -f $tag, $Name, $ver, $destDir) }
+        # Validacion de compatibilidad: para ffmpeg, comprobar que la codificacion por GPU
+        # (NVENC) funciona con esta version y el driver NVIDIA de este equipo.
+        if ($Name -eq 'ffmpeg') { Write-CvNvencReport -Context $Context -Version $ver -Tag $tag }
     }
     return $ok
 }
 
+
+function Test-CvNvenc {
+    <#
+        Comprueba si la codificacion por GPU NVIDIA (NVENC) funciona con una version de
+        ffmpeg instalada, codificando un clip sintetico minimo. Reproduce el fallo tipico
+        de "el driver no soporta la version de la API de NVENC" (ffmpeg 8 sobre drivers
+        antiguos). Devuelve @{ Ok; Encoder; Causes = @(...) }.
+    #>
+    param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)][string]$Version)
+    $exe = Join-Path (Get-CvToolDir -Context $Context -Name 'ffmpeg' -Version $Version) 'ffmpeg.exe'
+    if (-not (Test-Path -LiteralPath $exe)) { return [pscustomobject]@{ Ok = $false; Encoder = ''; Causes = @('ffmpeg no instalado') } }
+    $causes = @()
+    foreach ($enc in 'hevc_nvenc','h264_nvenc') {
+        $r = Invoke-ToolCapture -Exe $exe -Arguments @(
+            '-hide_banner','-f','lavfi','-i','color=c=black:s=320x240:d=0.1','-c:v',$enc,'-f','null','-'
+        ) -Context $Context
+        if ($r.ExitCode -eq 0) { return [pscustomobject]@{ Ok = $true; Encoder = $enc; Causes = @() } }
+        if ($causes.Count -eq 0) { $causes = @(Get-CvNvencCause $r.StdErr) }
+    }
+    return [pscustomobject]@{ Ok = $false; Encoder = ''; Causes = @($causes) }
+}
+
+function Get-CvNvencCause {
+    <#
+        Extrae de la salida de ffmpeg la(s) linea(s) que EXPLICAN el fallo de NVENC,
+        ignorando el ruido de terminacion (Task finished / Terminating thread / -22 / -40)
+        y quitando el prefijo "[hevc_nvenc @ 0x...] ". Devuelve hasta 2 lineas legibles.
+    #>
+    param([string]$StdErr)
+    $lines = $StdErr -split "`r?`n"
+    $cause = @($lines | Where-Object {
+        $_ -match 'Driver does not support|minimum required|Cannot load|Failed loading|No capable devices|No NVENC|OpenEncodeSession|InitializeEncoder|Provided device|not supported' })
+    if ($cause.Count -eq 0) {
+        $cause = @($lines | Where-Object {
+            $_ -match 'nvenc' -and $_ -notmatch 'Task finished|Terminating thread|Conversion failed|Error while opening encoder|Error sending frames' })
+    }
+    $clean = @($cause | Select-Object -First 2 | ForEach-Object { ($_ -replace '^\s*\[[^\]]*\]\s*', '').Trim() } | Where-Object { $_ })
+    if ($clean.Count -eq 0) { $clean = @('la GPU o el driver no admiten NVENC con esta version.') }
+    return $clean
+}
+
+function Write-CvNvencReport {
+    <# Ejecuta Test-CvNvenc y escribe un veredicto claro: COMPATIBLE / NO COMPATIBLE. #>
+    param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)][string]$Version, [string]$Tag = '[FFMPEG]')
+    Write-CvLog 'GLOBAL' ("{0} - [GPU] - Comprobando compatibilidad de la codificacion por GPU (NVENC)..." -f $Tag)
+    $nv = Test-CvNvenc -Context $Context -Version $Version
+    if ($nv.Ok) {
+        Write-Host ("[GLOBAL] {0} - [GPU] - " -f $Tag) -NoNewline
+        Write-Host ' COMPATIBLE ' -ForegroundColor Black -BackgroundColor Green -NoNewline
+        Write-Host (": la codificacion por GPU (NVENC) funciona ({0})." -f $nv.Encoder)
+    } else {
+        Write-Host ("[GLOBAL] {0} - [GPU] - " -f $Tag) -NoNewline
+        Write-Host ' NO COMPATIBLE ' -ForegroundColor White -BackgroundColor Red -NoNewline
+        Write-Host (": la codificacion por GPU (NVENC) no funciona con ffmpeg {0} en este equipo." -f $Version)
+        $causes = @($nv.Causes)
+        if ($causes.Count -gt 0) {
+            Write-CvLog 'GLOBAL' ("{0} - [GPU] -   Causa:" -f $Tag)
+            foreach ($c in $causes) { Write-CvLog 'GLOBAL' ("{0} - [GPU] -     {1}" -f $Tag, $c) }
+        }
+        Write-CvLog 'GLOBAL' ("{0} - [GPU] -   Solucion: perfil CPU (libx264/libx265), otra version de ffmpeg o actualizar el driver NVIDIA." -f $Tag)
+    }
+    return $nv.Ok
+}
 
 function Test-CvTools {
     <# Devuelve la lista de herramientas que faltan (vacia = todo OK). #>

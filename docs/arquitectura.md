@@ -10,7 +10,12 @@ ConversorVideoCMD/
 ├── setup.ps1               Utilidad: herramientas + editor de config + limpieza
 ├── config.json             Toda la configuración (se carga al arrancar)
 ├── lib/
-│   ├── Common.psm1         Contexto, config, logging, jobs JSON, lock, consola, temporales
+│   ├── Log.psm1            Log de consola (Write-CvLog) y transcript a logs\
+│   ├── Config.psm1         Valores por defecto de config.json + carga/fusión/reset
+│   ├── Context.psm1        Contexto de ejecución ($ctx) + helpers (idiomas, números)
+│   ├── Console.psm1        Apariencia de consola, ventana nativa, menús y prompts
+│   ├── Exec.psm1           Ejecución de procesos externos (ffmpeg/ffprobe…)
+│   ├── Job.psm1            Cola: jobs JSON, lock atómico, temporales, ruta de salida
 │   ├── Tools.psm1          Apps/versiones/descargas (ffmpeg, aacgain)
 │   ├── MediaInfo.psm1      ffprobe (JSON), selección de pista, resumen
 │   ├── Profile.psm1        Perfiles de codificación + menú
@@ -33,16 +38,24 @@ Las carpetas de trabajo (`Original`, `Proceso`, `Convertido`, `tools`) se crean 
 Todos son módulos de PowerShell 5.1 (`.psm1`) que exportan sus funciones (`Export-ModuleMember -Function *`). `Convert.ps1` los importa en orden:
 
 ```powershell
-foreach ($m in 'Common','Tools','MediaInfo','Profile','Video','Audio','Subtitle','Multiplex') {
+$modules = @('Log','Config','Context','Console','Exec','Job','Tools','MediaInfo','Profile','Video','Audio','Subtitle','Multiplex')
+foreach ($m in $modules) {
     Import-Module (Join-Path $Lib ("{0}.psm1" -f $m)) -Force
 }
 ```
 
-`Common` y `Tools` se llaman mutuamente (p. ej. `New-CvContext` de Common usa `New-CvToolContext` de Tools, y `Install-CvTool` de Tools usa `Write-CvLog` de Common). Como ambos se importan en la misma sesión, la resolución de comandos entre módulos funciona.
+(`setup.ps1` usa el mismo patrón con un subconjunto: `@('Log','Config','Context','Console','Exec','Tools')`.)
+
+Los módulos se llaman entre sí (p. ej. `New-CvContext` de Context usa `Get-CvConfig` de Config y `New-CvToolContext` de Tools; `Install-CvTool` de Tools usa `Write-CvLog` de Log, `Invoke-ToolCapture` de Exec y `Select-FromList` de Console). Como todos se importan en la misma sesión, la resolución de comandos entre módulos funciona.
 
 | Módulo | Responsabilidad |
 |---|---|
-| **Common** | `New-CvContext`, `Get-CvConfig`, `Write-CvLog`, jobs (`*-CvJob`), lock (`Enter/Exit-Lock`), temporales (`Get-CvTempPaths`, `Remove-CvTemps`), consola (`Set-CvAppearance`…), ejecución (`Invoke-ToolShow/Capture`). |
+| **Log** | `Write-CvLog` (log de consola; resalta `[ERR]` en rojo y `[AVISO]`/`[NO SOPORTADO]` en amarillo), `Start-CvLog`/`Stop-CvLog` (transcript a `logs\`), `Get-CvLogFiles`/`Remove-CvLogFiles`. |
+| **Config** | `Get-CvConfigDefaults` (fuente única de defaults), `Get-CvConfig` (carga + fusión), `Reset-CvConfig`, serialización (`ConvertTo-CvJson`, `Read/Save-CvConfigFile`). |
+| **Context** | `New-CvContext` (`$ctx`), `Get-CvWorkDirs`, `Test-CvLanguage`, `ConvertTo-InvDouble`. |
+| **Console** | Apariencia (`Set-CvAppearance`…), ventana nativa (`Set-CvCloseButton`, `Initialize-CvNative`), menús (`Show-Menu`, `Select-FromList`), prompts (`Read-*`). |
+| **Exec** | `Invoke-ToolCapture`, `Invoke-ToolShow`, `ConvertTo-ArgString`, `Write-CvDebug`. |
+| **Job** | Jobs (`*-CvJob`), lock (`Enter/Exit-Lock`), temporales (`Get-CvTempPaths`, `Remove-CvTemps`), salida (`Get-OutputPath`). |
 | **Tools** | Descargas y versiones: `Install-CvTool`, `Confirm-CvTool`, `Select-CvToolVersion`, `Get-CvToolDir`, `Test-CvToolInstalled`, `Get-CvInstalledVersions`, `Test-CvToolSupported`, `New-CvToolContext`, `Test-CvTools`. |
 | **MediaInfo** | `Get-MediaInfo` (ffprobe JSON), `Select-AudioStream`, `Get-VideoStream`, `Write-ConversionSummary`. |
 | **Profile** | `Get-CvProfiles`, `Select-Profile`, `New-CustomProfile`. |

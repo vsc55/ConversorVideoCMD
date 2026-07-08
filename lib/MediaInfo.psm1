@@ -137,7 +137,15 @@ function Write-ConversionSummary {
         ("Video   : {0} {1}  ->  {2} {3}" -f $origVc, $origRes, $outVc, $outRes),
         ("Audio   : {0} {1}{2}" -f $outAc, $outAch, $outAbr)
     )
-    Show-Menu -Title 'RESUMEN DE LA CONVERSION' -Lines $lines
+    # Sin encuadrar: los cuadros recortan las lineas largas (p.ej. el nombre del archivo).
+    $sep = '=' * 64
+    Write-Host ''
+    Write-Host $sep
+    Write-Host 'RESUMEN DE LA CONVERSION'
+    Write-Host $sep
+    $lines | ForEach-Object { Write-Host $_ }
+    Write-Host $sep
+    Write-Host ''
 }
 
 Export-ModuleMember -Function *
