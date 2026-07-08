@@ -129,7 +129,7 @@ Comando completo (sin audio ni subtítulos; se añaden en el multiplexado):
 ```
 ffmpeg -hide_banner -y -threads <N> -i <file> -an -sn -map_chapters -1 \
   -metadata title= -metadata:s:v title= -metadata:s:v language=und \
-  [-vf "<filtros>"] <ARGS_ENCODER> -map 0:0 -f matroska <name>.mkv
+  [-vf "<filtros>"] <ARGS_ENCODER> -map 0:v:0 -f matroska <name>.mkv
 ```
 
 `<filtros>` combina recorte y escalado si aplican: `crop=<W:H:X:Y>,scale=<resize>`.
@@ -177,15 +177,49 @@ ffmpeg -hide_banner -y -threads <N> \
   -i <video>            # input 0 (temporal .mkv o el original)
   [-i <name>.m4a]       # input 1 (audio recodificado, si existe)
   [-i <file>]           # input N (para los subtítulos del original)
-  -metadata title= -metadata:s:v title= -metadata:s:v language=und \
-  -map 0:v:0 \
-  <-map 1:a:0 -metadata:s:a title= -metadata:s:a language=spa  |  -map 0:a:0> \
+  -map_metadata -1 -fflags +bitexact \                          # limpieza de metadatos (ver abajo)
+  -metadata title= \
+  -map 0:v:0 -metadata:s:v title= -metadata:s:v language=und \
+  <-map 1:a:0 -metadata:s:a title= -metadata:s:a language=spa   |   -map 0:a:0 -map_metadata:s:a:0 0:s:a:0> \
   # por cada subtítulo seleccionado:
   -map <sub_input>:<idx>? -metadata:s:s:<n> language=<lang> -metadata:s:s:<n> title=<"Forzados"|""> -disposition:s:<n> <default+forced|0> \
-  -c:v copy -c:a copy [-c:s copy] -f matroska <name>_fix.mkv
+  # por cada adjunto conservado (si postprocess.attachments.keep):
+  -map <orig>:<idx>? -metadata:s:t:<n> filename=<...> -metadata:s:t:<n> mimetype=<...> \
+  -c:v copy -c:a copy [-c:s copy] [-c:t copy] -f matroska <name>_fix.mkv
 ```
 
-Subtítulos: se mantiene el completo + los forzados del idioma preferido; el título de la pista se pone a `Forzados` en las forzadas y en blanco en las completas.
+**Subtítulos:** se mantiene el completo + los forzados del idioma preferido; el título de la pista se pone a `Forzados` en las forzadas y en blanco en las completas. El `disposition` de cada subtítulo se compone con `default` y/o `forced`: el `forced` se toma de si la pista es forzada y el `default` **se conserva del original** (un forzado que ya era "pista predefinida" lo sigue siendo). La selección la hace `Select-Subtitles`/`ConvertTo-SubSel` en [Subtitle.psm1](../lib/Subtitle.psm1).
+
+### Limpieza de metadatos (evitar "Etiquetas" que no están en el original)
+
+Al recodificar, ffmpeg **hereda** los tags del origen y de los contenedores intermedios, ensuciando el MKV final con etiquetas que el original no tenía:
+
+| Origen del tag | Ejemplo | Problema |
+|---|---|---|
+| Stats del vídeo original copiadas al recodificar | `BPS`, `NUMBER_OF_FRAMES`, `_STATISTICS_WRITING_APP`… | Describen el **códec viejo** (H.264), no el HEVC de salida → obsoletas. |
+| Etiqueta del encoder de vídeo | `ENCODER=Lavc… hevc_nvenc` | No estaba en el original. |
+| Contenedor `.m4a` (MP4) del audio | `VENDOR_ID`, `HANDLER_NAME` | Los añade MP4; no aplican al MKV. |
+| Etiqueta global del muxer | `ENCODER=Lavf…` (SimpleTag global) | mkvmerge la muestra como "Etiquetas globales". |
+
+Para dejar el MKV limpio, el multiplex:
+
+1. **`-map_metadata -1`** — descarta la fuente global de metadatos. En este ffmpeg **también vacía los tags de cada pista** (una sola opción limpia global + streams), así que no hacen falta `-map_metadata:s:*` por pista.
+2. **`-fflags +bitexact`** — evita que el muxer escriba su propia etiqueta `ENCODER` global (queda solo el "writing application" en la cabecera EBML, igual que el original; mkvmerge **no** lo cuenta como Etiqueta).
+3. Tras limpiar, se **re-fijan solo** los metadatos deseados: `title` (global y por pista), `language` y `disposition`.
+4. **Audio en modo `copy`** (perfil 1): como el paso 1 borró también su idioma/título, se **restauran los metadatos originales** de esa pista con `-map_metadata:s:a:0 0:s:a:0` (el audio recodificado a `.m4a` no lo necesita porque se le fijan `title`/`language` explícitos).
+5. **Limpieza final con `mkvpropedit`** (ver abajo): quita el tag `DURATION` que el muxer añade por pista.
+
+### Tag `DURATION` y limpieza con mkvpropedit (`Remove-CvMkvTags`)
+
+Al cerrar el fichero, el muxer de Matroska de ffmpeg escribe **un `SimpleTag` `DURATION` por pista** (la duración exacta de cada una, que no coincide entre vídeo/audio/subtítulo). **No hay flag de ffmpeg** para omitirlo sin perder los Cues y la duración (`-live 1` los quita pero deja el fichero sin índice de búsqueda y con duración `N/A`). mkvmerge, cuando escribe ese `DURATION`, lo acompaña del juego `_STATISTICS_TAGS` y así su GUI lo reconoce como estadística y lo oculta; el `DURATION` suelto de ffmpeg se muestra como "Etiqueta".
+
+Por eso, tras multiplexar, se pasa **mkvpropedit** (de MKVToolNix), que borra las etiquetas **in situ** sin recodificar y **conservando Cues, duración y dispositions**:
+
+```
+mkvpropedit <name>_fix.mkv --tags all:
+```
+
+Es opcional (`postprocess.stripTags`) y usa el `mkvpropedit` de `tools\mkvtoolnix\<ver>\<plataforma>` (auto-descargado) o el que se indique en `postprocess.mkvpropedit`. Ver [herramientas.md](herramientas.md) y [configuracion.md](configuracion.md).
 
 ---
 
@@ -196,6 +230,8 @@ Para confirmar qué versión hay en una carpeta se ejecuta la propia app:
 ```
 ffmpeg.exe -version      # regex: ffmpeg version (\d+\.\d+(?:\.\d+)?)
 aacgain.exe /v           # regex: [Vv]ersion (\d+\.\d+(?:\.\d+)?)
+mkvpropedit.exe --version # regex: mkvpropedit v(\d+\.\d+)
+7zr.exe                  # regex: 7-Zip.*?(\d+\.\d+)
 ```
 
 ---

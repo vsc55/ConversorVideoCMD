@@ -53,6 +53,12 @@ flowchart TD
 
 El job **congela**: el perfil completo, las respuestas del usuario (recorte, resize, animación, índice de audio, sincronía, subtítulos) y **las versiones de ffmpeg/aacgain** en uso. Es autosuficiente: el worker no depende de la config global. Ver [jobs.md](jobs.md).
 
+**Salida por archivo:** en uso normal, PREPARAR muestra **una sola línea por archivo** con el nombre y un badge de estado de color: **OK** (fondo verde) o **ERROR** (fondo rojo) si ffprobe no puede leerlo. En **modo debug** (`behavior.debug` / marcador `debug_on`) se ve el detalle completo (marco, tamaño/duración, y los `[INFO]` de audio/subtítulo/vídeo). Las **preguntas interactivas** (bordes, sincronía, menús de audio/subtítulo) se ven en ambos modos.
+
+### Workers en paralelo
+
+Al terminar PREPARAR, se pregunta **cuántos workers codificarán en paralelo** (contando esta ventana; ENTER usa el valor por defecto `behavior.workers`, 2). Si se piden N, esta ventana codifica y se abren **N−1 ventanas nuevas** (`Convert.cmd -WorkerOnly`): como ya está todo preparado, entran directas a codificar sin preguntar y se reparten los archivos por el lock. Con `-WorkerOnly` una ventana **salta PREPARAR** y va directa a la fase WORKER.
+
 ### Regla del prefijo `_`
 
 Si el nombre del archivo empieza por `_`, se **fuerza** la detección de bordes aunque el perfil (o la respuesta) diga "sin bordes". Pensado para marcar archivos con bordes que hay que limpiar sí o sí.
@@ -71,9 +77,10 @@ flowchart TD
     W3 -- "reclamado" --> W4["Read-CvJob"]
     W4 --> W5["Confirm-CvTool: instala la versión del job si falta"]
     W5 --> W6["New-CvToolContext: contexto con esa versión"]
-    W6 --> A["Invoke-AudioRun"]
+    W6 --> INFO["[INFO] Resolución + Duración del archivo"]
+    INFO --> A["Invoke-AudioRun"]
     A --> V["Invoke-VideoRun"]
-    V --> M["Invoke-Multiplex → Convertido\\&lt;nombre&gt;_fix.mkv"]
+    V --> M["Invoke-Multiplex → Convertido\\&lt;nombre&gt;_fix.mkv (+ mkvpropedit)"]
     M --> OK{"¿salida creada?"}
     OK -- "sí" --> CLEAN["Remove-CvTemps + Remove-CvJob + resumen"]
     OK -- "no" --> RETRY["se reintentará"]
@@ -82,7 +89,9 @@ flowchart TD
     UNLOCK --> W1
 ```
 
-Orden de codificación por archivo: **audio → vídeo → multiplexado**. El audio se recodifica a un `.m4a` temporal, el vídeo a un `.mkv` temporal, y el multiplexado los une (con los subtítulos del original) en `Convertido\<nombre>_fix.mkv`.
+Al iniciar cada archivo, el worker muestra su **resolución y duración** (útil para estimar cuánto durará la codificación).
+
+Orden de codificación por archivo: **audio → vídeo → multiplexado**. El audio se recodifica a un `.m4a` temporal, el vídeo a un `.mkv` temporal, y el multiplexado los une con los **subtítulos** y los **adjuntos** conservados del original en `Convertido\<nombre>_fix.mkv`; después limpia los metadatos heredados y quita las etiquetas `DURATION` con **mkvpropedit**.
 
 Ver los comandos exactos en [comandos.md](comandos.md).
 

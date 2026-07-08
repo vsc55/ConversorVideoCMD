@@ -112,6 +112,20 @@ function New-CvToolContext {
         $c.AacGain = Join-Path $d 'aacgain.exe'
         $c.AacGainVersion = $AacGainVersion
     }
+    # mkvpropedit (limpieza de etiquetas): ruta explicita de config si se indico, si no la
+    # version 'selected' descargada en tools\mkvtoolnix\<ver>\<plataforma>.
+    if ($c.PSObject.Properties['MkvPropEditOverride']) {
+        $ov = "$($c.MkvPropEditOverride)"
+        if (-not [string]::IsNullOrWhiteSpace($ov)) {
+            $c.MkvPropEdit = $ov
+        } else {
+            $mkvApp = Get-CvAppDescriptor -Context $Context -Name 'mkvtoolnix'
+            if ($mkvApp) {
+                $md = Get-CvToolDir -Context $Context -Name 'mkvtoolnix' -Version "$($mkvApp.selected)"
+                $c.MkvPropEdit = Join-Path $md 'mkvpropedit.exe'
+            }
+        }
+    }
     return $c
 }
 
@@ -204,9 +218,9 @@ function Install-CvTool {
     $tmp = Join-Path $env:TEMP ("cv_dl_{0}_{1}" -f $Name, $ver)
     if (Test-Path $tmp) { Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue }
     New-Item -ItemType Directory -Path $tmp -Force | Out-Null
-    # Tipo de descarga: 'zip' (extrae) o 'file' (ejecutable directo). Por defecto 'zip'.
+    # Tipo de descarga: 'zip'/'7z' (extraen) o 'file' (ejecutable directo). Por defecto 'zip'.
     $type = "$($app.type)"; if ([string]::IsNullOrWhiteSpace($type)) { $type = 'zip' }
-    $dl = Join-Path $tmp $(if ($type -eq 'zip') { 'pkg.zip' } else { 'pkg.dat' })
+    $dl = Join-Path $tmp $(switch ($type) { 'zip' { 'pkg.zip' } '7z' { 'pkg.7z' } default { 'pkg.dat' } })
 
     Write-CvLog 'GLOBAL' ("{0} - Descargando {1} {2} (puede tardar)..." -f $tag, $Name, $ver)
     Write-CvLog 'GLOBAL' ("{0} - {1}" -f $tag, $url)
@@ -255,13 +269,29 @@ function Install-CvTool {
         catch { Write-CvLog 'GLOBAL' ("{0} - [ERR] - No se pudo copiar: {1}" -f $tag, $_.Exception.Message); $ok = $false }
     } else {
         Write-CvLog 'GLOBAL' ("{0} - Extrayendo..." -f $tag)
-        try { Expand-Archive -Path $dl -DestinationPath $tmp -Force }
-        catch {
-            Write-CvLog 'GLOBAL' ("{0} - [ERR] - No se pudo extraer: {1}" -f $tag, $_.Exception.Message)
+        $extracted = $false
+        if ($type -eq '7z') {
+            # .7z (LZMA): se extrae con 7zr, que se asegura antes (bootstrap).
+            $zApp = Get-CvAppDescriptor -Context $Context -Name 'sevenzip'
+            $zVer = if ($zApp) { "$($zApp.selected)" } else { '' }
+            if (-not (Confirm-CvTool -Context $Context -Name 'sevenzip' -Version $zVer -Quiet)) {
+                Write-CvLog 'GLOBAL' ("{0} - [ERR] - No se pudo obtener el extractor 7z (7zr)" -f $tag)
+                Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
+                return $false
+            }
+            $zr = Join-Path (Get-CvToolDir -Context $Context -Name 'sevenzip' -Version $zVer) '7zr.exe'
+            $r = Invoke-ToolCapture -Exe $zr -Arguments @('x', $dl, ("-o{0}" -f $tmp), '-y') -Context $Context
+            $extracted = ($r.ExitCode -eq 0)
+            if (-not $extracted) { Write-CvLog 'GLOBAL' ("{0} - [ERR] - 7zr devolvio codigo {1}" -f $tag, $r.ExitCode) }
+        } else {
+            try { Expand-Archive -Path $dl -DestinationPath $tmp -Force; $extracted = $true }
+            catch { Write-CvLog 'GLOBAL' ("{0} - [ERR] - No se pudo extraer: {1}" -f $tag, $_.Exception.Message) }
+        }
+        if (-not $extracted) {
             Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
             return $false
         }
-        # Carpeta con los binarios dentro del zip; si no esta, se busca cada fichero.
+        # Carpeta con los binarios dentro del paquete; si no esta, se busca cada fichero.
         $bin = if ([string]::IsNullOrWhiteSpace($binRel)) { $tmp } else { Join-Path $tmp $binRel }
         foreach ($file in $files) {
             $src = Join-Path $bin $file

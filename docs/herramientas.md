@@ -1,6 +1,6 @@
 # Herramientas: versiones, plataforma y descargas
 
-El conversor descarga y gestiona sus binarios (ffmpeg, aacgain) por sí mismo. Todo se describe en la sección `downloads` de `config.json` y lo maneja `lib\Tools.psm1`.
+El conversor descarga y gestiona sus binarios (ffmpeg, aacgain, mkvtoolnix, 7zr) por sí mismo. Todo se describe en la sección `downloads` de `config.json` y lo maneja `lib\Tools.psm1`.
 
 ## Estructura en disco
 
@@ -10,8 +10,12 @@ tools/
 │   ├── 8.1.2/x64/{ffmpeg,ffprobe,ffplay}.exe
 │   ├── 7.1.1/x64/{ffmpeg,ffprobe,ffplay}.exe
 │   └── 5.1.2/x64/{ffmpeg,ffprobe,ffplay}.exe
-└── aacgain/
-    └── 2.0.0/x64/aacgain.exe
+├── aacgain/
+│   └── 2.0.0/x64/aacgain.exe
+├── mkvtoolnix/
+│   └── 100.0/x64/mkvpropedit.exe      (limpieza de etiquetas del MKV final)
+└── sevenzip/
+    └── 26.02/x64/7zr.exe              (extractor .7z; bootstrap de mkvtoolnix)
 ```
 
 Patrón: **`tools\<app>\<version>\<plataforma>\`**. Varias versiones conviven; cada job usa la suya.
@@ -44,12 +48,16 @@ flowchart TD
     H -- "no" --> ERR["[ERR] SHA → false"]
     H -- "sí" --> T{"type"}
     T -- "zip" --> Z["Expand-Archive + copiar files desde binPath"]
+    T -- "7z" --> S["Asegurar 7zr (bootstrap) → 7zr x + copiar files"]
     T -- "file" --> F["Copiar el exe a la carpeta destino"]
     Z --> V["Leer versión instalada (exe) y registrar"]
+    S --> V
     F --> V
 ```
 
 Destino: `tools\<app>\<version>\<plataforma>` (calculado, ya no hay `dest` en el config).
+
+**Tipos de descarga** (`type`): `zip` (extrae con `Expand-Archive`), `file` (ejecutable directo, se copia), y `7z` (LZMA: lo extrae `7zr.exe`, que se asegura antes como *bootstrap*). MKVToolNix usa `7z` porque solo se distribuye así.
 
 ### Validación de compatibilidad GPU (NVENC)
 
@@ -82,12 +90,11 @@ Ver [jobs.md](jobs.md).
 
 Utilidad de gestión. Se lanza con `setup.cmd` (o `powershell -ExecutionPolicy Bypass -File setup.ps1`). Su sesión también queda registrada en `logs\setup_<fecha>_<PID>.log` (mismo interruptor `behavior.log` / marcador `no_log`).
 
-El menú está **agrupado por bloques** (Instalación / Estado / Compatibilidad / Configuración / Limpieza):
+El menú está **agrupado por bloques** (Herramientas / Estado / Compatibilidad / Configuración / Limpieza). La gestión de herramientas vive en un **submenú** para que el menú principal no crezca con el número de apps:
 
 | Bloque · Opción | Qué hace |
 |---|---|
-| **Instalación** · Instalar / cambiar versión de \<app\> | Elige versión (selector ordenado de más nueva a más antigua), borra esa carpeta de versión y la (re)instala; ofrece fijarla como `selected`. Al instalar ffmpeg, valida NVENC (ver abajo). |
-| **Instalación** · Reinstalar TODO | Reinstala la versión por defecto de cada app. |
+| **Herramientas** · Instalar / gestionar herramientas | Abre un **submenú** con una entrada por app (ffmpeg, aacgain, mkvtoolnix, sevenzip…) y "Reinstalar TODO". Por app: elige versión (selector ordenado de más nueva a más antigua), borra esa carpeta de versión y la (re)instala; ofrece fijarla como `selected`. Al instalar ffmpeg, valida NVENC (ver abajo). |
 | **Estado** · Ver estado | Muestra (bajo demanda) el checklist de directorios y las versiones instaladas por app/plataforma (o `[NO SOPORTADO]`). |
 | **Compatibilidad** · Comprobar compatibilidad GPU (NVENC) | Prueba NVENC en las versiones de ffmpeg instaladas, sin reinstalar. |
 | **Configuración** · Editar configuración | Editor navegable de todas las secciones de `config.json`. |
@@ -114,3 +121,5 @@ Al saltar de menú a menú se **limpia la pantalla**; tras cualquier acción que
 ## Añadir una versión nueva
 
 En `config.json`, dentro de `downloads.<app>.versions`, añade `"<version>": "<sha256>"`. Si sigue el patrón de la `url` (con `{version}`), ya se puede instalar desde `setup` o se autoinstala si un job la pide.
+
+> El catálogo completo (incluidas `sevenzip` y `mkvtoolnix`) es la **fuente única** `Get-CvConfigDefaults` (`lib\Config.psm1`) y se fusiona con `config.json` al arrancar. Por eso `config.json` solo necesita listar lo que quieras **sobrescribir** (p. ej. la `selected` de ffmpeg); las apps que no aparezcan en el fichero se toman de los defaults y funcionan igual (auto-descarga incluida). `sevenzip`/`mkvtoolnix` no vienen en `config.json` para no meter ruido, pero el editor de `setup` solo muestra lo que está en el fichero: si quieres editarlas ahí, añádelas.

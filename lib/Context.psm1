@@ -75,8 +75,22 @@ function New-CvContext {
         CleanTemps     = ([bool]$cfg.behavior.cleanTemps     -and -not (Test-Path (Join-Path $Root 'keep_temp')))
         SeparateWindow = ([bool]$cfg.behavior.separateWindow -and -not (Test-Path (Join-Path $Root 'same_window')))
         LockClose      = [bool]$cfg.behavior.lockCloseButton
+        # Workers en paralelo por defecto al terminar PREPARAR (esta ventana + N-1 nuevas).
+        Workers        = [int]$cfg.behavior.workers
         # log: transcript de la ejecucion a logs\; el marcador 'no_log' lo desactiva.
         Log            = ([bool]$cfg.behavior.log -and -not (Test-Path (Join-Path $Root 'no_log')))
+        # Postproceso: limpiar las etiquetas DURATION del MKV con mkvpropedit.
+        # MkvPropEdit lo rellena New-CvToolContext: override de config o la version descargada.
+        StripTags           = [bool]$cfg.postprocess.stripTags
+        MkvPropEditOverride = "$($cfg.postprocess.mkvpropedit)"
+        MkvPropEdit         = ''
+        # Conservacion de adjuntos (por defecto ninguno). Permitir/excluir por categoria.
+        Attachments         = [pscustomobject]@{
+            Keep   = [bool]$cfg.postprocess.attachments.keep
+            Fonts  = [bool]$cfg.postprocess.attachments.fonts
+            Covers = [bool]$cfg.postprocess.attachments.covers
+            Other  = [bool]$cfg.postprocess.attachments.other
+        }
         ConsoleBackground = "$($cfg.console.background)"
         ConsoleForeground = "$($cfg.console.foreground)"
         ConsoleFont       = "$($cfg.console.font)"

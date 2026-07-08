@@ -13,6 +13,7 @@ Documentación técnica y detallada del conversor. Para la visión general y la 
 | [configuracion.md](configuracion.md) | Referencia completa de `config.json` (todas las secciones y claves). |
 | [herramientas.md](herramientas.md) | Sistema de herramientas versionadas (`tools\<app>\<version>\<plataforma>`), descargas, plataforma y `setup.ps1`. |
 | [jobs.md](jobs.md) | Formato del `.job.json`, el lock atómico y los ficheros temporales. |
+| [pruebas.md](pruebas.md) | Muestras de test (`test\`): qué prueba cada una, resultado esperado, cómo regenerarlas y las fuentes/licencias. |
 
 ## Resumen en una frase
 

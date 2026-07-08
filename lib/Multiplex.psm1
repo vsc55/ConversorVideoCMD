@@ -30,27 +30,39 @@ function Invoke-Multiplex {
     # Subtitulos seleccionados en la fase preparar (filtramos posibles nulos del JSON).
     $subs    = @($Subtitles | Where-Object { $_ })
     $hasSubs = $subs.Count -gt 0
+    # Adjuntos del original a conservar (fuentes/caratulas segun config; por defecto ninguno).
+    $keepAtt = @(Select-Attachments -Context $Context -Info $Info)
+
+    # El original ($File) hace falta como input si aporta subtitulos y/o adjuntos.
+    $needOrig = $hasSubs -or ($keepAtt.Count -gt 0)
 
     $ffArgs = @('-hide_banner','-y','-threads',"$($Context.Threads)")
     $ffArgs += @('-i',$videoSrc)                      # input 0 = video
     if ($useAudioFile) { $ffArgs += @('-i',$aTmp) }   # input 1 = audio (m4a)
-    if ($hasSubs)      { $ffArgs += @('-i',$File) }   # input N = subtitulos del original
+    if ($needOrig)     { $ffArgs += @('-i',$File) }   # input N = original (subtitulos y/o adjuntos)
+    $origInput = if ($useAudioFile) { 2 } else { 1 }
 
-    # metadatos base
-    $ffArgs += @('-metadata','title=', '-metadata:s:v','title=', '-metadata:s:v','language=und')
+    # Limpiar TODOS los metadatos heredados de una sola vez: '-map_metadata -1' global tambien
+    # vacia los tags de cada pista (ENCODER/_STATISTICS obsoletos que se copian al recodificar el
+    # video, VENDOR_ID/HANDLER_NAME que anade el contenedor .m4a). '-fflags +bitexact' evita
+    # ademas que ffmpeg escriba su propia etiqueta ENCODER global. Despues re-fijamos solo lo
+    # que queremos (titulo/idioma/disposition).
+    $ffArgs += @('-map_metadata','-1','-fflags','+bitexact')
+    $ffArgs += @('-metadata','title=')
 
-    # mapeo video/audio
-    $ffArgs += @('-map','0:v:0')
+    # mapeo video: titulo en blanco, idioma indefinido
+    $ffArgs += @('-map','0:v:0','-metadata:s:v','title=','-metadata:s:v','language=und')
     if ($useAudioFile) {
+        # audio recodificado (m4a): titulo en blanco, idioma preferido
         $ffArgs += @('-map','1:a:0','-metadata:s:a','title=','-metadata:s:a','language=spa')
     } else {
-        # audio copy: coger el audio del propio video/original de input 0
-        $ffArgs += @('-map','0:a:0')
+        # audio copy: conservar los metadatos originales de la pista (idioma, titulo, stats)
+        $ffArgs += @('-map','0:a:0','-map_metadata:s:a:0','0:s:a:0')
     }
 
     # mapeo subtitulos seleccionados (con idioma y flags forced/default)
     if ($hasSubs) {
-        $subInput = if ($useAudioFile) { 2 } else { 1 }
+        $subInput = $origInput
         $oi = 0
         foreach ($s in $subs) {
             $ffArgs += @('-map', ("{0}:{1}?" -f $subInput, [int]$s.Index))
@@ -68,8 +80,21 @@ function Invoke-Multiplex {
         }
     }
 
+    # mapeo de adjuntos elegidos (por indice en el original). El '-map_metadata -1' borra su
+    # 'filename'/'mimetype', y el muxer de Matroska EXIGE 'filename', asi que se re-fijan.
+    $aj = 0
+    foreach ($a in $keepAtt) {
+        $ffArgs += @('-map', ("{0}:{1}?" -f $origInput, [int]$a.index))
+        $fn = "$(Get-Tag $a 'filename')"
+        $mt = "$(Get-Tag $a 'mimetype')"
+        if ($fn) { $ffArgs += @(('-metadata:s:t:{0}' -f $aj), ("filename={0}" -f $fn)) }
+        if ($mt) { $ffArgs += @(('-metadata:s:t:{0}' -f $aj), ("mimetype={0}" -f $mt)) }
+        $aj++
+    }
+
     $ffArgs += @('-c:v','copy','-c:a','copy')
-    if ($hasSubs) { $ffArgs += @('-c:s','copy') }
+    if ($hasSubs)             { $ffArgs += @('-c:s','copy') }
+    if ($keepAtt.Count -gt 0) { $ffArgs += @('-c:t','copy') }
     $ffArgs += @('-f','matroska',$out)
 
     Write-CvLog 'MULTIPLEX' 'Uniendo pistas...'
@@ -84,9 +109,36 @@ function Invoke-Multiplex {
     if ((Test-Path -LiteralPath $out) -and ((Get-Item -LiteralPath $out).Length -gt 0)) {
         $mb = [math]::Round((Get-Item -LiteralPath $out).Length / 1MB, 1)
         Write-CvLog 'MULTIPLEX' ("[OK] - {0}  ({1} MB)" -f (Split-Path $out -Leaf), $mb)
+        # Limpiar las etiquetas DURATION que anade el muxer de Matroska (mkvpropedit).
+        Remove-CvMkvTags -Context $Context -File $out
         return $true
     }
     return $false
+}
+
+function Remove-CvMkvTags {
+    <#
+        Elimina TODAS las etiquetas del MKV con mkvpropedit (MKVToolNix), sin recodificar y
+        conservando Cues/duracion/dispositions. Quita los tags 'DURATION' por pista que el
+        muxer de ffmpeg escribe al cerrar el fichero (ffmpeg no tiene flag para omitirlos).
+        Se controla con config 'postprocess.stripTags' y la ruta 'postprocess.mkvpropedit'.
+    #>
+    param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)][string]$File)
+    if (-not $Context.StripTags) { return }
+    $mpe = "$($Context.MkvPropEdit)"
+    # Si no es un override manual y falta, descargar mkvtoolnix (y su extractor 7zr) la 1a vez.
+    if ((-not (Test-Path -LiteralPath $mpe)) -and [string]::IsNullOrWhiteSpace("$($Context.MkvPropEditOverride)")) {
+        $app = Get-CvAppDescriptor -Context $Context -Name 'mkvtoolnix'
+        if ($app) { [void](Confirm-CvTool -Context $Context -Name 'mkvtoolnix' -Version "$($app.selected)") }
+    }
+    if ([string]::IsNullOrWhiteSpace($mpe) -or -not (Test-Path -LiteralPath $mpe)) {
+        Write-CvLog 'MULTIPLEX' '[AVISO] - mkvpropedit no disponible: quedan las etiquetas DURATION'
+        return
+    }
+    Write-CvLog 'MULTIPLEX' '[TAGS] - Limpiando etiquetas con mkvpropedit...'
+    $r = Invoke-ToolCapture -Exe $mpe -Arguments @($File, '--tags', 'all:') -Context $Context
+    if ($r.ExitCode -eq 0) { Write-CvLog 'MULTIPLEX' '[TAGS] - [OK] - Etiquetas eliminadas' }
+    else { Write-CvLog 'MULTIPLEX' ("[AVISO] - mkvpropedit devolvio codigo {0}; las etiquetas pueden seguir" -f $r.ExitCode) }
 }
 
 Export-ModuleMember -Function *

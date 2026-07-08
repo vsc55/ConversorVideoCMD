@@ -66,12 +66,54 @@ function Get-CvConfigDefaults {
                     '2.0.0' = 'd960cedbd274881badd3dd914475ca23bb31c27b3a5cab881ff0d1515a37371a'
                 }
             }
+            # 7zr: extractor 7z minimo (un solo .exe). Es el 'bootstrap' que necesita mkvtoolnix
+            # (que se distribuye como .7z/LZMA y no lo abre Expand-Archive ni el tar de Windows).
+            sevenzip = [ordered]@{
+                selected     = '26.02'
+                type         = 'file'
+                url          = 'https://github.com/ip7z/7zip/releases/download/{version}/7zr.exe'
+                files        = @('7zr.exe')
+                platform     = 'x86_64'
+                versionExe   = '7zr.exe'
+                versionArgs  = @()
+                versionRegex = '7-Zip.*?(\d+\.\d+)'
+                versions     = [ordered]@{
+                    '26.02' = '56b8cc9f4971cef253644fafe54063ed7fdca551d4dee0f8c6baa81b855acd72'
+                }
+            }
+            # mkvtoolnix: solo se usa 'mkvpropedit.exe' para limpiar las etiquetas DURATION del
+            # MKV final. Se distribuye como .7z (se extrae con 7zr). El exe es autosuficiente.
+            mkvtoolnix = [ordered]@{
+                selected     = '100.0'
+                type         = '7z'
+                url          = 'https://mkvtoolnix.download/windows/releases/{version}/mkvtoolnix-64-bit-{version}.7z'
+                binPath      = 'mkvtoolnix'
+                files        = @('mkvpropedit.exe')
+                platform     = 'x86_64'
+                versionExe   = 'mkvpropedit.exe'
+                versionArgs  = @('--version')
+                versionRegex = 'mkvpropedit v(\d+\.\d+)'
+                versions     = [ordered]@{
+                    '100.0' = '061de38bd10e7e28697b897e0b890b78d6f2ec8d668a9c198600ed45c19672ab'
+                }
+            }
         }
         languages = [ordered]@{ audio = $langs; subtitle = $langs }
         encode    = [ordered]@{ outputExtension = 'mkv'; threads = 0; fps = '23.976'; audioHz = 44100 }
         border    = [ordered]@{ start = 120; duration = 120 }
         volume    = [ordered]@{ method = 'peak'; loudnorm = [ordered]@{ I = -16; TP = -1.5; LRA = 11 } }
-        behavior  = [ordered]@{ cleanTemps = $true; separateWindow = $true; lockCloseButton = $true; debug = $false; log = $true }
+        # Postproceso del MKV final:
+        #  - stripTags: limpiar con mkvpropedit las etiquetas DURATION por pista que anade el
+        #    muxer de ffmpeg (mkvpropedit vacio = usar la version descargada en tools\).
+        #  - attachments: conservar adjuntos del original, permitiendo/excluyendo por categoria
+        #    (keep = interruptor maestro; fonts = fuentes p. ej. para subtitulos ASS; covers =
+        #    caratulas/imagenes; other = el resto).
+        postprocess = [ordered]@{
+            stripTags   = $true
+            mkvpropedit = ''
+            attachments = [ordered]@{ keep = $false; fonts = $true; covers = $false; other = $false }
+        }
+        behavior  = [ordered]@{ cleanTemps = $true; separateWindow = $true; lockCloseButton = $true; debug = $false; log = $true; workers = 2 }
         console   = [ordered]@{ background = 'DarkBlue'; foreground = 'Yellow'; font = 'Consolas'; fontSize = 18; windowWidth = 100; windowHeight = 50 }
         # Carpetas de trabajo: vacio = junto al programa; admite ruta absoluta o relativa.
         paths     = [ordered]@{ original = ''; proceso = ''; convertido = ''; logs = '' }
@@ -111,7 +153,9 @@ function Get-CvNodeKind($v) {
 }
 function Get-CvNodeKeys($node) {
     if ($node -is [System.Collections.IDictionary]) { return @($node.Keys) }
-    if ($node) { return @($node.PSObject.Properties.Name) }
+    # Nota: en un PSCustomObject sin propiedades, .Name devuelve $null y @($null) daria una
+    # clave fantasma; filtramos nulos/vacios para que un objeto vacio de 0 claves.
+    if ($node) { return @($node.PSObject.Properties.Name | Where-Object { -not [string]::IsNullOrEmpty($_) }) }
     return @()
 }
 function Get-CvNodeVal($node, $key) {
@@ -165,6 +209,69 @@ function ConvertTo-CvJson {
         'number' { return (Format-CvNumber $Node) }
         'null'   { return 'null' }
         default  { return (ConvertTo-CvJsonString "$Node") }
+    }
+}
+
+# ---------- APLICAR SOLO LOS CAMBIOS (para que el editor no reescriba todo config.json) ----------
+
+function Get-CvChildNode {
+    <# Devuelve el subnodo objeto $Node[$Key]; si no existe (o no es objeto) lo crea vacio. #>
+    param($Node, [string]$Key)
+    if ($Node -is [System.Collections.IDictionary]) {
+        if (-not $Node.Contains($Key) -or (Get-CvNodeKind $Node[$Key]) -ne 'object') { $Node[$Key] = [ordered]@{} }
+        return $Node[$Key]
+    }
+    if (-not $Node.PSObject.Properties[$Key]) { $Node | Add-Member -NotePropertyName $Key -NotePropertyValue ([pscustomobject]@{}) -Force }
+    elseif ((Get-CvNodeKind $Node.$Key) -ne 'object') { $Node.$Key = [pscustomobject]@{} }
+    return $Node.$Key
+}
+
+function Set-CvChildLeaf {
+    <# Fija $Node[$Key] = $Value, creando la propiedad si falta (PSCustomObject o IDictionary). #>
+    param($Node, [string]$Key, $Value)
+    if ($Node -is [System.Collections.IDictionary]) { $Node[$Key] = $Value; return }
+    if ($Node.PSObject.Properties[$Key]) { $Node.$Key = $Value }
+    else { $Node | Add-Member -NotePropertyName $Key -NotePropertyValue $Value -Force }
+}
+
+function Remove-CvChild {
+    <# Elimina la clave $Key de $Node (PSCustomObject o IDictionary). #>
+    param($Node, [string]$Key)
+    if ($Node -is [System.Collections.IDictionary]) { if ($Node.Contains($Key)) { $Node.Remove($Key) }; return }
+    if ($Node.PSObject.Properties[$Key]) { $Node.PSObject.Properties.Remove($Key) }
+}
+
+function Update-CvConfigEdits {
+    <#
+        Aplica en $Target (config.json crudo) SOLO las hojas que cambiaron entre $Before y $Edited:
+          - si el nuevo valor es IGUAL al default -> se ELIMINA de $Target (se usara el default).
+          - si DIFIERE del default                -> se fija en $Target.
+        Las hojas no editadas no se tocan (un config completo conserva lo no editado). Las
+        secciones que quedan vacias tras eliminar se podan. Compara por serializacion JSON.
+    #>
+    param($Edited, $Before, $Default, $Target)
+    $bkeys = @(Get-CvNodeKeys $Before)
+    $dkeys = @(Get-CvNodeKeys $Default)
+    foreach ($key in @(Get-CvNodeKeys $Edited)) {
+        $ev = Get-CvNodeVal $Edited $key
+        $bv = if ($bkeys -contains $key) { Get-CvNodeVal $Before $key } else { $null }
+        # sin cambios respecto al inicio de la edicion -> no tocar
+        if (($bkeys -contains $key) -and ((ConvertTo-CvJson $ev 0) -eq (ConvertTo-CvJson $bv 0))) { continue }
+
+        $dv = if ($dkeys -contains $key) { Get-CvNodeVal $Default $key } else { $null }
+
+        if ((Get-CvNodeKind $ev) -eq 'object' -and (Get-CvNodeKind $bv) -eq 'object') {
+            # seccion con cambios dentro: recursar y podar si queda vacia
+            $tchild = Get-CvChildNode -Node $Target -Key $key
+            Update-CvConfigEdits -Edited $ev -Before $bv -Default $dv -Target $tchild
+            if (@(Get-CvNodeKeys $tchild).Count -eq 0) { Remove-CvChild -Node $Target -Key $key }
+        }
+        elseif (($dkeys -contains $key) -and ((ConvertTo-CvJson $ev 0) -eq (ConvertTo-CvJson $dv 0))) {
+            Remove-CvChild -Node $Target -Key $key      # volvio al default -> quitar del json
+        }
+        else {
+            Set-CvChildLeaf -Node $Target -Key $key -Value $ev   # distinto del default -> guardar
+        }
     }
 }
 

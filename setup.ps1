@@ -163,14 +163,23 @@ function Edit-Node {
 function Edit-Config {
     Clear-Host
     Write-CvLog 'SETUP' 'Editor de config.json (0 = volver en cada nivel).'
-    $cfg = Read-CvConfigFile -Path $CfgPath
+    # Se edita el config FUSIONADO (defaults + overrides), asi el editor muestra TODAS las
+    # opciones aunque config.json sea minimo. $before es una copia sin editar para saber
+    # exactamente que cambio.
+    $root   = Split-Path -Parent $CfgPath
+    $cfg    = Get-CvConfig -Root $root
+    $before = Get-CvConfig -Root $root
     $script:dirty = $false
     Edit-Node -Node $cfg -Path ''
     if ($script:dirty) {
         $a = (Read-Host 'Guardar cambios en config.json? (S/n)').Trim()
         if ($a -eq '' -or $a -match '^[SsYy]') {
-            Save-CvConfigFile -Path $CfgPath -Config $cfg
-            Write-CvLog 'SETUP' '[OK] - config.json guardado.'
+            # Aplicar SOLO lo editado sobre el config.json ACTUAL (crudo): lo que difiere del
+            # default se guarda; lo que vuelve al default se elimina del fichero.
+            $raw = if (Test-Path -LiteralPath $CfgPath) { Read-CvConfigFile -Path $CfgPath } else { [pscustomobject]@{} }
+            Update-CvConfigEdits -Edited $cfg -Before $before -Default (Get-CvConfigDefaults) -Target $raw
+            Save-CvConfigFile -Path $CfgPath -Config $raw
+            Write-CvLog 'SETUP' '[OK] - config.json actualizado (solo los valores distintos del default).'
         } else {
             Write-CvLog 'SETUP' 'Cambios descartados.'
         }
@@ -230,14 +239,21 @@ function Remove-AppVersion {
     if (Test-Path -LiteralPath $dir) { Remove-Item -Recurse -Force -LiteralPath $dir -ErrorAction SilentlyContinue }
 }
 function Set-AppSelected {
+    # Fija downloads.<app>.selected en config.json (solo el override). Si config.json es
+    # minimo y la app o la seccion no estan, se crean con {selected} (el resto del descriptor
+    # sale de los defaults al fusionar).
     param([string]$Name, [string]$Version)
     $cfg = Read-CvConfigFile -Path $CfgPath
-    if ($cfg.downloads -and $cfg.downloads.PSObject.Properties[$Name]) {
-        $cfg.downloads.$Name.selected = $Version
-        Save-CvConfigFile -Path $CfgPath -Config $cfg
-        return $true
+    if (-not $cfg.PSObject.Properties['downloads'] -or $null -eq $cfg.downloads) {
+        $cfg | Add-Member -NotePropertyName 'downloads' -NotePropertyValue ([pscustomobject]@{}) -Force
     }
-    return $false
+    if (-not $cfg.downloads.PSObject.Properties[$Name]) {
+        $cfg.downloads | Add-Member -NotePropertyName $Name -NotePropertyValue ([pscustomobject]@{}) -Force
+    }
+    if ($cfg.downloads.$Name.PSObject.Properties['selected']) { $cfg.downloads.$Name.selected = $Version }
+    else { $cfg.downloads.$Name | Add-Member -NotePropertyName 'selected' -NotePropertyValue $Version -Force }
+    Save-CvConfigFile -Path $CfgPath -Config $cfg
+    return $true
 }
 function Show-Dirs {
     # Checklist de las carpetas de trabajo; crea las que falten y pinta su estado.
@@ -379,6 +395,31 @@ function Show-Estado {
 }
 
 # ===========================================================================
+#  Submenu de herramientas (instalar / cambiar version de cada app)
+# ===========================================================================
+function Show-ToolsMenu {
+    while ($true) {
+        Clear-Host
+        $names = @(Get-AppNames)
+        $opts  = @()
+        foreach ($n in $names) { $opts += ("Instalar / cambiar version de {0}" -f $n) }
+        $opts += 'Reinstalar TODO (version por defecto de cada app)'
+        $sel = Select-FromList -Title 'HERRAMIENTAS (instalar / versiones)' -Options $opts -NoneLabel 'volver' -DefaultIndex 1
+        if ($sel -eq '') { return }
+        Clear-Host
+        if ($sel -like 'Reinstalar TODO*') {
+            foreach ($n in $names) { Invoke-InstallApp -Name $n -Version "$((Get-App $n).selected)" | Out-Null }
+        } else {
+            $name = $names[[array]::IndexOf($opts, $sel)]
+            $ver  = Select-CvToolVersion -Context $ctx -Name $name
+            if ($ver -ne '') { Invoke-InstallApp -Name $name -Version $ver -Ask | Out-Null }
+            else { Write-CvLog 'SETUP' 'Cancelado.' }
+        }
+        Wait-Setup
+    }
+}
+
+# ===========================================================================
 #  Menu principal
 # ===========================================================================
 $exit = $false
@@ -388,13 +429,11 @@ while (-not $exit) {
     $firstMenu = $false
     $ctx = New-CvContext -Root $Root   # recargar por si cambio config.json
 
-    $names   = @(Get-AppNames)
     $opts    = @()
     $headers = @{}
 
-    $headers[$opts.Count] = 'Instalacion'
-    foreach ($n in $names) { $opts += ("Instalar / cambiar version de {0}" -f $n) }
-    $opts += 'Reinstalar TODO (version por defecto de cada app)'
+    $headers[$opts.Count] = 'Herramientas'
+    $opts += 'Instalar / gestionar herramientas (ffmpeg, aacgain, mkvtoolnix...)'
 
     $headers[$opts.Count] = 'Estado'
     $opts += 'Ver estado (directorios y herramientas)'
@@ -413,7 +452,10 @@ while (-not $exit) {
     $choice = Select-FromList -Title 'SETUP - Que quieres hacer?' -Options $opts -NoneLabel 'salir' -DefaultIndex 1 -Headers $headers
     if ($choice -eq '') { $exit = $true; continue }
 
-    if ($choice -eq 'Ver estado (directorios y herramientas)') {
+    if ($choice -eq 'Instalar / gestionar herramientas (ffmpeg, aacgain, mkvtoolnix...)') {
+        Show-ToolsMenu                       # submenu con una entrada por app + reinstalar todo
+    }
+    elseif ($choice -eq 'Ver estado (directorios y herramientas)') {
         Clear-Host
         Show-Estado
         Wait-Setup
@@ -432,19 +474,6 @@ while (-not $exit) {
     }
     elseif ($choice -eq 'Comprobar compatibilidad GPU (NVENC de ffmpeg)') {
         Show-NvencCheck                      # limpia y pausa por su cuenta
-    }
-    elseif ($choice -like 'Reinstalar TODO*') {
-        Clear-Host
-        foreach ($n in $names) { Invoke-InstallApp -Name $n -Version "$((Get-App $n).selected)" | Out-Null }
-        Wait-Setup
-    }
-    else {
-        $name = $names[[array]::IndexOf($opts, $choice)]
-        Clear-Host
-        $ver  = Select-CvToolVersion -Context $ctx -Name $name
-        if ($ver -ne '') { Invoke-InstallApp -Name $name -Version $ver -Ask | Out-Null }
-        else { Write-CvLog 'SETUP' 'Cancelado.' }
-        Wait-Setup
     }
 }
 

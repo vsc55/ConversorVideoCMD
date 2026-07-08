@@ -48,14 +48,14 @@ function Invoke-AudioAsk {
     $res = [ordered]@{ Skip = $false; Index = -1; Is51 = $false; Sync = 0 }
 
     if ($Profile.AudioEncoder -eq 'copy') {
-        Write-CvLog 'AUDIO' '[SKIP] - Se copiara la pista de audio original'
+        if ($Context.Debug) { Write-CvLog 'AUDIO' '[SKIP] - Se copiara la pista de audio original' }
         $res.Skip = $true
         return [pscustomobject]$res
     }
 
     $aud = @(Get-AudioStreams -Info $Info)
     if ($aud.Count -eq 0) {
-        Write-CvLog 'AUDIO' '[SKIP] - No se ha detectado pista de audio'
+        if ($Context.Debug) { Write-CvLog 'AUDIO' '[SKIP] - No se ha detectado pista de audio' }
         $res.Skip = $true
         return [pscustomobject]$res
     }
@@ -69,7 +69,7 @@ function Invoke-AudioAsk {
 
     $res.Index = $sel.Index
     $res.Is51  = $sel.Is51
-    Write-CvLog 'AUDIO' ("[INFO] - Pista {0} (idioma={1}, canales={2})" -f $sel.Index, $sel.Language, $sel.Channels)
+    if ($Context.Debug) { Write-CvLog 'AUDIO' ("[INFO] - Pista {0} (idioma={1}, canales={2})" -f $sel.Index, $sel.Language, $sel.Channels) }
 
     # ---- Sincronia audio/video ----
     $delay = Get-AudioInitDelay -Context $Context -File $Info.format.filename -Index $sel.Index
@@ -81,7 +81,7 @@ function Invoke-AudioAsk {
             $v = ConvertTo-InvDouble $ans
             if ($null -ne $v) { $res.Sync = $v }
         }
-    } else {
+    } elseif ($Context.Debug) {
         Write-CvLog 'AUDIO' '[SYNC] - Audio y video inician a la vez [OK]'
     }
     return [pscustomobject]$res

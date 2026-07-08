@@ -14,14 +14,18 @@
 #>
 
 [CmdletBinding()]
-param()
+param(
+    # Ventana de worker adicional: salta la fase PREPARAR y va directo a codificar (lo lanzan
+    # las ventanas extra que se abren al elegir varios workers en paralelo).
+    [switch]$WorkerOnly
+)
 
 $ErrorActionPreference = 'Stop'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 
 $Root = $PSScriptRoot
 $Lib  = Join-Path $Root 'lib'
-$modules = @('Log','Config','Context','Console','Exec','Job','Tools','MediaInfo','Profile','Video','Audio','Subtitle','Multiplex')
+$modules = @('Log','Config','Context','Console','Exec','Job','Tools','MediaInfo','Profile','Video','Audio','Subtitle','Attachment','Multiplex')
 foreach ($m in $modules) {
     Import-Module (Join-Path $Lib ("{0}.psm1" -f $m)) -Force
 }
@@ -108,6 +112,18 @@ function Get-SourceFiles {
     return ($files | Sort-Object Name)
 }
 
+function Write-PrepareStatus {
+    <#
+        Estado de PREPARAR por archivo, como badge de color (mismo estilo que la compatibilidad
+        GPU). Se usa ASCII con fondo de color en vez de simbolos unicode (✓/✗) porque la fuente
+        de la consola no siempre trae esos glifos y saldria un cuadro.
+    #>
+    param([string]$Name, [bool]$Ok)
+    Write-Host ("[PREPARAR] ARCHIVO: {0}  " -f $Name) -NoNewline
+    if ($Ok) { Write-Host ' OK '    -ForegroundColor Black -BackgroundColor Green }
+    else     { Write-Host ' ERROR ' -ForegroundColor White -BackgroundColor Red }
+}
+
 # ============================================================
 #  CLASIFICAR: hay algun archivo POR PREPARAR?
 # ============================================================
@@ -127,10 +143,12 @@ trap {
 }
 
 $needPrepare = $false
-foreach ($f in $files) {
-    $name = $f.BaseName
-    if ((Test-Path -LiteralPath (Get-OutputPath $ctx $name))) { continue }   # ya convertido
-    if (-not (Test-CvJob -Context $ctx -Name $name)) { $needPrepare = $true; break }
+if (-not $WorkerOnly) {
+    foreach ($f in $files) {
+        $name = $f.BaseName
+        if ((Test-Path -LiteralPath (Get-OutputPath $ctx $name))) { continue }   # ya convertido
+        if (-not (Test-CvJob -Context $ctx -Name $name)) { $needPrepare = $true; break }
+    }
 }
 
 # ============================================================
@@ -153,26 +171,25 @@ if ($needPrepare) {
         if (Test-Path -LiteralPath (Get-OutputPath $ctx $name)) { continue }
         if (Test-CvJob -Context $ctx -Name $name)    { continue }
 
-        Write-Host ''
-        Write-Host ''
-        Write-Host $sepLine
-        Write-CvLog 'PREPARAR' ("ARCHIVO: {0}" -f $name)
-        Write-Host $sepLine
-
         $info = Get-MediaInfo -Context $ctx -File $f.FullName
-        if ($null -eq $info) { Write-CvLog 'PREPARAR' '[SKIP] - No se pudo leer el archivo (ffprobe)'; continue }
-
-        Write-CvLog 'PREPARAR' ("[INFO] - Tamano: {0}  Duracion: {1}" -f (Get-VideoSize (Get-VideoStream $info)), (Get-DurationText $info))
+        if ($null -eq $info) { Write-PrepareStatus -Name $name -Ok $false; continue }
 
         $forceBorder = $name.StartsWith('_')
 
-        Write-Host ''
-        $vAsk = Invoke-VideoAsk -Context $ctx -Profile $cfgProfile -Info $info -ForceBorder $forceBorder
+        # Modo debug: detalle completo (cabecera + logs de cada modulo). Modo normal: los
+        # modulos van en silencio (sus [INFO] solo con debug) y se resume en 1 linea al final.
+        if ($ctx.Debug) {
+            Write-Host ''
+            Write-Host ''
+            Write-Host $sepLine
+            Write-CvLog 'PREPARAR' ("ARCHIVO: {0}" -f $name)
+            Write-Host $sepLine
+            Write-CvLog 'PREPARAR' ("[INFO] - Tamano: {0}  Duracion: {1}" -f (Get-VideoSize (Get-VideoStream $info)), (Get-DurationText $info))
+            Write-Host ''
+        }
 
-        Write-Host ''
-        $aAsk = Invoke-AudioAsk -Context $ctx -Profile $cfgProfile -Info $info
-
-        Write-Host ''
+        $vAsk   = Invoke-VideoAsk -Context $ctx -Profile $cfgProfile -Info $info -ForceBorder $forceBorder
+        $aAsk   = Invoke-AudioAsk -Context $ctx -Profile $cfgProfile -Info $info
         $subSel = Select-Subtitles -Context $ctx -Info $info
 
         # Congelar el perfil + las respuestas + las versiones de herramientas en el job
@@ -187,10 +204,34 @@ if ($needPrepare) {
             subtitles      = @($subSel)
         }
         Write-CvJob -Context $ctx -Name $name -Job $job
-        Write-Host ''
-        Write-CvLog 'PREPARAR' ("[OK] - Job creado: {0}.job.json" -f $name)
+
+        if ($ctx.Debug) {
+            Write-Host ''
+            Write-CvLog 'PREPARAR' ("[OK] - Job creado: {0}.job.json" -f $name)
+        } else {
+            Write-PrepareStatus -Name $name -Ok $true
+        }
     }
     Write-CvLog 'GLOBAL' '[PREPARAR] - Configuracion completada.'
+
+    # Preguntar cuantos workers codificaran EN PARALELO (esta ventana + N-1 ventanas nuevas).
+    # Las ventanas nuevas se lanzan en modo -WorkerOnly: como ya esta todo preparado, entran
+    # directas a codificar sin preguntar y se reparten los archivos por el lock.
+    Write-Host ''
+    $defW = [int]$ctx.Workers; if ($defW -lt 1) { $defW = 1 }
+    $ans = (Read-Host ("[GLOBAL] - Cuantos workers en paralelo, contando esta ventana? (ENTER = {0})" -f $defW)).Trim()
+    $nw = $defW
+    if ($ans -ne '') { $n = 0; if ([int]::TryParse($ans, [ref]$n) -and $n -ge 1) { $nw = $n } }
+    $extra = $nw - 1
+    if ($extra -gt 0) {
+        $cmdPath = Join-Path $Root 'Convert.cmd'
+        $opened = 0
+        for ($i = 1; $i -le $extra; $i++) {
+            try { Start-Process -FilePath $cmdPath -ArgumentList '-WorkerOnly' -WorkingDirectory $Root | Out-Null; $opened++ }
+            catch { Write-CvLog 'GLOBAL' ("[AVISO] - No se pudo abrir un worker adicional: {0}" -f $_.Exception.Message) }
+        }
+        Write-CvLog 'GLOBAL' ("[WORKER] - Abiertos {0} worker(s) adicional(es); {1} en paralelo." -f $opened, ($opened + 1))
+    }
 }
 
 # ============================================================
@@ -250,6 +291,11 @@ while ($didAny) {
                 Write-CvLog 'WORKER' '[ERR] - No se pudo leer el archivo; se descarta'
                 [void]$skip.Add($name); continue
             }
+
+            # Info del archivo (util para saber cuanto durara la codificacion).
+            $vs = Get-VideoStream $info
+            if ($vs) { Write-CvLog 'WORKER' ("[INFO] - Resolucion: {0}  Duracion: {1}" -f (Get-VideoSize -VideoStream $vs), (Get-DurationText $info)) }
+            else     { Write-CvLog 'WORKER' ("[INFO] - Duracion: {0}" -f (Get-DurationText $info)) }
 
             # ---------- AUDIO ----------
             Write-Host ''

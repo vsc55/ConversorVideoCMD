@@ -22,6 +22,7 @@ ConversorVideoCMD/
 │   ├── Video.psm1          Detección de bordes, preview, args y codificación de vídeo
 │   ├── Audio.psm1          Selección de pista, sincronía, volumen y codificación de audio
 │   ├── Subtitle.psm1       Selección de subtítulos por idioma
+│   ├── Attachment.psm1     Selección de adjuntos (fuentes/carátulas) a conservar
 │   └── Multiplex.psm1      Unión final de pistas a MKV
 ├── Original/               Entrada: vídeos a convertir
 ├── Proceso/                Trabajo: .job.json, .lock y temporales (.mkv/.m4a/.wav)
@@ -41,7 +42,7 @@ Las carpetas de trabajo (`Original`, `Proceso`, `Convertido`, `tools`) se crean 
 Todos son módulos de PowerShell 5.1 (`.psm1`) que exportan sus funciones (`Export-ModuleMember -Function *`). `Convert.ps1` los importa en orden:
 
 ```powershell
-$modules = @('Log','Config','Context','Console','Exec','Job','Tools','MediaInfo','Profile','Video','Audio','Subtitle','Multiplex')
+$modules = @('Log','Config','Context','Console','Exec','Job','Tools','MediaInfo','Profile','Video','Audio','Subtitle','Attachment','Multiplex')
 foreach ($m in $modules) {
     Import-Module (Join-Path $Lib ("{0}.psm1" -f $m)) -Force
 }
@@ -57,15 +58,16 @@ Los módulos se llaman entre sí (p. ej. `New-CvContext` de Context usa `Get-CvC
 | **Config** | `Get-CvConfigDefaults` (fuente única de defaults), `Get-CvConfig` (carga + fusión), `Reset-CvConfig`, serialización (`ConvertTo-CvJson`, `Read/Save-CvConfigFile`). |
 | **Context** | `New-CvContext` (`$ctx`), `Get-CvWorkDirs`, `Test-CvLanguage`, `ConvertTo-InvDouble`. |
 | **Console** | Cabecera (`Show-CvHeader`), apariencia (`Set-CvAppearance`…), ventana nativa (`Set-CvCloseButton`, `Initialize-CvNative`), menús (`Show-Menu` con separadores `----`, `Show-CvBox` con cuadro para avisos, `Select-FromList`, `Get-CvMenuLines`), prompts con soporte de `ESC` (`Read-CvLine`, `Read-*`). |
-| **Exec** | `Invoke-ToolCapture`, `Invoke-ToolShow`, `ConvertTo-ArgString`, `Write-CvDebug`. |
+| **Exec** | `Invoke-ToolCapture`, `Invoke-ToolShow` (ventana aparte minimizada sin robar el foco vía el helper nativo `CvProc`/`CreateProcess`+`SW_SHOWMINNOACTIVE`), `ConvertTo-ArgString`, `Write-CvDebug`. |
 | **Job** | Jobs (`*-CvJob`), lock (`Enter/Exit-Lock`), temporales (`Get-CvTempPaths`, `Remove-CvTemps`), salida (`Get-OutputPath`). |
 | **Tools** | Descargas y versiones: `Install-CvTool`, `Confirm-CvTool`, `Select-CvToolVersion`, `Get-CvToolDir`, `Test-CvToolInstalled`, `Get-CvInstalledVersions`, `Test-CvToolSupported`, `New-CvToolContext`, `Test-CvTools`. |
 | **MediaInfo** | `Get-MediaInfo` (ffprobe JSON), `Select-AudioStream`, `Get-VideoStream`, `Write-ConversionSummary`. |
 | **Profile** | `Get-CvProfiles`, `Select-Profile`, `New-CustomProfile`. |
 | **Video** | `Find-CropDetect`, `Show-Preview`, `Invoke-VideoAsk`, `Get-VideoArgs`, `Invoke-VideoRun`. |
 | **Audio** | `Invoke-AudioAsk`, `Get-AudioInitDelay`, `Get-MaxVolume`, `Invoke-AudioRun`. |
-| **Subtitle** | `Select-Subtitles`. |
-| **Multiplex** | `Invoke-Multiplex`. |
+| **Subtitle** | `Select-Subtitles`, `ConvertTo-SubSel` (conserva el flag `default`/predefinida original de la pista), `Test-SubForced`/`Test-SubDefault`. |
+| **Attachment** | `Select-Attachments` (adjuntos a conservar según config: fuentes/carátulas/otros), `Get-AttachmentKind`. |
+| **Multiplex** | `Invoke-Multiplex` (une pistas, mapea los adjuntos elegidos, limpia los metadatos heredados y quita las etiquetas con `mkvpropedit`; ver [comandos.md](comandos.md#9-multiplexado-final-invoke-multiplex)). |
 
 ## El contexto (`$ctx`)
 
@@ -82,7 +84,8 @@ Los módulos se llaman entre sí (p. ej. `New-CvContext` de Context usa `Get-CvC
 | `Threads`, `Fps`, `DefaultAudioHz`, `OutExt` | `config.encode` | Parámetros de codificación. |
 | `BorderStart`, `BorderDur` | `config.border` | Muestreo de detección de bordes. |
 | `AudioLangs`, `SubLangs` | `config.languages` | Idiomas preferidos. |
-| `Debug`, `CleanTemps`, `SeparateWindow`, `LockClose` | `config.behavior` + marcadores | Comportamiento. |
+| `Debug`, `CleanTemps`, `SeparateWindow`, `LockClose`, `Workers` | `config.behavior` + marcadores | Comportamiento (`Workers` = nº de workers en paralelo por defecto). |
+| `StripTags`, `MkvPropEdit`, `Attachments` | `config.postprocess` | Limpieza de etiquetas (`mkvpropedit`) y conservación de adjuntos del MKV final. |
 | `Console*`, `Window*` | `config.console` | Apariencia. |
 | `Extensions` | fijo | `*.avi *.flv *.mp4 *.mov *.mkv`. |
 

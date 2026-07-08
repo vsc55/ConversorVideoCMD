@@ -60,14 +60,14 @@ function Invoke-VideoAsk {
     $res = [ordered]@{ Skip = $false; Crop = ''; Resize = ''; Anim = $false }
 
     if ($Profile.VideoEncoder -eq 'copy') {
-        Write-CvLog 'VIDEO' '[SKIP] - Se copiara la pista de video'
+        if ($Context.Debug) { Write-CvLog 'VIDEO' '[SKIP] - Se copiara la pista de video' }
         $res.Skip = $true
         return [pscustomobject]$res
     }
 
     $vstream = Get-VideoStream -Info $Info
     if ($null -eq $vstream) {
-        Write-CvLog 'VIDEO' '[SKIP] - No se ha detectado pista de video'
+        if ($Context.Debug) { Write-CvLog 'VIDEO' '[SKIP] - No se ha detectado pista de video' }
         $res.Skip = $true
         return [pscustomobject]$res
     }
@@ -216,7 +216,10 @@ function Invoke-VideoRun {
     $ffArgs += @('-metadata','title=', '-metadata:s:v','title=', '-metadata:s:v','language=und')
     if ($vf.Count -gt 0) { $ffArgs += @('-vf', ($vf -join ',')) }
     $ffArgs += (Get-VideoArgs -Context $Context -Profile $Profile -Anim $Anim)
-    $ffArgs += @('-map','0:0','-f','matroska',$outTmp)
+    # Mapear explicitamente la PISTA DE VIDEO (0:v:0), no el primer stream (0:0): si el
+    # contenedor trae antes un subtitulo/audio, '0:0' mapearia esa pista y, con -an/-sn,
+    # la salida se quedaria sin streams ("Output file does not contain any stream").
+    $ffArgs += @('-map','0:v:0','-f','matroska',$outTmp)
 
     Write-CvLog 'VIDEO' 'Procesando...'
     $code = Invoke-ToolShow -Exe $Context.FFmpeg -Arguments $ffArgs -Context $Context

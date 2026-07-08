@@ -1,0 +1,45 @@
+{
+    // Terminal > Run Task  (o "Run Test Task" para la de grupo test por defecto).
+    // Usan powershell.exe directamente: no requieren la extension de PowerShell.
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Tests: bateria (GPU hevc_nvenc)",
+            "type": "shell",
+            "command": "powershell",
+            "args": [
+                "-NoProfile", "-ExecutionPolicy", "Bypass",
+                "-File", "${workspaceFolder}/test/run-tests.ps1",
+                "-Encoder", "hevc_nvenc"
+            ],
+            "group": { "kind": "test", "isDefault": true },
+            "presentation": { "clear": true, "focus": true },
+            "problemMatcher": []
+        },
+        {
+            "label": "Tests: bateria (CPU libx265)",
+            "type": "shell",
+            "command": "powershell",
+            "args": [
+                "-NoProfile", "-ExecutionPolicy", "Bypass",
+                "-File", "${workspaceFolder}/test/run-tests.ps1",
+                "-Encoder", "libx265"
+            ],
+            "group": "test",
+            "presentation": { "clear": true, "focus": true },
+            "problemMatcher": []
+        },
+        {
+            "label": "Tests: regenerar fixtures",
+            "type": "shell",
+            "command": "powershell",
+            "args": [
+                "-NoProfile", "-ExecutionPolicy", "Bypass",
+                "-File", "${workspaceFolder}/test/generate-fixtures.ps1"
+            ],
+            "group": "build",
+            "presentation": { "clear": true, "focus": true },
+            "problemMatcher": []
+        }
+    ]
+}

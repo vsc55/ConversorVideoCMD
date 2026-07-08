@@ -4,5 +4,6 @@
 /.gitignore     export-ignore
 /.vscode        export-ignore
 /docs           export-ignore
+/test           export-ignore
 /README.md      export-ignore
 /TODO.md        export-ignore

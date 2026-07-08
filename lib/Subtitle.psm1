@@ -17,16 +17,27 @@ function Test-SubForced {
     return $false
 }
 
+function Test-SubDefault {
+    <# Lee el flag 'default' (pista predefinida) original del subtitulo. #>
+    param([Parameter(Mandatory)]$Stream)
+    return ($Stream.PSObject.Properties['disposition'] -and $Stream.disposition -and $Stream.disposition.default -eq 1)
+}
+
 function ConvertTo-SubSel {
-    <# Objeto de seleccion de subtitulo para guardar en el job. #>
-    param([Parameter(Mandatory)]$Stream, [bool]$Default = $false)
+    <#
+        Objeto de seleccion de subtitulo para guardar en el job.
+        -Default: $true/$false lo fuerza; si se omite ($null) se conserva el flag
+        'default' ORIGINAL de la pista (asi un forzado que ya era predefinido lo sigue siendo).
+    #>
+    param([Parameter(Mandatory)]$Stream, [object]$Default = $null)
+    $isDefault = if ($null -ne $Default) { [bool]$Default } else { (Test-SubDefault $Stream) }
     [pscustomobject]@{
         Index   = [int]$Stream.index
         Lang    = (Get-Tag $Stream 'language')
         Title   = (Get-Tag $Stream 'title')
         Codec   = $Stream.codec_name
         Forced  = (Test-SubForced $Stream)
-        Default = $Default
+        Default = $isDefault
     }
 }
 
@@ -62,11 +73,11 @@ function Select-Subtitles {
     param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)]$Info)
 
     $subs = @(Get-SubtitleStreams -Info $Info)
-    if ($subs.Count -eq 0) { Write-CvLog 'SUB' '[INFO] - El archivo no tiene subtitulos'; return @() }
+    if ($subs.Count -eq 0) { if ($Context.Debug) { Write-CvLog 'SUB' '[INFO] - El archivo no tiene subtitulos' }; return @() }
 
     $pref = @($subs | Where-Object { Test-CvLanguage (Get-Tag $_ 'language') $Context.SubLangs })
     if ($pref.Count -eq 0) {
-        Write-CvLog 'SUB' ("[INFO] - No hay subtitulos en el idioma preferido ({0} pistas de otros idiomas); no se incluyen" -f $subs.Count)
+        if ($Context.Debug) { Write-CvLog 'SUB' ("[INFO] - No hay subtitulos en el idioma preferido ({0} pistas de otros idiomas); no se incluyen" -f $subs.Count) }
         return @()
     }
 
@@ -82,11 +93,13 @@ function Select-Subtitles {
     }
     foreach ($fs in $forced) { $result += (ConvertTo-SubSel $fs) }
 
-    foreach ($r in $result) {
-        $extra = ''
-        if ($r.Forced)  { $extra += ' [forzados]' }
-        if ($r.Default) { $extra += ' [principal]' }
-        Write-CvLog 'SUB' ("[INFO] - Pista {0} ({1}, {2}){3}" -f $r.Index, $r.Lang, $r.Codec, $extra)
+    if ($Context.Debug) {
+        foreach ($r in $result) {
+            $extra = ''
+            if ($r.Forced)  { $extra += ' [forzados]' }
+            if ($r.Default) { $extra += ' [principal]' }
+            Write-CvLog 'SUB' ("[INFO] - Pista {0} ({1}, {2}){3}" -f $r.Index, $r.Lang, $r.Codec, $extra)
+        }
     }
     return $result
 }

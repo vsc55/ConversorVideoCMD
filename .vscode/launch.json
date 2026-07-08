@@ -1,0 +1,38 @@
+{
+    // Launchers de la vista "Run and Debug" (requieren la extension ms-vscode.PowerShell).
+    // Para ejecutarlos sin la extension, usa Terminal > Run Task (.vscode/tasks.json).
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Tests: bateria (GPU hevc_nvenc)",
+            "type": "PowerShell",
+            "request": "launch",
+            "script": "${workspaceFolder}/test/run-tests.ps1",
+            "args": [ "-Encoder", "hevc_nvenc" ],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Tests: bateria (CPU libx265)",
+            "type": "PowerShell",
+            "request": "launch",
+            "script": "${workspaceFolder}/test/run-tests.ps1",
+            "args": [ "-Encoder", "libx265" ],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Tests: bateria (GPU, conservar temporales)",
+            "type": "PowerShell",
+            "request": "launch",
+            "script": "${workspaceFolder}/test/run-tests.ps1",
+            "args": [ "-Encoder", "hevc_nvenc", "-Keep" ],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Tests: regenerar fixtures",
+            "type": "PowerShell",
+            "request": "launch",
+            "script": "${workspaceFolder}/test/generate-fixtures.ps1",
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}
