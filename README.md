@@ -3,9 +3,15 @@
 ![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-5391FE)
 ![Platform](https://img.shields.io/badge/platform-Windows-0078D6)
 [![Release](https://img.shields.io/github/v/release/vsc55/ConversorVideoCMD)](https://github.com/vsc55/ConversorVideoCMD/releases)
+[![Downloads](https://img.shields.io/github/downloads/vsc55/ConversorVideoCMD/total)](https://github.com/vsc55/ConversorVideoCMD/releases)
 [![Lint](https://github.com/vsc55/ConversorVideoCMD/actions/workflows/lint.yml/badge.svg)](https://github.com/vsc55/ConversorVideoCMD/actions/workflows/lint.yml)
+![Last Commit](https://img.shields.io/github/last-commit/vsc55/ConversorVideoCMD)
+![Code Size](https://img.shields.io/github/languages/code-size/vsc55/ConversorVideoCMD)
+![Top Language](https://img.shields.io/github/languages/top/vsc55/ConversorVideoCMD)
+![Maintenance](https://img.shields.io/maintenance/yes/2026)
 ![Author](https://img.shields.io/badge/author-VSC55-lightgrey)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/vsc55/ConversorVideoCMD)
+[![GitHub Stars](https://img.shields.io/github/stars/vsc55/ConversorVideoCMD?style=social)](https://github.com/vsc55/ConversorVideoCMD/stargazers)
 
 Conversor/recodificador de vídeo por lotes para Windows, escrito en **PowerShell 5.1**, que usa **FFmpeg** como motor. Diseño modular en `lib\` y toda la configuración en `config.json`.
 
