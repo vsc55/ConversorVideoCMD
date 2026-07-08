@@ -14,19 +14,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout del tag
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Empaquetar (zip de los ficheros versionados)
         run: |
           NAME="ConversorVideoCMD-${GITHUB_REF_NAME}"
-          # git archive respeta .gitignore/.gitattributes: no incluye tools\ ni
-          # las carpetas de trabajo, ni .github (export-ignore).
+          # git archive respeta .gitignore/.gitattributes: no incluye tools\ ni las
+          # carpetas de trabajo, ni docs/README/TODO ni CI (export-ignore).
           git archive --format=zip --prefix="${NAME}/" -o "${NAME}.zip" HEAD
           echo "ASSET=${NAME}.zip" >> "$GITHUB_ENV"
 
       - name: Crear Release y adjuntar el zip
-        uses: softprops/action-gh-release@v2
-        with:
-          name: ConversorVideoCMD ${{ github.ref_name }}
-          files: ${{ env.ASSET }}
-          generate_release_notes: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" "${ASSET}" \
+            --title "ConversorVideoCMD ${GITHUB_REF_NAME}" \
+            --generate-notes
