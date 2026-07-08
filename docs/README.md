@@ -9,7 +9,7 @@ Documentación técnica y detallada del conversor. Para la visión general y la 
 | [arquitectura.md](arquitectura.md) | Estructura de ficheros, módulos, el contexto (`$ctx`), y las "fuentes únicas de verdad". |
 | [flujo.md](flujo.md) | Cómo trabaja: clasificar → preparar → worker. Diagramas, locks, paralelismo, regla del prefijo `_`. |
 | [comandos.md](comandos.md) | **Los comandos exactos** de ffmpeg/ffprobe/ffplay/aacgain que se lanzan en cada fase. |
-| [perfiles.md](perfiles.md) | Perfiles de codificación 1–7 y el perfil custom. |
+| [perfiles.md](perfiles.md) | Perfiles de codificación 1–7, los propios de `config.json` (sección `profiles`), el perfil custom y las preguntas por archivo (vídeo/audio/subs/bordes). |
 | [configuracion.md](configuracion.md) | Referencia completa de `config.json` (todas las secciones y claves). |
 | [herramientas.md](herramientas.md) | Sistema de herramientas versionadas (`tools\<app>\<version>\<plataforma>`), descargas, plataforma y `setup.ps1`. |
 | [jobs.md](jobs.md) | Formato del `.job.json`, el lock atómico y los ficheros temporales. |

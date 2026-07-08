@@ -50,14 +50,14 @@ function Select-SubtitleInteractive {
         $mark = ' '; if ([int]$s.index -eq $DefaultIndex) { $mark = '*' }
         $lines += ("{0} [{1}] idioma={2} codec={3} {4}" -f $mark, $s.index, (Get-Tag $s 'language'), $s.codec_name, $tt)
     }
-    Show-Menu -Title 'SELECCIONAR SUBTITULO PRINCIPAL (mismo idioma) [* = por defecto]:' -Lines $lines
+    Show-Menu -Title 'SELECCIONAR SUBTITULO PRINCIPAL (mismo idioma) [* = por defecto]:' -Lines $lines -Indent 3
     while ($true) {
-        $a = (Read-Host ("[SUB] - Indice de pista [{0}]" -f $DefaultIndex)).Trim()
+        $a = (Read-Host ("   [SUB] - Indice de pista [{0}]" -f $DefaultIndex)).Trim()
         if ($a -eq '') { $a = "$DefaultIndex" }
         $n = 0
         if ([int]::TryParse($a, [ref]$n)) {
             $m = $Subs | Where-Object { [int]$_.index -eq $n } | Select-Object -First 1
-            if ($m) { return $m }
+            if ($m) { Write-Host ''; return $m }
         }
         Write-Host '   Indice no valido.' -ForegroundColor Yellow
     }
@@ -70,7 +70,7 @@ function Select-Subtitles {
         - Completos del idioma: 1 -> automatico; 2+ -> menu.
         - Si no hay subtitulos en el idioma: no se incluye ninguno.
     #>
-    param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)]$Info)
+    param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)]$Info, [ref]$Manual = $null)
 
     $subs = @(Get-SubtitleStreams -Info $Info)
     if ($subs.Count -eq 0) { if ($Context.Debug) { Write-CvLog 'SUB' '[INFO] - El archivo no tiene subtitulos' }; return @() }
@@ -88,6 +88,7 @@ function Select-Subtitles {
     if ($full.Count -eq 1) {
         $result += (ConvertTo-SubSel $full[0] -Default $true)
     } elseif ($full.Count -gt 1) {
+        if ($null -ne $Manual) { $Manual.Value = $true }   # se abre menu -> intervencion manual
         $chosen = Select-SubtitleInteractive -Subs $full -DefaultIndex ([int]$full[0].index)
         $result += (ConvertTo-SubSel $chosen -Default $true)
     }

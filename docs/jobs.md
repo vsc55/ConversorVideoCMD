@@ -14,8 +14,8 @@ Ejemplo:
   "profile": { "Name": "3", "VideoEncoder": "hevc_nvenc", "VideoProfile": "main10", "VideoLevel": "5", "Qmin": 1, "Qmax": 23, "DetectBorder": true, "ChangeSize": "", "AudioEncoder": "aac_coder", "AudioBitrate": "192k", "AudioHz": 44100 },
   "ffmpegVersion": "7.1.1",
   "aacgainVersion": "2.0.0",
-  "video": { "skip": false, "crop": "1920:800:0:140", "resize": "", "anim": false },
-  "audio": { "skip": false, "index": 1, "is51": true, "sync": 0 },
+  "video": { "skip": false, "index": 0, "crop": "1920:800:0:140", "resize": "", "anim": false },
+  "audio": { "skip": false, "index": 1, "is51": true, "sync": 0, "lang": "spa" },
   "subtitles": [ { "Index": 3, "Lang": "spa", "Default": false, "Forced": true } ]
 }
 ```
@@ -25,8 +25,8 @@ Ejemplo:
 | `file` | ruta absoluta | Entrada de ffmpeg. |
 | `profile` | perfil elegido | Argumentos de codec/audio. |
 | `ffmpegVersion` / `aacgainVersion` | `selected` al preparar | Versión a usar (se instala si falta). |
-| `video` | `Invoke-VideoAsk` | `crop`, `resize`, `anim`, o `skip` (copy). |
-| `audio` | `Invoke-AudioAsk` | `index` de pista, `sync` (silencio), o `skip`. |
+| `video` | `Invoke-VideoAsk` | `index` de pista de vídeo (se mapea `0:<index>`), `crop`, `resize`, `anim`, o `skip` (copy). |
+| `audio` | `Invoke-AudioAsk` | `index` de pista, `lang` (idioma congelado para el multiplex), `sync` (silencio), o `skip`. |
 | `subtitles` | `Select-Subtitles` | Pistas a mapear con idioma/disposición/título. |
 
 ### Escritura atómica

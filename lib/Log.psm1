@@ -3,24 +3,91 @@
     Sin dependencias de otros modulos.
 #>
 
+# Estilo de las marcas/avisos: $true => ASCII puro ([OK]/[ERROR], corchetes []); $false =>
+# simbolos y badge de medio bloque. Lo fija el arranque desde config (behavior.asciiMarks) via
+# Set-CvMarkStyle, util en consolas/fuentes que no tengan los glifos (se verian como cuadros).
+$script:CvAsciiMarks = $false
+function Set-CvMarkStyle { param([bool]$Ascii) $script:CvAsciiMarks = [bool]$Ascii }
+
+function Get-CvMark {
+    <#
+        Marca de estado (check/cruz). Con behavior.asciiMarks -> texto ASCII ([OK]/[ERROR]); si no,
+        simbolos U+2713/U+2717 (ConvertFromUtf32 para no depender de la codificacion del fichero).
+    #>
+    param([bool]$Ok)
+    if ($script:CvAsciiMarks) { if ($Ok) { return '[OK]' } else { return '[ERROR]' } }
+    if ($Ok) { return [char]::ConvertFromUtf32(0x2713) }   # check monocromo
+    else     { return [char]::ConvertFromUtf32(0x2717) }   # cruz monocroma
+}
+
 function Write-CvLog {
     <#
-        Log de consola. Resalta con fondo de color las lineas de error/aviso:
-        [ERR] -> fondo rojo; [AVISO]/[WARN]/[NO SOPORTADO] -> fondo amarillo.
+        Log de consola. Las lineas de error/aviso se resaltan con fondo de color y se envuelven
+        en "[ ... ]" con los CORCHETES en color normal: asi la ultima celda de la linea NO lleva
+        fondo, evitando el bug de la consola de Windows de que el fondo se "estira" hasta el borde
+        al redimensionar la ventana. El texto interior va resaltado ([ERR] -> rojo; [AVISO]/[WARN]/
+        [NO SOPORTADO] -> amarillo). Ademas se quita la redundancia del [TAG] y de los corchetes
+        del token: "[AUDIO] [AVISO] - x" se muestra como "[ AVISO - x ]".
     #>
-    param([string]$Tag = 'GLOBAL', [string]$Message = '')
-    $prefix = "[{0}] " -f $Tag
-    if ($Message -match '\[ERR\]') {
-        Write-Host $prefix -NoNewline
-        Write-Host $Message -ForegroundColor White -BackgroundColor Red
-    }
-    elseif ($Message -match '\[(AVISO|WARN|NO SOPORTADO)\]') {
-        Write-Host $prefix -NoNewline
-        Write-Host $Message -ForegroundColor Black -BackgroundColor Yellow
+    param([string]$Tag = 'GLOBAL', [string]$Message = '', [int]$Indent = 0)
+    $pad = ' ' * $Indent
+    if ($Message -match '\[(ERR|AVISO|WARN|NO SOPORTADO)\]') {
+        # "[AVISO] - x" -> "AVISO - x" (con un espacio de padding a cada lado DENTRO del bloque).
+        $inner = ($Message -replace '^\s*\[([^\]]+)\]', '$1').Trim()
+        # Badge con extremos de MEDIO BLOQUE (▐ ... ▌) coloreados como el fondo: el bloque se ve
+        # como una etiqueta solida con los bordes a media celda. El ultimo caracter (▌) se pinta
+        # con FONDO por defecto, asi la ultima celda de la linea no lleva fondo y no se reproduce
+        # el bug de Windows de que el fondo se "estira" al redimensionar la ventana.
+        $dbg = $Host.UI.RawUI.BackgroundColor
+        $dfg = $Host.UI.RawUI.ForegroundColor
+        if ($Message -match '\[ERR\]') { $bg = 'Red'; $fg = 'White' } else { $bg = 'Yellow'; $fg = 'Black' }
+        if ($script:CvAsciiMarks) {
+            # ASCII: corchetes [ ] en color normal, interior con fondo (ultimo caracter ']' sin fondo).
+            Write-Host ($pad + '[') -NoNewline -ForegroundColor $dfg -BackgroundColor $dbg
+            Write-Host (' ' + $inner + ' ') -NoNewline -ForegroundColor $fg -BackgroundColor $bg
+            Write-Host ']' -ForegroundColor $dfg -BackgroundColor $dbg
+        } else {
+            # Badge con caps de medio bloque (▐ ▌) coloreados como el fondo.
+            $lb = [char]0x2590; $rb = [char]0x258C
+            Write-Host ($pad + $lb) -NoNewline -ForegroundColor $bg -BackgroundColor $dbg
+            Write-Host (' ' + $inner + ' ') -NoNewline -ForegroundColor $fg -BackgroundColor $bg
+            Write-Host $rb -ForegroundColor $bg -BackgroundColor $dbg
+        }
     }
     else {
-        Write-Host ($prefix + $Message)
+        Write-Host (('{0}[{1}] ' -f $pad, $Tag) + $Message)
     }
+}
+
+function Start-CvStep {
+    <#
+        Inicia una linea de "paso" del worker. En uso normal imprime " - <msg>" SIN salto
+        (se cierra con Stop-CvStep, que anade OK/ERROR en la misma linea). En modo debug
+        imprime el log detallado normal ("[TAG] <msg>") para no romper el volcado de comandos.
+    #>
+    param($Context, [string]$Tag, [string]$Message)
+    if ($Context.Debug) { Write-CvLog $Tag $Message }
+    else { Write-Host (" - {0}" -f $Message) -NoNewline }
+}
+
+function Stop-CvStep {
+    <# Cierra el paso iniciado con Start-CvStep. Normal: " [extra] OK|ERROR" en la misma linea.
+       Debug: escribe OkMsg (si OK) o FailMsg (si falla) como log normal. #>
+    param($Context, [string]$Tag, [bool]$Ok = $true, [string]$Extra = '', [string]$OkMsg = '', [string]$FailMsg = '')
+    if ($Context.Debug) {
+        if ($Ok) { if (-not [string]::IsNullOrEmpty($OkMsg)) { Write-CvLog $Tag $OkMsg } }
+        else     { if (-not [string]::IsNullOrEmpty($FailMsg)) { Write-CvLog $Tag $FailMsg } }
+    } else {
+        if ($Extra) { Write-Host (" {0}" -f $Extra) -NoNewline }
+        if ($Ok) { Write-Host (' {0}' -f (Get-CvMark $true)) -ForegroundColor Green } else { Write-Host (' {0}' -f (Get-CvMark $false)) -ForegroundColor Red }
+    }
+}
+
+function Write-CvInfoStep {
+    <# Linea de paso informativa (sin OK/ERROR). Normal: " - <msg>". Debug: "[TAG] <msg>". #>
+    param($Context, [string]$Tag, [string]$Message)
+    if ($Context.Debug) { Write-CvLog $Tag $Message }
+    else { Write-Host (" - {0}" -f $Message) }
 }
 
 function Start-CvLog {

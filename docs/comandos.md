@@ -33,6 +33,8 @@ ffmpeg -hide_banner -ss <start> -to <start+dur> -i <file> -vf cropdetect -f null
 
 De la salida (`stderr`) se extraen las líneas `crop=W:H:X:Y` y se agrupan; gana la más repetida.
 
+**Muestreo en varios puntos** (`Find-CropDetectSamples`, `border.samples`): en vez de un solo tramo, se escanea en `samples` puntos repartidos entre `border.start` y el final del vídeo, repartiendo el presupuesto `border.duration` entre ellos (para no tardar más). Los recortes de cada punto se agrupan por **votos**: si todos coinciden, se usa ese recorte (preview + confirmar); si discrepan, se avisa (`[AVISO]`) y se ofrece un menú ordenado por votos para elegir cuál probar. Con `samples=1` (o duración desconocida) se comporta como el escaneo único clásico.
+
 ---
 
 ## 3. Previsualización de bordes (`Show-Preview`, ffplay)
@@ -129,8 +131,10 @@ Comando completo (sin audio ni subtítulos; se añaden en el multiplexado):
 ```
 ffmpeg -hide_banner -y -threads <N> -i <file> -an -sn -map_chapters -1 \
   -metadata title= -metadata:s:v title= -metadata:s:v language=und \
-  [-vf "<filtros>"] <ARGS_ENCODER> -map 0:v:0 -f matroska <name>.mkv
+  [-vf "<filtros>"] <ARGS_ENCODER> -map 0:<idx_video> -f matroska <name>.mkv
 ```
+
+`<idx_video>` es el índice absoluto de la **pista de vídeo elegida** en PREPARAR (congelado en `video.index`), no `0:v:0`: con varias pistas de vídeo (o una carátula incrustada antes del vídeo real) `0:v:0` podría mapear la equivocada. En jobs antiguos sin ese campo se usa `0:v:0` como respaldo.
 
 `<filtros>` combina recorte y escalado si aplican: `crop=<W:H:X:Y>,scale=<resize>`.
 
@@ -179,8 +183,8 @@ ffmpeg -hide_banner -y -threads <N> \
   [-i <file>]           # input N (para los subtítulos del original)
   -map_metadata -1 -fflags +bitexact \                          # limpieza de metadatos (ver abajo)
   -metadata title= \
-  -map 0:v:0 -metadata:s:v title= -metadata:s:v language=und \
-  <-map 1:a:0 -metadata:s:a title= -metadata:s:a language=spa   |   -map 0:a:0 -map_metadata:s:a:0 0:s:a:0> \
+  <-map 0:v:0 (encode: intermedio, 1 pista)   |   -map 0:<idx_video> (copy: pista elegida del original)> -metadata:s:v title= -metadata:s:v language=und \
+  <-map 1:a:0 -metadata:s:a title= -metadata:s:a language=<lang>   |   -map 0:a:0 -map_metadata:s:a:0 0:s:a:0> \
   # por cada subtítulo seleccionado:
   -map <sub_input>:<idx>? -metadata:s:s:<n> language=<lang> -metadata:s:s:<n> title=<"Forzados"|""> -disposition:s:<n> <default+forced|0> \
   # por cada adjunto conservado (si postprocess.attachments.keep):
@@ -205,7 +209,7 @@ Para dejar el MKV limpio, el multiplex:
 
 1. **`-map_metadata -1`** — descarta la fuente global de metadatos. En este ffmpeg **también vacía los tags de cada pista** (una sola opción limpia global + streams), así que no hacen falta `-map_metadata:s:*` por pista.
 2. **`-fflags +bitexact`** — evita que el muxer escriba su propia etiqueta `ENCODER` global (queda solo el "writing application" en la cabecera EBML, igual que el original; mkvmerge **no** lo cuenta como Etiqueta).
-3. Tras limpiar, se **re-fijan solo** los metadatos deseados: `title` (global y por pista), `language` y `disposition`.
+3. Tras limpiar, se **re-fijan solo** los metadatos deseados: `title` (global y por pista), `language` y `disposition`. En el audio recodificado, `<lang>` es el **idioma de la pista elegida congelado en el job** (`audio.lang`), no un valor fijo: si el archivo no tenía audio del idioma preferido, es el que confirmaste en el fallback (o `und`).
 4. **Audio en modo `copy`** (perfil 1): como el paso 1 borró también su idioma/título, se **restauran los metadatos originales** de esa pista con `-map_metadata:s:a:0 0:s:a:0` (el audio recodificado a `.m4a` no lo necesita porque se le fijan `title`/`language` explícitos).
 5. **Limpieza final con `mkvpropedit`** (ver abajo): quita el tag `DURATION` que el muxer añade por pista.
 

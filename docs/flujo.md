@@ -21,6 +21,15 @@ flowchart TD
     WORK --> END["[END] No quedan archivos libres"]
 ```
 
+## Parámetros de lanzamiento
+
+`Convert.cmd` (y `setup.cmd`) reenvían sus argumentos a los `.ps1`:
+
+| Parámetro | Vale para | Uso |
+|---|---|---|
+| `-Config <ruta>` | `Convert` y `setup` | Fichero de configuración a usar en vez de `config.json` junto al programa. Admite ruta **absoluta** o **relativa** al directorio actual. Permite mantener varios perfiles de config (p. ej. `Convert.cmd -Config perfiles\anime.json`). Los workers extra heredan el mismo `-Config`. Si la ruta no existe, se avisa y se usan los valores por defecto. |
+| `-WorkerOnly` | `Convert` | Salta la fase PREPARAR y entra directo como worker (lo usan las ventanas extra que se abren al pedir varios workers en paralelo). |
+
 ## Clasificación
 
 Al arrancar, tras comprobar herramientas, se recorren los vídeos de `Original\` y se decide si hace falta preparar:
@@ -51,13 +60,15 @@ flowchart TD
     P6 --> P1
 ```
 
-El job **congela**: el perfil completo, las respuestas del usuario (recorte, resize, animación, índice de audio, sincronía, subtítulos) y **las versiones de ffmpeg/aacgain** en uso. Es autosuficiente: el worker no depende de la config global. Ver [jobs.md](jobs.md).
+El job **congela**: el perfil completo, las respuestas del usuario (índice de vídeo, recorte, resize, animación, índice de audio, sincronía, subtítulos) y **las versiones de ffmpeg/aacgain** en uso. Es autosuficiente: el worker no depende de la config global. Ver [jobs.md](jobs.md).
 
-**Salida por archivo:** en uso normal, PREPARAR muestra **una sola línea por archivo** con el nombre y un badge de estado de color: **OK** (fondo verde) o **ERROR** (fondo rojo) si ffprobe no puede leerlo. En **modo debug** (`behavior.debug` / marcador `debug_on`) se ve el detalle completo (marco, tamaño/duración, y los `[INFO]` de audio/subtítulo/vídeo). Las **preguntas interactivas** (bordes, sincronía, menús de audio/subtítulo) se ven en ambos modos.
+**Salida por archivo:** en uso normal, PREPARAR imprime primero el **nombre del archivo** como cabecera (`- <nombre>`) y, **debajo e indentadas**, las preguntas interactivas (selección de pista de vídeo/audio/subtítulo, bordes, animación, sincronía) — así siempre se sabe de qué archivo son. Al terminar, una línea de estado: `Preparado ✓` (verde), `Preparado (seleccion manual) ✓` (amarillo, si hubo **cualquier** pregunta) o `No se pudo preparar ✗` (rojo, si ffprobe no puede leerlo). Los avisos (p. ej. **varias pistas de vídeo** o **audio sin idioma preferido**) salen como *badge* `▐ AVISO - … ▌`. En **modo debug** (`behavior.debug` / marcador `debug_on`) se ve el detalle completo (marco, tamaño/duración, y los `[INFO]` de audio/subtítulo/vídeo).
 
 ### Workers en paralelo
 
 Al terminar PREPARAR, se pregunta **cuántos workers codificarán en paralelo** (contando esta ventana; ENTER usa el valor por defecto `behavior.workers`, 2). Si se piden N, esta ventana codifica y se abren **N−1 ventanas nuevas** (`Convert.cmd -WorkerOnly`): como ya está todo preparado, entran directas a codificar sin preguntar y se reparten los archivos por el lock. Con `-WorkerOnly` una ventana **salta PREPARAR** y va directa a la fase WORKER.
+
+Con **0** solo se prepara y se **sale** sin codificar: los `.job.json` quedan listos y la conversión se lanza después abriendo `Convert.cmd` (una o varias ventanas) cuando se quiera.
 
 ### Regla del prefijo `_`
 
@@ -89,7 +100,7 @@ flowchart TD
     UNLOCK --> W1
 ```
 
-Al iniciar cada archivo, el worker muestra su **resolución y duración** (útil para estimar cuánto durará la codificación).
+Al iniciar cada archivo, el worker muestra su **resolución y duración** (útil para estimar cuánto durará la codificación). En **uso normal**, cada paso se muestra como una línea compacta `- <acción>... ✓` (o `✗` en rojo si falla), y el resumen final va enmarcado con guiones. En **modo debug** se ven los logs detallados por sección, los comandos exactos y las confirmaciones.
 
 Orden de codificación por archivo: **audio → vídeo → multiplexado**. El audio se recodifica a un `.m4a` temporal, el vídeo a un `.mkv` temporal, y el multiplexado los une con los **subtítulos** y los **adjuntos** conservados del original en `Convertido\<nombre>_fix.mkv`; después limpia los metadatos heredados y quita las etiquetas `DURATION` con **mkvpropedit**.
 
@@ -100,7 +111,7 @@ Ver los comandos exactos en [comandos.md](comandos.md).
 - El reclamo de cada archivo es un **fichero-lock** `Proceso\<nombre>.lock` creado con `FileMode.CreateNew` (falla atómicamente si ya existe). Solo un worker gana.
 - Se pueden lanzar **varias ventanas** (`Convert.cmd`) a la vez: cuando todos los archivos tienen `.job`, cada ventana entra como worker y se reparten los archivos por el lock.
 - El lock se libera siempre en el `finally`, incluso si la codificación falla. Si un worker muere a mitad, otro puede **robar el lock caducado** (guarda `PID`+equipo; ver [jobs.md](jobs.md)).
-- **Reintentos con límite**: un archivo que falla se reintenta hasta un máximo; superado, se **abandona** (se marca en `skip`). Los ilegibles se descartan y un error inesperado se captura por archivo (no aborta el lote). Esto evita el bucle infinito con inputs corruptos o ffmpeg que no arranca.
+- **Reintentos con límite**: un archivo que falla se reintenta hasta un máximo (`behavior.retries`, por defecto 2); superado, se **abandona** (se marca en `skip`). Los ilegibles se descartan y un error inesperado se captura por archivo (no aborta el lote). Esto evita el bucle infinito con inputs corruptos o ffmpeg que no arranca.
 - La codificación de audio/vídeo debe terminar con éxito (ffmpeg código 0 + salida no vacía) para que se multiplexe; si no, el archivo cuenta como fallo (no se genera un MKV con vídeo sin recodificar).
 
 ## Protección de la ventana

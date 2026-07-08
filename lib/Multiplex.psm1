@@ -14,8 +14,11 @@ function Invoke-Multiplex {
         [Parameter(Mandatory)]$Info,
         [bool]$VideoSkipped = $false,
         [bool]$AudioSkipped = $false,
-        $Subtitles = @()
+        $Subtitles = @(),
+        [string]$AudioLang = '',
+        [int]$VideoIndex = -1
     )
+    if ([string]::IsNullOrWhiteSpace($AudioLang)) { $AudioLang = 'und' }
     $name  = [System.IO.Path]::GetFileNameWithoutExtension($File)
     $out   = Get-OutputPath $Context $name
     $tmp   = Get-CvTempPaths -Context $Context -Name $name
@@ -50,11 +53,15 @@ function Invoke-Multiplex {
     $ffArgs += @('-map_metadata','-1','-fflags','+bitexact')
     $ffArgs += @('-metadata','title=')
 
-    # mapeo video: titulo en blanco, idioma indefinido
-    $ffArgs += @('-map','0:v:0','-metadata:s:v','title=','-metadata:s:v','language=und')
+    # mapeo video: titulo en blanco, idioma indefinido.
+    #  - Encode: $videoSrc es el intermedio recodificado (1 sola pista) -> '0:v:0'.
+    #  - Copy:   $videoSrc es el original -> mapear la pista elegida por su indice absoluto
+    #            ('0:<VideoIndex>'), no '0:v:0' (que podria ser una caratula o la pista equivocada).
+    $vmap = if ((Test-Path -LiteralPath $vTmp) -or ($VideoIndex -lt 0)) { '0:v:0' } else { "0:$VideoIndex" }
+    $ffArgs += @('-map',$vmap,'-metadata:s:v','title=','-metadata:s:v','language=und')
     if ($useAudioFile) {
-        # audio recodificado (m4a): titulo en blanco, idioma preferido
-        $ffArgs += @('-map','1:a:0','-metadata:s:a','title=','-metadata:s:a','language=spa')
+        # audio recodificado (m4a): titulo en blanco, idioma de la pista elegida (congelado en el job)
+        $ffArgs += @('-map','1:a:0','-metadata:s:a','title=','-metadata:s:a',("language={0}" -f $AudioLang))
     } else {
         # audio copy: conservar los metadatos originales de la pista (idioma, titulo, stats)
         $ffArgs += @('-map','0:a:0','-map_metadata:s:a:0','0:s:a:0')
@@ -97,23 +104,19 @@ function Invoke-Multiplex {
     if ($keepAtt.Count -gt 0) { $ffArgs += @('-c:t','copy') }
     $ffArgs += @('-f','matroska',$out)
 
-    Write-CvLog 'MULTIPLEX' 'Uniendo pistas...'
+    Start-CvStep $Context 'MULTIPLEX' 'Uniendo pistas...'
     $code = Invoke-ToolShow -Exe $Context.FFmpeg -Arguments $ffArgs -Context $Context
-    if ($code -ne 0) {
-        Write-CvLog 'MULTIPLEX' ("[ERR] - ffmpeg devolvio codigo {0}" -f $code)
+    $ok = (($code -eq 0) -and (Test-Path -LiteralPath $out) -and ((Get-Item -LiteralPath $out).Length -gt 0))
+    $mbTxt = if ($ok) { ("({0} MB)" -f [math]::Round((Get-Item -LiteralPath $out).Length / 1MB, 1)) } else { '' }
+    Stop-CvStep $Context 'MULTIPLEX' $ok -Extra $mbTxt -OkMsg ("[OK] - {0}  {1}" -f (Split-Path $out -Leaf), $mbTxt) -FailMsg ("[ERR] - ffmpeg devolvio codigo {0}" -f $code)
+    if (-not $ok) {
         # Borrar la salida parcial para no darla por buena ni bloquear el reintento.
         if (Test-Path -LiteralPath $out) { Remove-Item -Force -LiteralPath $out -ErrorAction SilentlyContinue }
         return $false
     }
-
-    if ((Test-Path -LiteralPath $out) -and ((Get-Item -LiteralPath $out).Length -gt 0)) {
-        $mb = [math]::Round((Get-Item -LiteralPath $out).Length / 1MB, 1)
-        Write-CvLog 'MULTIPLEX' ("[OK] - {0}  ({1} MB)" -f (Split-Path $out -Leaf), $mb)
-        # Limpiar las etiquetas DURATION que anade el muxer de Matroska (mkvpropedit).
-        Remove-CvMkvTags -Context $Context -File $out
-        return $true
-    }
-    return $false
+    # Limpiar las etiquetas DURATION que anade el muxer de Matroska (mkvpropedit).
+    Remove-CvMkvTags -Context $Context -File $out
+    return $true
 }
 
 function Remove-CvMkvTags {
@@ -135,10 +138,9 @@ function Remove-CvMkvTags {
         Write-CvLog 'MULTIPLEX' '[AVISO] - mkvpropedit no disponible: quedan las etiquetas DURATION'
         return
     }
-    Write-CvLog 'MULTIPLEX' '[TAGS] - Limpiando etiquetas con mkvpropedit...'
+    Start-CvStep $Context 'MULTIPLEX' 'Limpiando etiquetas con mkvpropedit...'
     $r = Invoke-ToolCapture -Exe $mpe -Arguments @($File, '--tags', 'all:') -Context $Context
-    if ($r.ExitCode -eq 0) { Write-CvLog 'MULTIPLEX' '[TAGS] - [OK] - Etiquetas eliminadas' }
-    else { Write-CvLog 'MULTIPLEX' ("[AVISO] - mkvpropedit devolvio codigo {0}; las etiquetas pueden seguir" -f $r.ExitCode) }
+    Stop-CvStep $Context 'MULTIPLEX' ($r.ExitCode -eq 0) -OkMsg '[TAGS] - [OK] - Etiquetas eliminadas' -FailMsg ("[AVISO] - mkvpropedit devolvio codigo {0}; las etiquetas pueden seguir" -f $r.ExitCode)
 }
 
 Export-ModuleMember -Function *

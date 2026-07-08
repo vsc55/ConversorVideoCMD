@@ -32,16 +32,6 @@ foreach ($m in @('Log','Config','Context','Console','Exec','Job','Tools','MediaI
     Import-Module (Join-Path $Lib ("{0}.psm1" -f $m)) -Force
 }
 
-$cfgPath = Join-Path $Root 'config.json'
-$bakPath = "$cfgPath.testbak"
-
-# --- Auto-reparacion: si un run anterior murio a mitad, restaurar el config antes de nada. ---
-if (Test-Path -LiteralPath $bakPath) {
-    Write-Host 'AVISO: restaurando config.json de un run anterior interrumpido.' -ForegroundColor Yellow
-    Copy-Item -LiteralPath $bakPath -Destination $cfgPath -Force
-    Remove-Item -LiteralPath $bakPath -Force
-}
-
 # --- Perfil test segun el encoder elegido ---
 function New-TestProfile([string]$enc) {
     switch ($enc) {
@@ -77,6 +67,9 @@ $expect = [ordered]@{
     'audio-sin-espanol-fallback.mkv'         = @{ subCount=0; forcedDefault=$false; audioMin=1; note='sin spa -> audio default' }
     'subs-sin-espanol-descartar.mkv'         = @{ subCount=0; forcedDefault=$false; audioMin=1; note='subs no preferidos -> ninguno' }
     'pistas-orden-aleatorio.mkv'             = @{ subCount=1; forcedDefault=$true;  audioMin=1; note='orden sub/audio/video/audio/sub' }
+    # Varias pistas de VIDEO: se elige la 1a real (640x480); width verifica que se codifico esa
+    # pista (no la 2a de 320x240) via el mapeo 0:<index> congelado en el job.
+    'pistas-video-multiple.mkv'              = @{ subCount=0; forcedDefault=$false; audioMin=1; width=640; note='2 pistas de video -> elige la 1a (640x480)' }
 }
 
 $fixtures = @($expect.Keys | Where-Object { Test-Path -LiteralPath (Join-Path $PSScriptRoot $_) })
@@ -85,30 +78,32 @@ if ($fixtures.Count -eq 0) {
     exit 1
 }
 
-$work = Join-Path $env:TEMP ('cv-test-' + [guid]::NewGuid().ToString('N'))
+$tempRoot = Join-Path $env:TEMP ('cv-test-' + [guid]::NewGuid().ToString('N'))
 $results = @()
 
 Write-Host ''
 Write-Host ('=== BATERIA DE TESTS (encoder={0}) ===' -f $Encoder) -ForegroundColor Cyan
-Write-Host ('Area de trabajo temporal: {0}' -f $work)
+Write-Host ('Root aislado: {0}' -f $tempRoot)
 
-Copy-Item -LiteralPath $cfgPath -Destination $bakPath -Force   # backup para restaurar
+# --- Root AISLADO: no se toca NADA del proyecto real (ni config.json ni carpetas de trabajo).
+#     Se crea un root temporal con JUNCTIONS a lib\ y tools\ del proyecto, y su propio config.json
+#     y copia de Convert.ps1. Las carpetas de trabajo quedan bajo el root temporal.
+New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
+New-Item -ItemType Junction  -Path (Join-Path $tempRoot 'lib')   -Target (Join-Path $Root 'lib')   | Out-Null
+New-Item -ItemType Junction  -Path (Join-Path $tempRoot 'tools') -Target (Join-Path $Root 'tools') | Out-Null
+Copy-Item -LiteralPath (Join-Path $Root 'Convert.ps1') -Destination (Join-Path $tempRoot 'Convert.ps1') -Force
 try {
-    # --- Config temporal: paths -> area temporal, comportamiento contenido ---
-    # Se parte del config FUSIONADO (defaults + overrides) para tener todas las secciones
-    # aunque config.json sea minimo (solo overrides).
+    # Config del root aislado: fusionado (para tener todas las secciones aunque config.json sea
+    # minimo) + comportamiento contenido. Paths vacios => carpetas de trabajo bajo el root temporal.
     $cfg = Get-CvConfig -Root $Root
-    $cfg['paths']['original']   = (Join-Path $work 'Original')
-    $cfg['paths']['proceso']    = (Join-Path $work 'Proceso')
-    $cfg['paths']['convertido'] = (Join-Path $work 'Convertido')
-    $cfg['paths']['logs']       = (Join-Path $work 'logs')
     $cfg['behavior']['separateWindow']  = $false   # codificar inline (no ventanas aparte)
     $cfg['behavior']['lockCloseButton'] = $false   # no tocar el boton X de la ventana
     $cfg['behavior']['log']             = $false   # sin transcript
-    Save-CvConfigFile -Path $cfgPath -Config $cfg
+    Save-CvConfigFile -Path (Join-Path $tempRoot 'config.json') -Config $cfg
 
-    $ctx  = New-CvContext -Root $Root   # ya apunta al area temporal y crea las carpetas
+    $ctx  = New-CvContext -Root $tempRoot   # Original/Proceso/Convertido bajo el root temporal; las crea
     $prof = New-TestProfile $Encoder
+    $expectAudioLang = @{}   # idioma de audio esperado en la salida (idioma de la pista elegida)
 
     # --- Preparar: copiar fixtures + escribir sus .job.json (seleccion real, sin menus) ---
     Write-Host ''
@@ -124,6 +119,7 @@ try {
         $aSel = Select-AudioStream -Info $info -PrefLangs $ctx.AudioLangs
         $aSkip = ($prof.AudioEncoder -eq 'copy') -or ($null -eq $aSel)
         $aIdx  = if ($aSel) { $aSel.Index } else { 0 }
+        $expectAudioLang[$fx] = $(if ($aSel -and $aSel.Language) { "$($aSel.Language)" } else { 'und' })
 
         # Subtitulos: misma logica que Select-Subtitles pero sin menu (completo[0] + forzados),
         # usando las funciones reales (ConvertTo-SubSel conserva el 'default' original del forzado).
@@ -136,13 +132,15 @@ try {
         foreach ($fs in $forc) { $subSel += (ConvertTo-SubSel $fs) }
 
         $vSkip = ($prof.VideoEncoder -eq 'copy')
+        $vSel  = Get-VideoStream -Info $info
+        $vIdx  = if ($vSel) { [int]$vSel.index } else { 0 }
         $job = [ordered]@{
             file           = (Join-Path $ctx.Original $fx)
             profile        = $prof
             ffmpegVersion  = $ctx.FFmpegVersion
             aacgainVersion = $ctx.AacGainVersion
-            video          = @{ skip = $vSkip; crop = ''; resize = [string]$exp['resize']; anim = $false }
-            audio          = @{ skip = $aSkip; index = $aIdx; is51 = [bool]($aSel -and $aSel.Is51); sync = 0 }
+            video          = @{ skip = $vSkip; index = $vIdx; crop = ''; resize = [string]$exp['resize']; anim = $false }
+            audio          = @{ skip = $aSkip; index = $aIdx; is51 = [bool]($aSel -and $aSel.Is51); sync = 0; lang = $(if ($aSel) { "$($aSel.Language)" } else { '' }) }
             subtitles      = @($subSel)
         }
         Write-CvJob -Context $ctx -Name $name -Job $job
@@ -158,7 +156,7 @@ try {
     # volveria un error terminante en el padre, asi que aislamos la llamada al proceso hijo.
     $old = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
     # Mostrar solo las lineas de log del conversor (no el volcado de progreso de ffmpeg).
-    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $Root 'Convert.ps1') 2>&1 |
+    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $tempRoot 'Convert.ps1') 2>&1 |
         ForEach-Object {
             $t = "$_"
             if ($t -match '\[(WORKER|GLOBAL|AUDIO|VIDEO|MULTIPLEX|SUB)\]' -or $t -match 'Error|ERROR') {
@@ -200,6 +198,12 @@ try {
         # 2) recuentos de audio / subtitulos
         if ($as.Count -lt $exp.audioMin) { $errs += ("audio={0}<{1}" -f $as.Count, $exp.audioMin) }
         if ($ss.Count -ne $exp.subCount) { $errs += ("subs={0}!={1}" -f $ss.Count, $exp.subCount) }
+        # 2b) idioma del audio = el de la pista elegida (no fijo a 'spa'). El muxer no escribe
+        #     el idioma cuando es 'und' (indeterminado), asi que '' equivale a 'und'.
+        if ($as.Count -ge 1) {
+            $al = "$($as[0].tags.language)"; if ($al -eq '') { $al = 'und' }
+            if ($al -ne $expectAudioLang[$fx]) { $errs += ("audioLang={0}!={1}" -f $al, $expectAudioLang[$fx]) }
+        }
         # 3) subtitulo forzado que conserva default (bug #1)
         if ($exp.forcedDefault -and $ss.Count -ge 1) {
             $d = $ss[0].disposition
@@ -223,15 +227,16 @@ try {
     }
 }
 finally {
-    # Restaurar SIEMPRE el config.json original.
-    if (Test-Path -LiteralPath $bakPath) {
-        Copy-Item -LiteralPath $bakPath -Destination $cfgPath -Force
-        Remove-Item -LiteralPath $bakPath -Force
+    # Borrar SIEMPRE las junctions de forma segura (solo el enlace, NUNCA su destino real)
+    # antes de tocar el resto, para que un borrado posterior del root no afecte a lib\/tools\.
+    foreach ($j in 'lib','tools') {
+        $jp = Join-Path $tempRoot $j
+        if (Test-Path -LiteralPath $jp) { try { [System.IO.Directory]::Delete($jp, $false) } catch {} }
     }
-    if (-not $Keep -and (Test-Path -LiteralPath $work)) {
-        Remove-Item -Recurse -Force -LiteralPath $work -ErrorAction SilentlyContinue
-    } elseif ($Keep) {
-        Write-Host ("`nArea temporal conservada en: {0}" -f $work) -ForegroundColor Yellow
+    if ($Keep) {
+        Write-Host ("`nSalidas conservadas en: {0}\Convertido" -f $tempRoot) -ForegroundColor Yellow
+    } elseif (Test-Path -LiteralPath $tempRoot) {
+        Remove-Item -Recurse -Force -LiteralPath $tempRoot -ErrorAction SilentlyContinue
     }
 }
 

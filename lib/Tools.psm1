@@ -201,6 +201,19 @@ function Install-CvTool {
         return $false
     }
 
+    # Dependencias declaradas (descriptor 'dependsOn'): se aseguran antes (cada una es otra app
+    # del catalogo). P. ej. mkvtoolnix depende de 'sevenzip' (7zr) para extraer su .7z.
+    foreach ($dep in @($app.dependsOn)) {
+        if ([string]::IsNullOrWhiteSpace("$dep")) { continue }
+        $depApp = Get-CvAppDescriptor -Context $Context -Name "$dep"
+        $depVer = if ($depApp) { "$($depApp.selected)" } else { '' }
+        Write-CvLog 'GLOBAL' ("{0} - Dependencia: {1} {2}" -f $tag, $dep, $depVer)
+        if (-not (Confirm-CvTool -Context $Context -Name "$dep" -Version $depVer -Quiet)) {
+            Write-CvLog 'GLOBAL' ("{0} - [ERR] - No se pudo obtener la dependencia '{1}'" -f $tag, $dep)
+            return $false
+        }
+    }
+
     $ver = if (-not [string]::IsNullOrWhiteSpace($Version)) { $Version } else { "$($app.selected)" }
     if ([string]::IsNullOrWhiteSpace($ver)) { Write-CvLog 'GLOBAL' ("{0} - [ERR] - Version no seleccionada" -f $tag); return $false }
     $url    = ("$($app.url)")     -replace '\{version\}', $ver
@@ -271,15 +284,15 @@ function Install-CvTool {
         Write-CvLog 'GLOBAL' ("{0} - Extrayendo..." -f $tag)
         $extracted = $false
         if ($type -eq '7z') {
-            # .7z (LZMA): se extrae con 7zr, que se asegura antes (bootstrap).
+            # .7z (LZMA): se extrae con 7zr (app 'sevenzip', asegurada por dependsOn).
             $zApp = Get-CvAppDescriptor -Context $Context -Name 'sevenzip'
             $zVer = if ($zApp) { "$($zApp.selected)" } else { '' }
-            if (-not (Confirm-CvTool -Context $Context -Name 'sevenzip' -Version $zVer -Quiet)) {
-                Write-CvLog 'GLOBAL' ("{0} - [ERR] - No se pudo obtener el extractor 7z (7zr)" -f $tag)
+            $zr = Join-Path (Get-CvToolDir -Context $Context -Name 'sevenzip' -Version $zVer) '7zr.exe'
+            if (-not (Test-Path -LiteralPath $zr)) {
+                Write-CvLog 'GLOBAL' ("{0} - [ERR] - Falta el extractor 7z (7zr); anade 'sevenzip' a dependsOn." -f $tag)
                 Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
                 return $false
             }
-            $zr = Join-Path (Get-CvToolDir -Context $Context -Name 'sevenzip' -Version $zVer) '7zr.exe'
             $r = Invoke-ToolCapture -Exe $zr -Arguments @('x', $dl, ("-o{0}" -f $tmp), '-y') -Context $Context
             $extracted = ($r.ExitCode -eq 0)
             if (-not $extracted) { Write-CvLog 'GLOBAL' ("{0} - [ERR] - 7zr devolvio codigo {1}" -f $tag, $r.ExitCode) }

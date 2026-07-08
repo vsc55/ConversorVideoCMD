@@ -23,9 +23,34 @@ function Get-MediaInfo {
     try { return ($r.StdOut | ConvertFrom-Json) } catch { return $null }
 }
 
-function Get-VideoStream {
+function Get-VideoStreams {
+    <#
+        Pistas de video REALES: excluye caratulas/portadas incrustadas (disposition.attached_pic
+        y codecs de imagen: mjpeg/png/bmp/gif/webp), que ffprobe lista como codec_type=video.
+    #>
     param([Parameter(Mandatory)]$Info)
-    @($Info.streams | Where-Object { $_.codec_type -eq 'video' -and $_.codec_name -ne 'mjpeg' }) | Select-Object -First 1
+    @($Info.streams | Where-Object {
+        $_.codec_type -eq 'video' -and
+        $_.codec_name -notin @('mjpeg','png','bmp','gif','webp') -and
+        -not ($_.disposition -and $_.disposition.attached_pic -eq 1)
+    })
+}
+
+function Get-VideoStream {
+    <# Primera pista de video real (excluye caratulas). #>
+    param([Parameter(Mandatory)]$Info)
+    @(Get-VideoStreams -Info $Info) | Select-Object -First 1
+}
+
+function Get-VideoStreamPos {
+    <#
+        Posicion 0-based de una pista (por su indice absoluto) entre TODAS las de codec_type=video
+        (incluye caratulas), para el stream specifier 'v:N' de ffplay (-vst).
+    #>
+    param([Parameter(Mandatory)]$Info, [int]$Index)
+    $all = @($Info.streams | Where-Object { $_.codec_type -eq 'video' })
+    for ($i = 0; $i -lt $all.Count; $i++) { if ([int]$all[$i].index -eq $Index) { return $i } }
+    return 0
 }
 
 function Select-AudioStream {
@@ -138,13 +163,14 @@ function Write-ConversionSummary {
         ("Audio   : {0} {1}{2}" -f $outAc, $outAch, $outAbr)
     )
     # Sin encuadrar: los cuadros recortan las lineas largas (p.ej. el nombre del archivo).
-    $sep = '=' * 64
+    $dash = '-' * 64
+    $eq   = '=' * 64
     Write-Host ''
-    Write-Host $sep
+    Write-Host $dash
     Write-Host 'RESUMEN DE LA CONVERSION'
-    Write-Host $sep
+    Write-Host $dash
     $lines | ForEach-Object { Write-Host $_ }
-    Write-Host $sep
+    Write-Host $eq
     Write-Host ''
 }
 

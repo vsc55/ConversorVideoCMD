@@ -212,16 +212,17 @@ function Show-Menu {
         sin recuadro. $Title = titulo; $Lines = opciones (cadena vacia = linea en blanco).
         No trunca: las lineas largas se imprimen enteras.
     #>
-    param([string]$Title, [string[]]$Lines = @())
-    $sep = '-' * 64
+    param([string]$Title, [string[]]$Lines = @(), [int]$Indent = 0)
+    $pad = ' ' * $Indent
+    $sep = $pad + ('-' * 64)
     Write-Host ''
     Write-Host $sep
     if ($Title) {
-        Write-Host ("  {0}" -f $Title)
+        Write-Host ($pad + ("  {0}" -f $Title))
         Write-Host $sep
     }
     foreach ($l in $Lines) {
-        if ($l -eq '') { Write-Host '' } else { Write-Host ("    {0}" -f $l) }
+        if ($l -eq '') { Write-Host '' } else { Write-Host ($pad + ("    {0}" -f $l)) }
     }
     Write-Host $sep
 }

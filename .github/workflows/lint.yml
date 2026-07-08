@@ -1,0 +1,32 @@
+name: Lint
+
+# Comprueba la sintaxis de todos los .ps1/.psm1 en cada push y PR, para cazar errores
+# (typos, parentesis, etc.) antes de que lleguen a ejecutarse.
+on:
+  push:
+  pull_request:
+
+jobs:
+  syntax:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Comprobar sintaxis de PowerShell (5.1)
+        shell: powershell   # Windows PowerShell 5.1, la version objetivo del proyecto
+        run: |
+          $errs = @()
+          Get-ChildItem -Recurse -Include *.ps1,*.psm1 -File |
+            Where-Object { $_.FullName -notmatch '\\tools\\' } |
+            ForEach-Object {
+              $e = $null
+              [void][System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$e)
+              if ($e) { foreach ($x in $e) { $errs += ("{0}:{1} - {2}" -f $_.Name, $x.Extent.StartLineNumber, $x.Message) } }
+            }
+          if ($errs.Count -gt 0) {
+            Write-Host "Errores de sintaxis:" -ForegroundColor Red
+            $errs | ForEach-Object { Write-Host "::error::$_" }
+            exit 1
+          }
+          Write-Host "Sintaxis OK en todos los .ps1/.psm1"

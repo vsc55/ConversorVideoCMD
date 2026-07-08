@@ -24,7 +24,7 @@ Para gestionar versiones de FFmpeg/aacgain o editar la configuración cómodamen
 
 Modelo **preparar → procesar**:
 
-- **PREPARAR**: elige un perfil y, por cada vídeo, pregunta/detecta todo (bordes con preview, resize, animación, pista de audio, sincronía, subtítulos) y lo congela en `Proceso\<nombre>.job.json`.
+- **PREPARAR**: elige un perfil y, por cada vídeo, pregunta/detecta todo (selección de pista de vídeo si hay varias, bordes con preview en varios puntos, resize, animación, pista de audio con su idioma, sincronía, subtítulos) y lo congela en `Proceso\<nombre>.job.json`.
 - **WORKER**: codifica cada preparado de forma desatendida (audio → vídeo → multiplexado) y deja el MKV en `Convertido\`.
 - **Paralelo**: cuando todos tienen `.job`, puedes abrir varias ventanas de `Convert.cmd`; cada una toma archivos libres mediante un lock atómico.
 
@@ -56,7 +56,7 @@ La documentación técnica y detallada (cómo trabaja, flujos, diagramas y **los
 - [Arquitectura](docs/arquitectura.md) — módulos, contexto, fuentes de verdad.
 - [Flujo de trabajo](docs/flujo.md) — clasificar → preparar → worker, con diagramas.
 - [Comandos de las herramientas](docs/comandos.md) — ffmpeg/ffprobe/ffplay/aacgain por fase.
-- [Perfiles](docs/perfiles.md) — perfiles 1–7 y custom.
+- [Perfiles](docs/perfiles.md) — perfiles 1–7, propios de `config.json` y custom.
 - [Configuración](docs/configuracion.md) — referencia de `config.json`.
 - [Herramientas](docs/herramientas.md) — versiones, plataforma, descargas y `setup`.
 - [Jobs](docs/jobs.md) — formato del job, lock y temporales.

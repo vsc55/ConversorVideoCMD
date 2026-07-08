@@ -89,6 +89,7 @@ function Get-CvConfigDefaults {
                 url          = 'https://mkvtoolnix.download/windows/releases/{version}/mkvtoolnix-64-bit-{version}.7z'
                 binPath      = 'mkvtoolnix'
                 files        = @('mkvpropedit.exe')
+                dependsOn    = @('sevenzip')   # 7zr para extraer el .7z (LZMA)
                 platform     = 'x86_64'
                 versionExe   = 'mkvpropedit.exe'
                 versionArgs  = @('--version')
@@ -100,7 +101,15 @@ function Get-CvConfigDefaults {
         }
         languages = [ordered]@{ audio = $langs; subtitle = $langs }
         encode    = [ordered]@{ outputExtension = 'mkv'; threads = 0; fps = '23.976'; audioHz = 44100 }
-        border    = [ordered]@{ start = 120; duration = 120 }
+        # border: deteccion de bordes negros con cropdetect.
+        #  - start/duration: punto inicial y presupuesto total de escaneo (segundos).
+        #  - samples: en cuantos puntos repartidos del video se escanea (1 = solo al inicio,
+        #    clasico). Con 2+ se reparte el presupuesto entre los puntos y, si discrepan, se
+        #    avisa y se usa el recorte menos agresivo.
+        border    = [ordered]@{ start = 120; duration = 120; samples = 3 }
+        # Previsualizacion con ffplay (audio/video/bordes en PREPARAR): desde que segundo empieza
+        # y cuantos dura la muestra. Util para buscar dialogo y saber el idioma de una pista.
+        preview   = [ordered]@{ start = 120; seconds = 30 }
         volume    = [ordered]@{ method = 'peak'; loudnorm = [ordered]@{ I = -16; TP = -1.5; LRA = 11 } }
         # Postproceso del MKV final:
         #  - stripTags: limpiar con mkvpropedit las etiquetas DURATION por pista que anade el
@@ -113,10 +122,15 @@ function Get-CvConfigDefaults {
             mkvpropedit = ''
             attachments = [ordered]@{ keep = $false; fonts = $true; covers = $false; other = $false }
         }
-        behavior  = [ordered]@{ cleanTemps = $true; separateWindow = $true; lockCloseButton = $true; debug = $false; log = $true; workers = 2 }
-        console   = [ordered]@{ background = 'DarkBlue'; foreground = 'Yellow'; font = 'Consolas'; fontSize = 18; windowWidth = 100; windowHeight = 50 }
+        behavior  = [ordered]@{ cleanTemps = $true; separateWindow = $true; lockCloseButton = $true; debug = $false; log = $true; workers = 2; retries = 2; asciiMarks = $false }
+        console   = [ordered]@{ background = 'DarkBlue'; foreground = 'Yellow'; font = 'Cascadia Code'; fontSize = 18; windowWidth = 100; windowHeight = 50 }
         # Carpetas de trabajo: vacio = junto al programa; admite ruta absoluta o relativa.
         paths     = [ordered]@{ original = ''; proceso = ''; convertido = ''; logs = '' }
+        # Perfiles de codificacion PROPIOS: se ANADEN a los 7 de serie en el menu USAR PERFIL
+        # (no los sustituyen). Cada objeto admite: label, videoEncoder, videoProfile, videoLevel,
+        # qmin, qmax, crf, detectBorder, changeSize, audioEncoder, audioBitrate, audioHz.
+        # Ejemplo: { "label":"Anime 1080p", "videoEncoder":"libx265", "crf":18, "changeSize":"1920:-1" }
+        profiles  = @()
     }
 }
 
@@ -125,9 +139,13 @@ function Get-CvConfig {
         Carga config.json (si existe) sobre los valores por defecto, por secciones.
         Cualquier clave ausente en el json usa el valor por defecto (fusion profunda).
     #>
-    param([Parameter(Mandatory)][string]$Root)
+    param(
+        [Parameter(Mandatory)][string]$Root,
+        # Ruta explicita al config (parametro -Config de Convert/setup). Vacio = Root\config.json.
+        [string]$Path = ''
+    )
     $cfg = Get-CvConfigDefaults
-    $path = Join-Path $Root 'config.json'
+    $path = if ([string]::IsNullOrWhiteSpace($Path)) { Join-Path $Root 'config.json' } else { $Path }
     if (Test-Path $path) {
         try {
             $json = Get-Content -Raw -Path $path | ConvertFrom-Json
@@ -291,8 +309,10 @@ function Repair-CvConfigArrays($cfg) {
             $app = $p.Value
             if ($null -ne $app.files)       { $app.files       = @($app.files) }
             if ($null -ne $app.versionArgs) { $app.versionArgs = @($app.versionArgs) }
+            if ($null -ne $app.dependsOn)   { $app.dependsOn   = @($app.dependsOn) }
         }
     }
+    if ($cfg.PSObject.Properties['profiles'] -and $null -ne $cfg.profiles) { $cfg.profiles = @($cfg.profiles) }
 }
 function Read-CvConfigFile {
     param([Parameter(Mandatory)][string]$Path)

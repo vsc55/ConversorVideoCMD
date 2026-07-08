@@ -5,7 +5,7 @@
 
 function Get-CvVersion {
     <# Version del proyecto (fuente unica; la usan Convert.ps1 y setup.ps1). #>
-    '4.1'
+    '4.2'
 }
 
 function Get-CvWorkDirs {
@@ -30,15 +30,22 @@ function Resolve-CvPath {
 
 function New-CvContext {
     <# Crea el objeto de contexto con rutas, herramientas y opciones (de config.json). #>
-    param([Parameter(Mandatory)][string]$Root)
+    param(
+        [Parameter(Mandatory)][string]$Root,
+        # Ruta explicita al config (parametro -Config de Convert/setup). Vacio = Root\config.json.
+        [string]$ConfigPath = ''
+    )
 
-    $cfg = Get-CvConfig -Root $Root
+    $cfgFile = if ([string]::IsNullOrWhiteSpace($ConfigPath)) { Join-Path $Root 'config.json' } else { $ConfigPath }
+    $cfg = Get-CvConfig -Root $Root -Path $cfgFile
     $plat  = Get-CvPlatform
     $ffSel = "$($cfg.downloads.ffmpeg.selected)"
     $agSel = "$($cfg.downloads.aacgain.selected)"
 
     $ctx = [pscustomobject]@{
         Root           = $Root
+        # Fichero de config en uso (Root\config.json por defecto, o el pasado con -Config).
+        ConfigPath     = $cfgFile
         Version        = Get-CvVersion
         # Carpetas de trabajo (configurables en config.json 'paths'; vacio = junto al programa).
         Original       = Resolve-CvPath $Root "$($cfg.paths.original)"   'Original'
@@ -66,6 +73,11 @@ function New-CvContext {
         DefaultAudioHz = [int]$cfg.encode.audioHz
         BorderStart    = [int]$cfg.border.start
         BorderDur      = [int]$cfg.border.duration
+        # Nº de puntos del video donde se escanean bordes (1 = solo al inicio, clasico).
+        BorderSamples  = [int]$cfg.border.samples
+        # Previsualizacion ffplay (inicio y duracion de la muestra en PREPARAR).
+        PreviewStart   = [int]$cfg.preview.start
+        PreviewSeconds = [int]$cfg.preview.seconds
         AudioLangs     = @($cfg.languages.audio)
         SubLangs       = @($cfg.languages.subtitle)
         # debug: desde config.json o creando el marcador 'debug_on' (cualquiera lo activa).
@@ -77,6 +89,10 @@ function New-CvContext {
         LockClose      = [bool]$cfg.behavior.lockCloseButton
         # Workers en paralelo por defecto al terminar PREPARAR (esta ventana + N-1 nuevas).
         Workers        = [int]$cfg.behavior.workers
+        # Reintentos por archivo cuando la codificacion falla (antes de abandonarlo).
+        Retries        = [int]$cfg.behavior.retries
+        # Marcas/avisos en ASCII puro ([OK]/[ERROR]) en vez de simbolos/badge (consolas sin glifos).
+        AsciiMarks     = [bool]$cfg.behavior.asciiMarks
         # log: transcript de la ejecucion a logs\; el marcador 'no_log' lo desactiva.
         Log            = ([bool]$cfg.behavior.log -and -not (Test-Path (Join-Path $Root 'no_log')))
         # Postproceso: limpiar las etiquetas DURATION del MKV con mkvpropedit.
@@ -98,6 +114,8 @@ function New-CvContext {
         WindowWidth       = [int]$cfg.console.windowWidth
         WindowHeight      = [int]$cfg.console.windowHeight
         Extensions     = @('*.avi','*.flv','*.mp4','*.mov','*.mkv')
+        # Perfiles de codificacion propios (config 'profiles'); se anaden a los de serie.
+        Profiles       = @($cfg.profiles)
     }
 
     # Rutas de las herramientas para la version 'selected' (fuente unica en New-CvToolContext).
@@ -111,21 +129,65 @@ function New-CvContext {
 }
 
 
+function Get-CvLangCanon {
+    <#
+        Canonicaliza un codigo de idioma a una forma unica, para que las distintas variantes
+        (ISO 639-1 de 2 letras, ISO 639-2 de 3 letras y nombres) del MISMO idioma se comparen
+        como iguales: 'es', 'spa', 'esp', 'es-ES', 'castellano', 'spanish' -> 'es'.
+        Asi basta con tener UN codigo en la lista de preferidos para reconocer cualquier variante.
+    #>
+    param([string]$Code)
+    if ([string]::IsNullOrWhiteSpace($Code)) { return '' }
+    $c = ($Code.Trim().ToLower() -split '[-_]')[0]   # parte principal (antes de '-' o '_')
+    switch -Regex ($c) {
+        '^(es|spa|esp|spanish|castellano|espanol)$'  { return 'es' }
+        '^(en|eng|english)$'                         { return 'en' }
+        '^(fr|fre|fra|french|frances)$'              { return 'fr' }
+        '^(de|ger|deu|german|aleman)$'               { return 'de' }
+        '^(it|ita|italian|italiano)$'                { return 'it' }
+        '^(pt|por|portuguese|portugues)$'            { return 'pt' }
+        '^(ja|jpn|japanese|japones)$'                { return 'ja' }
+        '^(zh|chi|zho|chinese|chino)$'               { return 'zh' }
+        '^(ko|kor|korean|coreano)$'                  { return 'ko' }
+        '^(ru|rus|russian|ruso)$'                    { return 'ru' }
+        '^(ca|cat|catalan)$'                         { return 'ca' }
+        '^(gl|glg|galician|gallego)$'                { return 'gl' }
+        '^(eu|baq|eus|basque|euskera|vasco)$'        { return 'eu' }
+        default { return $c }
+    }
+}
+
+function Get-CvSafeStart {
+    <#
+        Ajusta un segundo de inicio (para scan de bordes o preview) a la duracion real del video:
+        si el inicio configurado (p. ej. border.start/preview.start = 120) cae fuera porque el
+        video es mas corto, lo lleva a ~10% de la duracion para seguir dentro del contenido
+        (dejando hueco para una ventana de $Window segundos). Duracion desconocida (<=0) = sin cambios.
+    #>
+    param([int]$Start, [double]$Duration, [int]$Window = 5)
+    if ($Duration -le 0) { return $Start }
+    if (($Start + $Window) -lt $Duration) { return $Start }
+    return [int]([Math]::Max(0, [Math]::Floor($Duration * 0.1)))
+}
+
 function Test-CvLanguage {
     <#
-        Compara un codigo de idioma con una lista de preferidos, normalizando variantes:
-        'es_es', 'es-ES', 'es' y 'spa' se consideran el mismo idioma si estan en la lista.
-        Compara tanto el codigo completo como su parte principal (antes de '-' o '_').
+        Compara un codigo de idioma con una lista de preferidos. Canonicaliza ambos lados
+        (Get-CvLangCanon), de modo que 'es_es', 'es-ES', 'es' y 'spa' se consideran el mismo
+        idioma AUNQUE la lista solo tenga uno de ellos. Tambien mantiene la comparacion por
+        codigo completo y por parte principal (antes de '-' o '_') como respaldo.
     #>
     param([string]$Lang, [string[]]$Prefs)
     if ([string]::IsNullOrWhiteSpace($Lang) -or $null -eq $Prefs) { return $false }
     $l = $Lang.Trim().ToLower()
     $primary = ($l -split '[-_]')[0]
+    $lc = Get-CvLangCanon $l
     foreach ($p in $Prefs) {
         if ($null -eq $p) { continue }
         $pp = $p.Trim().ToLower()
         $pprimary = ($pp -split '[-_]')[0]
         if ($l -eq $pp -or $primary -eq $pp -or $primary -eq $pprimary) { return $true }
+        if ($lc -ne '' -and $lc -eq (Get-CvLangCanon $pp)) { return $true }
     }
     return $false
 }

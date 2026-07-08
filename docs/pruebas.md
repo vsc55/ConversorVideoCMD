@@ -33,6 +33,7 @@ Idioma preferido por defecto = `spa`/`es`. Resultado esperado validado con `Sele
 | `audio-sin-espanol-fallback.mkv` | Audio solo en eng (default) y fra, **sin español**. | Audio → **pista `default`** (eng), por descarte. |
 | `subs-sin-espanol-descartar.mkv` | Subtítulos solo en eng y fra, **sin español**. | **Ningún** subtítulo (no hay del idioma preferido). |
 | `pistas-orden-aleatorio.mkv` | Pistas en orden **no estándar**: `sub, audio, vídeo, audio, sub`. | Se mapea por tipo/idioma correctamente: audio → **spa**, sub → **spa forzado** (`default` preservado). |
+| `pistas-video-multiple.mkv` | **2 pistas de vídeo** (640×480 y 320×240) + audio spa. | Se elige la **1ª pista de vídeo** y se codifica esa (se comprueba que el ancho de salida es 640, no 320): valida el mapeo `0:<index>` congelado en el job. |
 
 Las pistas de audio adicionales y los subtítulos de estas fixtures son **sintéticos** (audio duplicado/silencioso vía `anullsrc`, subtítulos SRT generados); solo cambian sus etiquetas de idioma/`disposition` para ejercitar la selección.
 
@@ -52,7 +53,7 @@ Usan el ffmpeg de `tools\` (o el del `PATH`) y la muestra base `test\video-1080p
 
 ## Batería de tests del pipeline (`run-tests.ps1`)
 
-Ejecuta el **pipeline real** (`Convert.ps1`, fase worker desatendida) sobre todas las fixtures con un **perfil test**, en un área de trabajo **aislada** (carpetas temporales vía la sección `paths` de `config.json`, que se restaura al terminar), y verifica cada salida con ffprobe.
+Ejecuta el **pipeline real** (`Convert.ps1`, fase worker desatendida) sobre todas las fixtures con un **perfil test**, en un **root aislado** (un directorio temporal con *junctions* a `lib\`/`tools\` del proyecto, más su propio `config.json` y copia de `Convert.ps1`), y verifica cada salida con ffprobe. No toca nada del proyecto real (ni `config.json` ni las carpetas de trabajo); las junctions se borran de forma segura (solo el enlace, nunca su destino).
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File test\run-tests.ps1                  # GPU (hevc_nvenc, por defecto)
@@ -60,7 +61,7 @@ powershell -ExecutionPolicy Bypass -File test\run-tests.ps1 -Encoder libx265 # C
 powershell -ExecutionPolicy Bypass -File test\run-tests.ps1 -Keep            # conserva el área temporal para inspeccionar
 ```
 
-Cubre **las 14 muestras** (las 7 base de entrada + las 7 fixtures multipista). No es interactivo: los `.job.json` se generan por adelantado (con la selección **real** de audio vía `Select-AudioStream` y de subtítulos vía `ConvertTo-SubSel`), de modo que `Convert.ps1` entra directo como worker y codifica sin preguntar. Por cada muestra comprueba:
+Cubre **las 15 muestras** (las 7 base de entrada + las 8 fixtures multipista). No es interactivo: los `.job.json` se generan por adelantado (con la selección **real** de audio vía `Select-AudioStream` y de subtítulos vía `ConvertTo-SubSel`), de modo que `Convert.ps1` entra directo como worker y codifica sin preguntar. Por cada muestra comprueba:
 
 - **Vídeo recodificado** al codec esperado (`hevc`/`h264` según el encoder; se omite con `copy`) — ejercita la decodificación de cada entrada (h264, HEVC, VP9, AVI, MP4, 60 fps, 4K).
 - **Resize**: la muestra 4K se escala a `1280:-1` y se verifica que el ancho de salida es 1280.

@@ -28,7 +28,7 @@ function New-CvProfile {
 }
 
 function Get-CvProfiles {
-    @{
+    [ordered]@{
         '1' = New-CvProfile -Name '1' -VideoEncoder 'copy'
         '2' = New-CvProfile -Name '2' -VideoEncoder 'hevc_nvenc' -VideoProfile 'main10' -VideoLevel '5' -Qmin 1 -Qmax 23
         '3' = New-CvProfile -Name '3' -VideoEncoder 'hevc_nvenc' -VideoProfile 'main10' -VideoLevel '5' -Qmin 1 -Qmax 23 -DetectBorder $true
@@ -37,6 +37,50 @@ function Get-CvProfiles {
         '6' = New-CvProfile -Name '6' -VideoEncoder 'hevc_nvenc' -VideoProfile 'main10' -VideoLevel '5' -Qmin 1 -Qmax 23 -ChangeSize '1920:-1'
         '7' = New-CvProfile -Name '7' -VideoEncoder 'h264_nvenc' -VideoLevel '5' -Qmin 1 -Qmax 23
     }
+}
+
+function Get-CvProfileProp($obj, [string]$key, $default) {
+    <# Valor de una propiedad del objeto de perfil de config, o $default si falta / es null. #>
+    if ($null -eq $obj) { return $default }
+    $p = $obj.PSObject.Properties[$key]
+    if ($p -and $null -ne $p.Value) { return $p.Value }
+    return $default
+}
+
+function ConvertTo-CvProfile {
+    <# Convierte un objeto de perfil de config.json (camelCase) en un perfil (New-CvProfile). #>
+    param([Parameter(Mandatory)]$Obj, [string]$Name = 'cfg')
+    New-CvProfile -Name $Name `
+        -VideoEncoder "$(Get-CvProfileProp $Obj 'videoEncoder' '')" `
+        -VideoProfile "$(Get-CvProfileProp $Obj 'videoProfile' '')" `
+        -VideoLevel   "$(Get-CvProfileProp $Obj 'videoLevel' '')" `
+        -Qmin (Get-CvProfileProp $Obj 'qmin' $null) `
+        -Qmax (Get-CvProfileProp $Obj 'qmax' $null) `
+        -Crf  (Get-CvProfileProp $Obj 'crf'  $null) `
+        -DetectBorder ([bool](Get-CvProfileProp $Obj 'detectBorder' $false)) `
+        -ChangeSize   "$(Get-CvProfileProp $Obj 'changeSize' '')" `
+        -AudioEncoder "$(Get-CvProfileProp $Obj 'audioEncoder' 'aac_coder')" `
+        -AudioBitrate "$(Get-CvProfileProp $Obj 'audioBitrate' '192k')" `
+        -AudioHz ([int](Get-CvProfileProp $Obj 'audioHz' 44100))
+}
+
+function Format-CvProfileLabel {
+    <# Etiqueta compacta de un perfil para el menu (estilo 'A: 192K, V: h265[NV]/M10/L5/...'). #>
+    param([Parameter(Mandatory)]$Prof)
+    if ($Prof.VideoEncoder -eq 'copy' -or -not $Prof.VideoEncoder) {
+        $v = 'COPY'
+    } else {
+        $parts = @($Prof.VideoEncoder.ToUpper())
+        if ($Prof.VideoProfile) { $parts += $Prof.VideoProfile }
+        if ($Prof.VideoLevel)   { $parts += ('L{0}' -f $Prof.VideoLevel) }
+        if ($null -ne $Prof.Crf)  { $parts += ('CRF{0}' -f $Prof.Crf) }
+        elseif (($null -ne $Prof.Qmin) -or ($null -ne $Prof.Qmax)) { $parts += ('Q({0}-{1})' -f $Prof.Qmin, $Prof.Qmax) }
+        if ($Prof.DetectBorder) { $parts += 'BORDE' }
+        if ($Prof.ChangeSize)   { $parts += ('RESIZE {0}' -f $Prof.ChangeSize) }
+        $v = ($parts -join '/')
+    }
+    $a = if ($Prof.AudioEncoder -eq 'copy') { 'COPY' } else { "$($Prof.AudioBitrate)" }
+    ('A: {0}, V: {1}' -f $a, $v)
 }
 
 function New-CustomProfile {
@@ -127,7 +171,7 @@ function New-CustomProfile {
             }
 
             # Resumen y confirmacion.
-            Write-ProfileInfo -Profile $p
+            Write-ProfileInfo -Prof $p
             $conf = (Read-CvLine -Prompt '[ENTER] usar esta config / [R] rehacer / [C o ESC] cancelar' -AllowCancel).Trim()
             if ($conf -match '^[Rr]$') { continue }
             return $p
@@ -140,24 +184,44 @@ function New-CustomProfile {
 }
 
 function Select-Profile {
-    <# Muestra el menu y devuelve el perfil elegido, o $null si el usuario elige salir (X). #>
+    <#
+        Muestra el menu y devuelve el perfil elegido, o $null si el usuario elige salir (X).
+        -Extra: perfiles PROPIOS de config.json (seccion 'profiles'); se ANADEN como 8, 9, ...
+        despues de los 7 de serie (no los sustituyen).
+    #>
+    param([object[]]$Extra = @())
     $profiles = Get-CvProfiles
+    # Lineas fijas de los 7 perfiles de serie.
+    $baseLines = @(
+        '1. A: 192K, V: COPY',
+        '2. A: 192K, V: h265[NV]/M10/L5/Q(1-23)',
+        '3. A: 192K, V: h265[NV]/M10/L5/Q(1-23)/DETECT BORDE',
+        '4. A: 192K, V: h265[NV]/M10/L5/Q(AUTO)',
+        '5. A: 192K, V: h265[NV]/M10/L5/Q(AUTO)/DETECT BORDE',
+        '6. A: 192K, V: h265[NV]/M10/L5/Q(1-23)/RESIZE 1080P',
+        '7. A: 192K, V: h264[NV]/L5/Q(1-23)'
+    )
+    # Anadir los perfiles de config.json como 8, 9, ... (etiqueta = 'label' o resumen generado).
+    $extraLines = @()
+    $base = $profiles.Count
+    for ($i = 0; $i -lt @($Extra).Count; $i++) {
+        $obj = @($Extra)[$i]
+        if ($null -eq $obj) { continue }
+        $key = "$($base + $i + 1)"
+        $p   = ConvertTo-CvProfile -Obj $obj -Name ('cfg{0}' -f $key)
+        $profiles[$key] = $p
+        $lbl = "$(Get-CvProfileProp $obj 'label' '')"
+        if ([string]::IsNullOrWhiteSpace($lbl)) { $lbl = Format-CvProfileLabel -Prof $p }
+        $extraLines += ('{0}. {1}' -f $key, $lbl)
+    }
+    $menuLines = @($baseLines)
+    if ($extraLines.Count) { $menuLines += @('', '-- Perfiles de config.json --') + $extraLines }
+    $menuLines += @('', '0. Custom (configuracion personalizada)', '', 'X. Salir')
+
     $show = $true
     while ($true) {
         if ($show) {
-            Show-Menu -Title 'USAR PERFIL:' -Lines @(
-                '1. A: 192K, V: COPY',
-                '2. A: 192K, V: h265[NV]/M10/L5/Q(1-23)',
-                '3. A: 192K, V: h265[NV]/M10/L5/Q(1-23)/DETECT BORDE',
-                '4. A: 192K, V: h265[NV]/M10/L5/Q(AUTO)',
-                '5. A: 192K, V: h265[NV]/M10/L5/Q(AUTO)/DETECT BORDE',
-                '6. A: 192K, V: h265[NV]/M10/L5/Q(1-23)/RESIZE 1080P',
-                '7. A: 192K, V: h264[NV]/L5/Q(1-23)',
-                '',
-                '0. Custom (configuracion personalizada)',
-                '',
-                'X. Salir'
-            )
+            Show-Menu -Title 'USAR PERFIL:' -Lines $menuLines
             $show = $false
         }
         $sel = (Read-Host '[GLOBAL] - [PROFILE] - OPCION NUMERO (X = salir)').Trim()
@@ -169,25 +233,25 @@ function Select-Profile {
             $show = $true
             continue
         }
-        if ($profiles.ContainsKey($sel)) { return $profiles[$sel] }
+        if ($profiles.Contains($sel)) { return $profiles[$sel] }
         Write-Host '   Opcion no valida.' -ForegroundColor Yellow
     }
 }
 
 function Write-ProfileInfo {
-    param([Parameter(Mandatory)]$Profile)
+    param([Parameter(Mandatory)]$Prof)
     Write-Host ''
-    Write-CvLog 'GLOBAL' ("[INFO] - [VIDEO] - ENCODER: {0}" -f $Profile.VideoEncoder.ToUpper())
-    if ($Profile.VideoEncoder -ne 'copy') {
-        if ($Profile.VideoProfile) { Write-CvLog 'GLOBAL' ("[INFO] - [VIDEO] - PROFILE: {0}" -f $Profile.VideoProfile) }
-        if ($Profile.VideoLevel)   { Write-CvLog 'GLOBAL' ("[INFO] - [VIDEO] - LEVEL:   {0}" -f $Profile.VideoLevel) }
-        if ($null -ne $Profile.Qmin) { Write-CvLog 'GLOBAL' ("[INFO] - [VIDEO] - QMIN:    {0}" -f $Profile.Qmin) }
-        if ($null -ne $Profile.Qmax) { Write-CvLog 'GLOBAL' ("[INFO] - [VIDEO] - QMAX:    {0}" -f $Profile.Qmax) }
-        if ($null -ne $Profile.Crf)  { Write-CvLog 'GLOBAL' ("[INFO] - [VIDEO] - CRF:     {0}" -f $Profile.Crf) }
-        Write-CvLog 'GLOBAL' ("[INFO] - [VIDEO] - DETECTAR BORDE: {0}" -f $Profile.DetectBorder)
-        if ($Profile.ChangeSize) { Write-CvLog 'GLOBAL' ("[INFO] - [VIDEO] - RESIZE: {0}" -f $Profile.ChangeSize) }
+    Write-CvLog 'GLOBAL' ("[INFO] - [VIDEO] - ENCODER: {0}" -f $Prof.VideoEncoder.ToUpper())
+    if ($Prof.VideoEncoder -ne 'copy') {
+        if ($Prof.VideoProfile) { Write-CvLog 'GLOBAL' ("[INFO] - [VIDEO] - PROFILE: {0}" -f $Prof.VideoProfile) }
+        if ($Prof.VideoLevel)   { Write-CvLog 'GLOBAL' ("[INFO] - [VIDEO] - LEVEL:   {0}" -f $Prof.VideoLevel) }
+        if ($null -ne $Prof.Qmin) { Write-CvLog 'GLOBAL' ("[INFO] - [VIDEO] - QMIN:    {0}" -f $Prof.Qmin) }
+        if ($null -ne $Prof.Qmax) { Write-CvLog 'GLOBAL' ("[INFO] - [VIDEO] - QMAX:    {0}" -f $Prof.Qmax) }
+        if ($null -ne $Prof.Crf)  { Write-CvLog 'GLOBAL' ("[INFO] - [VIDEO] - CRF:     {0}" -f $Prof.Crf) }
+        Write-CvLog 'GLOBAL' ("[INFO] - [VIDEO] - DETECTAR BORDE: {0}" -f $Prof.DetectBorder)
+        if ($Prof.ChangeSize) { Write-CvLog 'GLOBAL' ("[INFO] - [VIDEO] - RESIZE: {0}" -f $Prof.ChangeSize) }
     }
-    Write-CvLog 'GLOBAL' ("[INFO] - [AUDIO] - ENCODER: {0} / {1}" -f $Profile.AudioEncoder, $Profile.AudioBitrate)
+    Write-CvLog 'GLOBAL' ("[INFO] - [AUDIO] - ENCODER: {0} / {1}" -f $Prof.AudioEncoder, $Prof.AudioBitrate)
     Write-Host ''
 }
 

@@ -41,7 +41,8 @@ Cada app declara en su descriptor la plataforma del archivo descargable:
 
 ```mermaid
 flowchart TD
-    A["Install-CvTool app, version"] --> S{"¿soportado en esta plataforma?"}
+    A["Install-CvTool app, version"] --> DEP["Asegurar dependsOn (deps del catálogo)"]
+    DEP --> S{"¿soportado en esta plataforma?"}
     S -- "no" --> NS["[NO SOPORTADO] → false"]
     S -- "sí" --> D["Descargar url (TLS 1.2)"]
     D --> H{"¿SHA256 coincide?"}
@@ -57,7 +58,9 @@ flowchart TD
 
 Destino: `tools\<app>\<version>\<plataforma>` (calculado, ya no hay `dest` en el config).
 
-**Tipos de descarga** (`type`): `zip` (extrae con `Expand-Archive`), `file` (ejecutable directo, se copia), y `7z` (LZMA: lo extrae `7zr.exe`, que se asegura antes como *bootstrap*). MKVToolNix usa `7z` porque solo se distribuye así.
+**Tipos de descarga** (`type`): `zip` (extrae con `Expand-Archive`), `file` (ejecutable directo, se copia), y `7z` (LZMA: lo extrae `7zr.exe`). MKVToolNix usa `7z` porque solo se distribuye así.
+
+**Dependencias (`dependsOn`)**: un descriptor puede declarar `dependsOn: ["<app>", ...]`; `Install-CvTool` **asegura cada dependencia** (`Confirm-CvTool`, instalándola si falta) antes de descargar/extraer la app. Es genérico —no hardcodeado para el caso 7z—. Ejemplo: `mkvtoolnix` declara `dependsOn: ["sevenzip"]` porque necesita `7zr.exe` para extraer su `.7z`. Si una dependencia no se puede obtener, la instalación aborta con `[ERR]`.
 
 ### Validación de compatibilidad GPU (NVENC)
 

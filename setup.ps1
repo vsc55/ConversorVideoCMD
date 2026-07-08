@@ -15,7 +15,11 @@
 #>
 
 [CmdletBinding()]
-param()
+param(
+    # Fichero de configuracion a editar/gestionar (por defecto config.json junto al programa).
+    # Admite ruta absoluta o relativa al directorio actual.
+    [string]$Config = ''
+)
 
 $ErrorActionPreference = 'Stop'
 try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
@@ -27,11 +31,19 @@ foreach ($m in $modules) {
     Import-Module (Join-Path $Lib ("{0}.psm1" -f $m)) -Force
 }
 
-$ctx = New-CvContext -Root $Root
+# Resolver el fichero de config (-Config): relativo al directorio actual; vacio = Root\config.json.
+$CfgPath = if ([string]::IsNullOrWhiteSpace($Config)) {
+    Join-Path $Root 'config.json'
+} elseif ([System.IO.Path]::IsPathRooted($Config)) {
+    $Config
+} else {
+    Join-Path (Get-Location).Path $Config
+}
+
+$ctx = New-CvContext -Root $Root -ConfigPath $CfgPath
+Set-CvMarkStyle -Ascii $ctx.AsciiMarks   # [OK]/[ERROR] en vez de simbolos si behavior.asciiMarks
 Set-CvAppearance -Context $ctx -Title ("ConversorVideoCMD {0} - Setup" -f $ctx.Version)
 Show-CvHeader -Context $ctx -Subtitle 'Setup'
-
-$CfgPath = Join-Path $Root 'config.json'
 
 # Log de la sesion (transcript) a logs\ (behavior.log / marcador no_log).
 $logFile = Start-CvLog -Context $ctx -Prefix 'setup'
@@ -145,6 +157,14 @@ function Edit-Node {
         $key  = $keys[[array]::IndexOf($opts, $sel)]
         $val  = Get-CvNodeVal $Node $key
         $kind = Get-CvNodeKind $val
+        if ($Path -eq '' -and $key -eq 'profiles') {
+            # Perfiles propios: array de objetos; el editor de listas (escalares) los corromperia.
+            Clear-Host
+            Write-CvLog 'SETUP' 'Los perfiles propios se editan a mano en config.json (seccion "profiles").'
+            Write-CvLog 'SETUP' 'Se anaden al menu USAR PERFIL como 8, 9, ... (ver docs/comandos.md).'
+            Wait-Setup
+            continue
+        }
         if ($kind -eq 'object') {
             $sub = if ($Path) { "$Path/$key" } else { "$key" }
             Edit-Node -Node $val -Path $sub
@@ -166,9 +186,8 @@ function Edit-Config {
     # Se edita el config FUSIONADO (defaults + overrides), asi el editor muestra TODAS las
     # opciones aunque config.json sea minimo. $before es una copia sin editar para saber
     # exactamente que cambio.
-    $root   = Split-Path -Parent $CfgPath
-    $cfg    = Get-CvConfig -Root $root
-    $before = Get-CvConfig -Root $root
+    $cfg    = Get-CvConfig -Root $Root -Path $CfgPath
+    $before = Get-CvConfig -Root $Root -Path $CfgPath
     $script:dirty = $false
     Edit-Node -Node $cfg -Path ''
     if ($script:dirty) {
@@ -262,10 +281,10 @@ function Show-Dirs {
     foreach ($d in (Get-CvWorkDirs -Context $ctx)) {
         $name = Split-Path $d -Leaf
         if (Test-Path -LiteralPath $d) {
-            Write-CvLog 'SETUP' ("  {0,-12} [OK]" -f $name)
+            Write-CvLog 'SETUP' ("  {0,-12} {1}" -f $name, (Get-CvMark $true))
         } else {
             New-Item -ItemType Directory -Path $d -Force | Out-Null
-            Write-CvLog 'SETUP' ("  {0,-12} [CREADA]" -f $name)
+            Write-CvLog 'SETUP' ("  {0,-12} {1} (creada)" -f $name, (Get-CvMark $true))
         }
     }
 }
@@ -276,13 +295,15 @@ function Show-Status {
     foreach ($n in (Get-AppNames)) {
         $app = Get-App $n
         if (-not (Test-CvToolSupported -Context $ctx -Name $n)) {
-            Write-CvLog 'SETUP' ("  {0,-10} [NO SOPORTADO en {1}]    por defecto: {2}" -f $n, (Get-CvPlatform), "$($app.selected)")
+            Write-CvLog 'SETUP' ("  {0} {1,-10} [NO SOPORTADO en {2}]    por defecto: {3}" -f (Get-CvMark $false), $n, (Get-CvPlatform), "$($app.selected)")
             continue
         }
         $plat = Get-CvAppPlatform -Context $ctx -Name $n
         $inst = @(Get-CvInstalledVersions -Context $ctx -Name $n)
         $instTxt = if ($inst.Count) { ($inst -join ', ') } else { 'ninguna' }
-        Write-CvLog 'SETUP' ("  {0,-10} [{1}] instaladas: {2,-22} por defecto (config): {3}" -f $n, $plat, $instTxt, "$($app.selected)")
+        # Marca: la version 'selected' (la que usa el conversor) esta instalada?
+        $selOk = ($inst -contains "$($app.selected)")
+        Write-CvLog 'SETUP' ("  {0} {1,-10} [{2}] instaladas: {3,-22} por defecto (config): {4}" -f (Get-CvMark $selOk), $n, $plat, $instTxt, "$($app.selected)")
     }
     Write-Host ''
 }
@@ -427,7 +448,7 @@ $firstMenu = $true
 while (-not $exit) {
     if (-not $firstMenu) { Clear-Host }   # la 1a vuelta no limpia: deja ver la cabecera
     $firstMenu = $false
-    $ctx = New-CvContext -Root $Root   # recargar por si cambio config.json
+    $ctx = New-CvContext -Root $Root -ConfigPath $CfgPath   # recargar por si cambio config.json
 
     $opts    = @()
     $headers = @{}

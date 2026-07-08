@@ -15,10 +15,26 @@ Menú (`Select-Profile`):
 | **5** | 192k AAC | hevc_nvenc, main10, L5, Q auto | **sí** | no |
 | **6** | 192k AAC | hevc_nvenc, main10, L5, Q 1–23 | no | **1920:-1** |
 | **7** | 192k AAC | h264_nvenc, L5, Q 1–23 | no | no |
+| **8, 9, …** | — | **Perfiles propios de `config.json`** (si hay) | — | — |
 | **0** | — | **Custom** (interactivo) | — | — |
 
 - "Q 1–23" = `-qmin 1 -qmax 23`. "Q auto" = sin `qmin`/`qmax` (el encoder decide).
 - Todos usan encoder NVENC (GPU) salvo el 1 (copy). Para CPU (libx264/libx265), usar el custom.
+
+## Perfiles propios en `config.json`
+
+La sección `profiles` de `config.json` permite definir perfiles **adicionales** que se **añaden** a los 7 de serie (no los sustituyen), numerados a partir del **8** en el menú *USAR PERFIL*. Es un **array de objetos**; cada objeto usa los mismos campos que un perfil (en `camelCase`), todos opcionales:
+
+```json
+"profiles": [
+  { "label": "Anime 1080p", "videoEncoder": "libx265", "crf": 18, "changeSize": "1920:-1" },
+  { "videoEncoder": "hevc_nvenc", "videoProfile": "main10", "videoLevel": "5", "qmin": 1, "qmax": 20, "detectBorder": true }
+]
+```
+
+- `label` (opcional): texto que se muestra en el menú. Si se omite, se genera un resumen automático (p. ej. `A: 192k, V: HEVC_NVENC/main10/L5/Q(1-20)/BORDE`).
+- El resto de campos son los de la tabla de abajo pero en `camelCase`: `videoEncoder`, `videoProfile`, `videoLevel`, `qmin`, `qmax`, `crf`, `detectBorder`, `changeSize`, `audioEncoder`, `audioBitrate`, `audioHz`.
+- Se editan **a mano** en el JSON (el editor navegable de `setup` los muestra pero remite aquí, para no corromper el array de objetos). Se cargan al arrancar (`$ctx.Profiles`) y se pasan a `Select-Profile -Extra`.
 
 ## Campos de un perfil
 
@@ -60,7 +76,11 @@ En **cualquier** pregunta del custom se puede **cancelar** con `C` o la tecla **
 
 Aunque el perfil es común al lote, en PREPARAR se pregunta/detecta por archivo:
 
-- **Bordes** (si el perfil los activa o el nombre empieza por `_`): scan + preview del original y del recorte; opciones: usar / re-detectar (otro tramo) / valor manual / sin recorte.
+- **Pista de vídeo**: si hay **2+ pistas de vídeo reales**, menú para elegir cuál (con reproducción ffplay `P N`, opcionalmente `P N <seg>` para arrancar en otro segundo). Se **excluyen las carátulas** incrustadas (`attached_pic` / mjpeg / png…), que ffprobe lista como vídeo. El índice elegido se congela en el job (`video.index`) y se usa al codificar y al copiar/multiplexar (en vez del `0:v:0` fijo, que podía colar la portada). (`Select-VideoInteractive` en `lib\Video.psm1`.)
+- **Bordes** (si el perfil los activa o el nombre empieza por `_`): se escanea con `cropdetect` en **varios puntos** del vídeo (`border.samples`, ver [comandos.md](comandos.md)) y se agrupan los recortes por votos. Si todos coinciden → preview del original y del recorte (sobre la pista de vídeo elegida) + confirmar; si discrepan → aviso y **menú de recortes por votos** para elegir cuál probar. Opciones en la preview: usar / volver / valor manual / sin recorte.
 - **Animación** (solo `libx264`/`libx265`): añade `-tune animation`.
-- **Audio**: si hay 2+ pistas del idioma preferido, menú para elegir; detección de sincronía (silencio a añadir).
+- **Audio**:
+  - Si hay **2+ pistas del idioma preferido**, menú para elegir cuál.
+  - Si **ninguna pista** está en el idioma preferido, se muestra la lista y se puede **reproducir** cada pista con ffplay para confirmar cuál es (`P N` = vídeo+audio, `A N` = solo audio; opcionalmente un segundo de inicio, `P N <seg>`, p. ej. `A 2 300`, para buscar diálogo) antes de elegirla; tras elegirla se pregunta qué **idioma asignar** (el de la pista con `ENTER`, otro código con `O` o tecleándolo, o `und` con `U`), por si el tag de idioma es una errata. (`Select-AudioFallback` en `lib\Audio.psm1`.)
+  - Detección de **sincronía** (silencio a añadir al inicio si el audio empieza más tarde).
 - **Subtítulos**: selección por idioma (completo + forzados).

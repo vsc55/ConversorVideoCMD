@@ -119,6 +119,17 @@ try {
         '-metadata:s:s:1','language=eng','-metadata:s:s:1','title=English',
         '-f','matroska',$o)
 
+    # 2 pistas de VIDEO (640x480 + 320x240) + audio spa -> se elige la 1a pista de video
+    $o = 'test\pistas-video-multiple.mkv'
+    New-Fixture -Out $o -FfArgs @(
+        '-f','lavfi','-t','6','-i','testsrc=size=640x480:rate=30',
+        '-f','lavfi','-t','6','-i','testsrc2=size=320x240:rate=30',
+        '-f','lavfi','-t','6','-i','anullsrc=channel_layout=stereo:sample_rate=48000',
+        '-map','0:v','-map','1:v','-map','2:a','-c:v','libx264','-pix_fmt','yuv420p','-c:a','aac',
+        '-metadata:s:v:0','title=Cam A 480p','-metadata:s:v:1','title=Cam B 240p',
+        '-metadata:s:a:0','language=spa',
+        '-f','matroska',$o)
+
     Write-Host 'Fixtures regeneradas en test\' -ForegroundColor Cyan
 }
 finally {
