@@ -77,4 +77,10 @@ La documentación técnica y detallada (cómo trabaja, flujos, diagramas y **los
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=vsc55/ConversorVideoCMD&type=Date)](https://star-history.com/#vsc55/ConversorVideoCMD&Date)
+<a href="https://www.star-history.com/?repos=vsc55%2FConversorVideoCMD&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=vsc55/ConversorVideoCMD&type=date&theme=dark&legend=top-left&sealed_token=WpdtK4_SO6OePsoPnKNLg6xc4NuH0IfQ8jVDRBqkGSo3NpdbPG62kxCo_qUP6b2tk7TOZH-xXFuaiRaRcEKyUvaoJhV0wGtq3hi84j2JgX8IInscRx0DyCXB_FF3iQp4eVi5UHT6olkzY2E7fWFD-jhcGaQXFusZd-bj6M_HvIMNRU5Pq1edobZPAMFr" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=vsc55/ConversorVideoCMD&type=date&legend=top-left&sealed_token=WpdtK4_SO6OePsoPnKNLg6xc4NuH0IfQ8jVDRBqkGSo3NpdbPG62kxCo_qUP6b2tk7TOZH-xXFuaiRaRcEKyUvaoJhV0wGtq3hi84j2JgX8IInscRx0DyCXB_FF3iQp4eVi5UHT6olkzY2E7fWFD-jhcGaQXFusZd-bj6M_HvIMNRU5Pq1edobZPAMFr" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=vsc55/ConversorVideoCMD&type=date&legend=top-left&sealed_token=WpdtK4_SO6OePsoPnKNLg6xc4NuH0IfQ8jVDRBqkGSo3NpdbPG62kxCo_qUP6b2tk7TOZH-xXFuaiRaRcEKyUvaoJhV0wGtq3hi84j2JgX8IInscRx0DyCXB_FF3iQp4eVi5UHT6olkzY2E7fWFD-jhcGaQXFusZd-bj6M_HvIMNRU5Pq1edobZPAMFr" />
+ </picture>
+</a>
