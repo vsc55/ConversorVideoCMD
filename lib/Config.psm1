@@ -102,8 +102,18 @@ function Get-CvConfigDefaults {
         languages = [ordered]@{ audio = $langs; subtitle = $langs }
         # encode: outputExtension = contenedor de salida; extensions = extensiones de ENTRADA que
         # se procesan de Original\ (sin punto); audioChannels = canales del audio recodificado (2
-        # = estereo; 6 = 5.1; 8 = 7.1); threads/fps/audioHz para ffmpeg.
+        # = estereo; 6 = 5.1; 8 = 7.1); fps/audioHz para ffmpeg. threads = -threads de ffmpeg:
+        # 0 = auto (usa TODOS los nucleos de CPU); N para limitar (util con encoders CPU + varios
+        # workers, que si no se pisan). Con NVENC casi no influye (trabaja la GPU).
         encode    = [ordered]@{ outputExtension = 'mkv'; extensions = @('avi','flv','mp4','mov','mkv'); threads = 0; fps = '23.976'; audioHz = 44100; audioChannels = 2 }
+        # customProfile: valores por DEFECTO del constructor de perfil CUSTOM interactivo (opcion 0
+        #   del menu USAR PERFIL). En cada menu, ENTER acepta el valor por defecto (o eliges otro).
+        #   videoEncoder: libx264|h264_nvenc|libx265|hevc_nvenc|copy. videoProfile: main|main10|...
+        #   (segun codec). videoLevel: 4.0|4.1|5.0|... (segun codec). Se ignoran si no aplican al codec.
+        #   qmin/qmax: control de tasa por defecto en NVENC. crf: control de tasa por defecto en CPU.
+        #     Rango 0-51; -1 (o negativo) = AUTO (sin -qmin/-qmax ni -crf; decide el encoder).
+        #   audioBitrate: bitrate de audio por defecto ('copy' = copiar la pista sin recodificar).
+        customProfile = [ordered]@{ videoEncoder = 'hevc_nvenc'; videoProfile = 'main10'; videoLevel = '5.0'; qmin = 1; qmax = 23; crf = 21; audioBitrate = '192k' }
         # border: deteccion de bordes negros con cropdetect.
         #  - start: segundo del primer punto de escaneo. duration: segundos que escanea CADA punto.
         #  - samples: en cuantos puntos repartidos del video se escanea (1 = solo al inicio, clasico).

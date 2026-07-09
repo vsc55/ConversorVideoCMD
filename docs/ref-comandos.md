@@ -203,6 +203,7 @@ ffmpeg -hide_banner -y -threads <N> -i <file> -an -sn -map_chapters -1 \
 Notas:
 - `-tune animation` solo se añade si en PREPARAR se respondió que el vídeo es animación (solo se pregunta con `libx264`/`libx265`).
 - `constqp` se usa cuando `qmin == qmax`; si no, `-qmin`/`-qmax`.
+- Qué significan `crf`/`qmin`/`qmax`/`qp`, para qué sirven y cómo elegirlos (escala 0–51): [explica-control-tasa.md](explica-control-tasa.md).
 
 ---
 

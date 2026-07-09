@@ -229,7 +229,7 @@ if (-not $WorkerOnly) {
 #  FASE PREPARAR
 # ============================================================
 if ($needPrepare) {
-    $cfgProfile = Select-Profile -Extra $ctx.Profiles
+    $cfgProfile = Select-Profile -Extra $ctx.Profiles -Context $ctx
     if ($null -eq $cfgProfile) {
         # El usuario eligio salir (X): cierre limpio.
         Write-CvLog 'GLOBAL' '[SALIR] - Cancelado por el usuario.'

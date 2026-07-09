@@ -35,11 +35,11 @@ foreach ($m in @('Log','Config','Context','Console','Exec','Job','Tools','MediaI
 # --- Perfil test segun el encoder elegido ---
 function New-TestProfile([string]$enc) {
     switch ($enc) {
-        'hevc_nvenc' { New-CvProfile -Name 'test' -VideoEncoder 'hevc_nvenc' -VideoProfile 'main10' -VideoLevel '5' -Qmin 1 -Qmax 23 -AudioEncoder 'aac_coder' -AudioBitrate '128k' }
-        'h264_nvenc' { New-CvProfile -Name 'test' -VideoEncoder 'h264_nvenc' -VideoLevel '5' -Qmin 1 -Qmax 23 -AudioEncoder 'aac_coder' -AudioBitrate '128k' }
-        'libx265'    { New-CvProfile -Name 'test' -VideoEncoder 'libx265' -Crf 30 -AudioEncoder 'aac_coder' -AudioBitrate '128k' }
-        'libx264'    { New-CvProfile -Name 'test' -VideoEncoder 'libx264' -Crf 30 -AudioEncoder 'aac_coder' -AudioBitrate '128k' }
-        'copy'       { New-CvProfile -Name 'test' -VideoEncoder 'copy' -AudioEncoder 'copy' }
+        'hevc_nvenc' { New-CvProfile -VideoEncoder 'hevc_nvenc' -VideoProfile 'main10' -VideoLevel '5' -Qmin 1 -Qmax 23 -AudioEncoder 'aac_coder' -AudioBitrate '128k' }
+        'h264_nvenc' { New-CvProfile -VideoEncoder 'h264_nvenc' -VideoLevel '5' -Qmin 1 -Qmax 23 -AudioEncoder 'aac_coder' -AudioBitrate '128k' }
+        'libx265'    { New-CvProfile -VideoEncoder 'libx265' -Crf 30 -AudioEncoder 'aac_coder' -AudioBitrate '128k' }
+        'libx264'    { New-CvProfile -VideoEncoder 'libx264' -Crf 30 -AudioEncoder 'aac_coder' -AudioBitrate '128k' }
+        'copy'       { New-CvProfile -VideoEncoder 'copy' -AudioEncoder 'copy' }
     }
 }
 $expectedVCodec = @{ hevc_nvenc='hevc'; libx265='hevc'; h264_nvenc='h264'; libx264='h264'; copy=$null }[$Encoder]

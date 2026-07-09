@@ -47,7 +47,7 @@ La sección `profiles` de `config.json` permite definir perfiles **adicionales**
 ]
 ```
 
-- `label` (opcional): texto que se muestra en el menú. Si se omite, se genera un resumen automático (p. ej. `A: 192k, V: HEVC_NVENC/main10/L5/Q(1-20)/BORDE`).
+- `label` (opcional): texto que se muestra en el menú. Si se omite, se genera un resumen automático a partir de sus valores (p. ej. `A: 192K, V: h265[NV]/M10/L5/Q(1-20)/DETECT BORDE`). Es la **misma** función (`Format-CvProfileLabel`) que genera las etiquetas de los 7 perfiles de serie en el menú, así que no hay una lista de texto duplicada que mantener.
 - El resto de campos son los de la tabla de abajo pero en `camelCase`: `videoEncoder`, `videoProfile`, `videoLevel`, `qmin`, `qmax`, `crf`, `detectBorder`, `changeSize`, `audioEncoder`, `audioBitrate`, `audioHz`.
 - Se editan **a mano** en el JSON (el editor navegable de `setup` los muestra pero remite aquí, para no corromper el array de objetos). Se cargan al arrancar (`$ctx.Profiles`) y se pasan a `Select-Profile -Extra`.
 
@@ -60,8 +60,8 @@ La sección `profiles` de `config.json` permite definir perfiles **adicionales**
 | `VideoEncoder` | `copy` / `hevc_nvenc` / `libx265` / `h264_nvenc` / `libx264` | Codec de vídeo. |
 | `VideoProfile` | `main10` / `main` / `''` | `-profile:v`. `main10` → `-pix_fmt p010le`. |
 | `VideoLevel` | ej. `5`, `4.1`, `''` | `-level:v`. |
-| `Qmin`, `Qmax` | 0–51 / `null` | NVENC: `-qmin`/`-qmax`. Si `Qmin == Qmax` → `-rc constqp -qp`. |
-| `Crf` | 0–51 / `null` | CPU (libx264/libx265): `-crf`. |
+| `Qmin`, `Qmax` | 0–51 / `null` | NVENC: `-qmin`/`-qmax`. Si `Qmin == Qmax` → `-rc constqp -qp`. Qué son y cómo elegirlos: [explica-control-tasa.md](explica-control-tasa.md). |
+| `Crf` | 0–51 / `null` | CPU (libx264/libx265): `-crf`. Qué es y cómo elegirlo: [explica-control-tasa.md](explica-control-tasa.md). |
 | `DetectBorder` | `true`/`false` | Activa la detección de bordes por archivo. |
 | `ChangeSize` | ej. `1920:-1`, `''` | `scale=` (altura `-1` = automático manteniendo aspecto). |
 | `AudioEncoder` | `aac_coder` / `copy` | Recodifica a AAC o copia la pista. |
@@ -84,6 +84,8 @@ Construcción interactiva:
    - **Control de tasa**: CRF (CPU) o QMIN/QMAX (NVENC).
 3. **Bitrate de audio**: copy / 128k / 160k / 192k / 256k / 320k / custom.
 4. **Resumen** + confirmación: `[ENTER]` usar / `[R]` rehacer.
+
+En cada uno de esos menús, **`[ENTER]` acepta el valor por defecto** (marcado con `<= por defecto` / mostrado entre corchetes en el prompt), o se teclea otra opción. Los valores por defecto son **configurables** en la sección [`customProfile`](ref-configuracion.md) de `config.json` (encoder, perfil, level, qmin/qmax, crf y bitrate de audio); de fábrica: `hevc_nvenc` / `main10` / `5.0` / `1`–`23` / `192k`.
 
 En **cualquier** pregunta del custom se puede **cancelar** con `C` o la tecla **`ESC`**: se limpia la pantalla y se vuelve al menú de perfiles (útil si te equivocaste en algún paso).
 

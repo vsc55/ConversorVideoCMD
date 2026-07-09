@@ -14,6 +14,7 @@ Documentación técnica y detallada del conversor. Para la visión general y la 
 | [ref-herramientas.md](ref-herramientas.md) | Sistema de herramientas versionadas (`tools\<app>\<version>\<plataforma>`), descargas, plataforma y `setup.ps1`. |
 | [ref-jobs.md](ref-jobs.md) | Formato del `.job.json`, el lock atómico y los ficheros temporales. |
 | [ref-pruebas.md](ref-pruebas.md) | Muestras de test (`test\`): qué prueba cada una, resultado esperado, cómo regenerarlas y las fuentes/licencias. |
+| [explica-control-tasa.md](explica-control-tasa.md) | Qué son **CRF**, **QMIN/QMAX** y **QP**, para qué sirven, cómo se traducen a ffmpeg y cómo elegir valores (escala 0–51). |
 | [explica-deteccion-bordes.md](explica-deteccion-bordes.md) | Detección de bordes negros: escaneo `cropdetect` multipunto, reparto por el vídeo, y la auto-aceptación por votos (% + margen) con matriz de decisión. |
 | [caso-rendimiento-subtitulos.md](caso-rendimiento-subtitulos.md) | Nota técnica: diagnóstico de la lentitud de PREPARAR con subtítulos (conteo de cues vía tag `NUMBER_OF_FRAMES` en vez de demultiplexar), cómo se localizó y la mejora medida. |
 

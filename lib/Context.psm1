@@ -5,7 +5,7 @@
 
 function Get-CvVersion {
     <# Version del proyecto (fuente unica; la usan Convert.ps1 y setup.ps1). #>
-    '4.2.2'
+    '4.2.3'
 }
 
 function Get-CvWorkDirs {
@@ -132,6 +132,16 @@ function New-CvContext {
         AudioChannels  = $(if ([int]$cfg.encode.audioChannels -ge 1) { [int]$cfg.encode.audioChannels } else { 2 })
         # Perfiles de codificacion propios (config 'profiles'); se anaden a los de serie.
         Profiles       = @($cfg.profiles)
+        # Valores por defecto del constructor de perfil CUSTOM interactivo (config 'customProfile').
+        CustomVideoEncoder = "$($cfg.customProfile.videoEncoder)"
+        CustomVideoProfile = "$($cfg.customProfile.videoProfile)"
+        CustomVideoLevel   = "$($cfg.customProfile.videoLevel)"
+        # Defaults del control de tasa: NEGATIVO (p. ej. -1) => $null = "auto" (sin -qmin/-qmax ni
+        # -crf; decide el encoder); el resto se acota a 0-51 (escala QP de H.264/HEVC y CRF x264/x265).
+        CustomQmin         = $(if ([int]$cfg.customProfile.qmin -lt 0) { $null } else { [Math]::Min(51, [int]$cfg.customProfile.qmin) })
+        CustomQmax         = $(if ([int]$cfg.customProfile.qmax -lt 0) { $null } else { [Math]::Min(51, [int]$cfg.customProfile.qmax) })
+        CustomCrf          = $(if ([int]$cfg.customProfile.crf  -lt 0) { $null } else { [Math]::Min(51, [int]$cfg.customProfile.crf) })
+        CustomAudioBitrate = "$($cfg.customProfile.audioBitrate)"
     }
 
     # Rutas de las herramientas para la version 'selected' (fuente unica en New-CvToolContext).

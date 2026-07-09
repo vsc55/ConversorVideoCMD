@@ -33,7 +33,8 @@ Esquema completo (tras la fusión con los defaults):
   "downloads":   { "ffmpeg": {...}, "aacgain": {...}, "sevenzip": {...}, "mkvtoolnix": {...} },
   "languages":   { "audio": [...], "subtitle": [...] },
   "encode":      { "outputExtension": "mkv", "extensions": ["avi","flv","mp4","mov","mkv"], "threads": 0, "fps": "23.976", "audioHz": 44100, "audioChannels": 2 },
-  "border":      { "start": 120, "duration": 120 },
+  "customProfile": { "videoEncoder": "hevc_nvenc", "videoProfile": "main10", "videoLevel": "5.0", "qmin": 1, "qmax": 23, "crf": 21, "audioBitrate": "192k" },
+  "border":      { "start": 120, "duration": 120, "samples": 9, "autoAcceptPct": 60, "autoAcceptMinMargin": 2 },
   "preview":     { "start": 120, "seconds": 30 },
   "volume":      { "method": "peak", "peakTarget": 0, "loudnorm": { "I": -16, "TP": -1.5, "LRA": 11 } },
   "postprocess": { "stripTags": true, "mkvpropedit": "", "attachments": { "keep": false, "fonts": true, "covers": false, "other": false } },
@@ -75,10 +76,31 @@ Se **canonicalizan** las variantes (`Get-CvLangCanon`): `es`, `es-ES`, `es_es`, 
 |---|---|---|
 | `outputExtension` | `"mkv"` | Extensión del contenedor de salida. |
 | `extensions` | `["avi","flv","mp4","mov","mkv"]` | Extensiones de **entrada** que se procesan de `Original\` (sin punto; se tolera `.ext`/`*.ext`). Añade aquí `ts`, `webm`, `m4v`… si las necesitas. |
-| `threads` | `0` | `-threads` (0 = auto). |
+| `threads` | `0` | `-threads` de ffmpeg. **`0` = auto**: el encoder decide y, en la práctica, usa **todos los núcleos** de CPU. Pon un número `N` para limitarlo a N hilos. |
 | `fps` | `"23.976"` | `-r` en la codificación de vídeo. |
 | `audioHz` | `44100` | Samplerate de audio por defecto. |
 | `audioChannels` | `2` | Canales del audio **recodificado** a AAC (`-ac`): `2` = estéreo, `6` = 5.1, `8` = 7.1. (No afecta a `audioEncoder: copy`, que conserva la pista original.) |
+
+Sobre `threads` (uso de CPU):
+
+- Por defecto (`0` = auto) **no hay límite**: ffmpeg reparte el trabajo entre todos los núcleos disponibles. Aplica a la codificación de vídeo, la de audio y el multiplexado.
+- Con **NVENC** (`hevc_nvenc`/`h264_nvenc`) el peso está en la **GPU**; `threads` apenas influye (la CPU solo alimenta al encoder). Dejarlo en `0` es lo normal.
+- Con encoders de **CPU** (`libx264`/`libx265`), `0` aprovecha toda la CPU. **Ojo si usas varios workers** (`behavior.workers` > 1): se lanzan varias codificaciones en paralelo y todas intentan usar todos los núcleos a la vez (se pisan, *oversubscription*, sin ganar velocidad). En ese caso, o baja `behavior.workers`, o limita `threads` (p. ej. ≈ núcleos ÷ workers). Con NVENC el límite real es el nº de sesiones simultáneas de la GPU, no la CPU.
+
+## `customProfile`
+
+Valores **por defecto** del constructor de perfil **custom** interactivo (opción `0` del menú *USAR PERFIL*). En cada menú, **ENTER acepta el valor por defecto** (o eliges otro). Cada opción se ignora si no aplica al codec elegido (p. ej. `videoProfile: main10` no existe para H.264, así que ahí el default cae a "ninguno").
+
+| Clave | Ejemplo | Uso |
+|---|---|---|
+| `videoEncoder` | `"hevc_nvenc"` | Encoder preseleccionado: `libx264` / `h264_nvenc` / `libx265` / `hevc_nvenc` / `copy`. |
+| `videoProfile` | `"main10"` | Perfil de codec por defecto (`main`/`main10` en H.265; `baseline`/`main`/`high`/`high10` en H.264). |
+| `videoLevel` | `"5.0"` | Level por defecto (`4.0`, `4.1`, `5.0`, … según codec). |
+| `qmin` / `qmax` | `1` / `23` | Control de tasa por defecto en NVENC (GPU). Acotados a 0–51; **`-1` (o negativo) = auto** (sin `-qmin`/`-qmax`, decide el encoder). |
+| `crf` | `21` | Control de tasa por defecto en CPU (libx264/libx265). Acotado a 0–51; **`-1` = auto** (sin `-crf`, usa el CRF por defecto del encoder). |
+| `audioBitrate` | `"192k"` | Bitrate de audio por defecto (`"copy"` = copiar la pista sin recodificar). |
+
+Qué son CRF/QMIN/QMAX/QP, para qué sirven y cómo elegir valores: [explica-control-tasa.md](explica-control-tasa.md).
 
 ## `border`
 

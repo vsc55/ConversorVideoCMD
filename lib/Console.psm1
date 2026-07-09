@@ -184,17 +184,27 @@ function Read-IntOrDefault {
 
 
 function Read-QOrNull {
-    <# Lee un cuantizador (0-51). Vacio o negativo => $null (desactivado). Con -AllowCancel, 'C' lanza CV_CANCEL. #>
-    param([string]$Prompt, [object]$Default, [switch]$AllowCancel)
+    <#
+        Lee un cuantizador/CRF. Vacio => valor por defecto; negativo => $null (desactivado/auto).
+        -Max (>0): valor maximo aceptado; por encima se re-pregunta (p. ej. 51 para el QP de
+        H.264/HEVC y el CRF de x264/x265). Con -AllowCancel, 'C'/ESC lanza CV_CANCEL.
+    #>
+    param([string]$Prompt, [object]$Default, [int]$Max = 0, [switch]$AllowCancel)
     $dtxt = if ($null -eq $Default) { '-' } else { "$Default" }
     $hint = if ($AllowCancel) { '-1 = desactivar, C/ESC = cancelar' } else { '-1 = desactivar' }
     $pr   = "{0} [{1}] ({2})" -f $Prompt, $dtxt, $hint
-    $v = (& { if ($AllowCancel) { Read-CvLine -Prompt $pr -AllowCancel } else { Read-Host $pr } }).Trim()
-    if ($AllowCancel -and $v -match '^[Cc]$') { throw 'CV_CANCEL' }
-    if ($v -eq '') { return $Default }
-    $n = 0
-    if ([int]::TryParse($v, [ref]$n)) { if ($n -lt 0) { return $null } return $n }
-    return $Default
+    while ($true) {
+        $v = (& { if ($AllowCancel) { Read-CvLine -Prompt $pr -AllowCancel } else { Read-Host $pr } }).Trim()
+        if ($AllowCancel -and $v -match '^[Cc]$') { throw 'CV_CANCEL' }
+        if ($v -eq '') { return $Default }
+        $n = 0
+        if ([int]::TryParse($v, [ref]$n)) {
+            if ($n -lt 0) { return $null }                                    # negativo = desactivar/auto
+            if ($Max -gt 0 -and $n -gt $Max) { Write-Host ("   Fuera de rango (0-{0})." -f $Max) -ForegroundColor Yellow; continue }
+            return $n
+        }
+        Write-Host '   Valor no valido (numero entero).' -ForegroundColor Yellow
+    }
 }
 
 
@@ -331,16 +341,18 @@ function Select-FromList {
         [hashtable]$Headers = $null,
         [switch]$AllowCancel
     )
+    $mark = '  <= por defecto'
     $lines = @()
     for ($i = 0; $i -lt $Options.Count; $i++) {
         if ($Headers -and $Headers.Contains($i)) {
             if ($i -gt 0) { $lines += '' }                 # separacion antes del bloque
             $lines += ("-- {0} --" -f $Headers[$i])
         }
-        $lines += ("{0}. {1}" -f ($i + 1), $Options[$i])
+        $def = if (($i + 1) -eq $DefaultIndex) { $mark } else { '' }
+        $lines += ("{0}. {1}{2}" -f ($i + 1), $Options[$i], $def)
     }
     $lines += ''
-    $lines += ("0. {0}" -f $NoneLabel)
+    $lines += ("0. {0}{1}" -f $NoneLabel, $(if ($DefaultIndex -eq 0) { $mark } else { '' }))
     if ($AllowCancel) { $lines += 'C / ESC. Cancelar' }
     Show-Menu -Title $Title -Lines $lines
     while ($true) {
