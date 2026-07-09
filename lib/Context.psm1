@@ -5,7 +5,7 @@
 
 function Get-CvVersion {
     <# Version del proyecto (fuente unica; la usan Convert.ps1 y setup.ps1). #>
-    '4.2.1'
+    '4.2.2'
 }
 
 function Get-CvWorkDirs {
@@ -77,6 +77,10 @@ function New-CvContext {
         BorderDur      = [int]$cfg.border.duration
         # Nº de puntos del video donde se escanean bordes (1 = solo al inicio, clasico).
         BorderSamples  = [int]$cfg.border.samples
+        # % de votos que debe alcanzar el recorte mas votado para aceptarse sin preguntar (0-100).
+        BorderAutoAcceptPct = [Math]::Min(100, [Math]::Max(0, [int]$cfg.border.autoAcceptPct))
+        # Margen minimo de votos del mas votado sobre el 2o para auto-aceptar (ademas del %).
+        BorderAutoAcceptMargin = [Math]::Max(0, [int]$cfg.border.autoAcceptMinMargin)
         # Previsualizacion ffplay (inicio y duracion de la muestra en PREPARAR).
         PreviewStart   = [int]$cfg.preview.start
         PreviewSeconds = [int]$cfg.preview.seconds
@@ -95,6 +99,12 @@ function New-CvContext {
         Retries        = [int]$cfg.behavior.retries
         # Marcas/avisos en ASCII puro ([OK]/[ERROR]) en vez de simbolos/badge (consolas sin glifos).
         AsciiMarks     = [bool]$cfg.behavior.asciiMarks
+        # Modo pruebas: limite de codificacion por archivo en SEGUNDOS (0 = off = archivo completo).
+        # Se activa por config (test.enabled) o con el marcador 'test_on'; los minutos salen de
+        # test.minutes (>=1). Lo consumen Invoke-VideoRun/Invoke-AudioRun/Invoke-Multiplex (-t).
+        TestLimit      = $(if (([bool]$cfg.test.enabled) -or (Test-Path (Join-Path $Root 'test_on'))) {
+                              [int]([Math]::Max(1, [int]$cfg.test.minutes) * 60)
+                          } else { 0 })
         # log: transcript de la ejecucion a logs\; el marcador 'no_log' lo desactiva.
         Log            = ([bool]$cfg.behavior.log -and -not (Test-Path (Join-Path $Root 'no_log')))
         # Postproceso: limpiar las etiquetas DURATION del MKV con mkvpropedit.

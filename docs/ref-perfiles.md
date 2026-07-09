@@ -68,7 +68,7 @@ La sección `profiles` de `config.json` permite definir perfiles **adicionales**
 | `AudioBitrate` | ej. `192k` | `-b:a`. |
 | `AudioHz` | ej. `44100` | `-ar`. |
 
-Cómo se traducen estos campos a argumentos de ffmpeg: ver "Vídeo: codificación" en [comandos.md](comandos.md).
+Cómo se traducen estos campos a argumentos de ffmpeg: ver "Vídeo: codificación" en [ref-comandos.md](ref-comandos.md).
 
 En el menú de perfiles, la opción **`X. Salir`** cierra el conversor de forma limpia.
 
@@ -92,10 +92,14 @@ En **cualquier** pregunta del custom se puede **cancelar** con `C` o la tecla **
 Aunque el perfil es común al lote, en PREPARAR se pregunta/detecta por archivo:
 
 - **Pista de vídeo**: si hay **2+ pistas de vídeo reales**, menú para elegir cuál (con reproducción ffplay `P N`, opcionalmente `P N <seg>` para arrancar en otro segundo). Se **excluyen las carátulas** incrustadas (`attached_pic` / mjpeg / png…), que ffprobe lista como vídeo. El índice elegido se congela en el job (`video.index`) y se usa al codificar y al copiar/multiplexar (en vez del `0:v:0` fijo, que podía colar la portada). (`Select-VideoInteractive` en `lib\Video.psm1`.)
-- **Bordes** (si el perfil los activa o el nombre empieza por `_`): se escanea con `cropdetect` en **varios puntos** del vídeo (`border.samples`, ver [comandos.md](comandos.md)) y se agrupan los recortes por votos. Si todos coinciden → preview del original y del recorte (sobre la pista de vídeo elegida) + confirmar; si discrepan → aviso y **menú de recortes por votos** para elegir cuál probar. Opciones en la preview: usar / volver / valor manual / sin recorte.
+- **Bordes** (si el perfil los activa o el nombre empieza por `_`): se escanea con `cropdetect` en **varios puntos** del vídeo (`border.samples`) y se agrupan los recortes por votos. Si el más votado tiene mayoría fiable (% + margen) → se acepta solo, con preview del original y del recorte (sobre la pista de vídeo elegida) + confirmar; si no → aviso y **menú de recortes por votos** para elegir cuál probar. Opciones en la preview: usar / volver / valor manual / sin recorte. Detalle completo (reparto, votos, auto-aceptación y matriz de decisión) en [explica-deteccion-bordes.md](explica-deteccion-bordes.md).
 - **Animación** (solo `libx264`/`libx265`): añade `-tune animation`.
 - **Audio**:
   - Si hay **2+ pistas del idioma preferido**, menú para elegir cuál — también con **reproducción** (`P N` = vídeo+audio, `A N` = solo audio, `P N <seg>` para otro segundo) para distinguirlas.
   - Si **ninguna pista** está en el idioma preferido, se muestra la lista y se puede **reproducir** cada pista con ffplay para confirmar cuál es (`P N` = vídeo+audio, `A N` = solo audio; opcionalmente un segundo de inicio, `P N <seg>`, p. ej. `A 2 300`, para buscar diálogo) antes de elegirla; tras elegirla se pregunta qué **idioma asignar** (el de la pista con `ENTER`, otro código con `O` o tecleándolo, o `und` con `U`), por si el tag de idioma es una errata. (`Select-AudioFallback` en `lib\Audio.psm1`.)
   - Detección de **sincronía** (silencio a añadir al inicio si el audio empieza más tarde).
-- **Subtítulos**: selección por idioma (completo + forzados). Con **2+ completos** del idioma preferido, menú para elegir el principal — con **reproducción** del vídeo con cada subtítulo superpuesto (`P N`, `P N <seg>`) para distinguirlos (p. ej. normal vs SDH). (`Select-SubtitleInteractive`/`Show-SubtitlePreview`, vía ffplay `-sst s:N`.)
+- **Subtítulos**: en el idioma preferido se **conservan todos** (nada de menú ni descartes), auto-clasificados en **forzado** y **completo**:
+  - Se distinguen por flag/título; si no lo traen y hay 2+, por **tamaño** (nº de cues): el más pequeño = forzado. El nº de cues se lee del tag `NUMBER_OF_FRAMES` de mkvmerge (instantáneo, ya cargado con la info del archivo) y solo si falta se cuenta con `ffprobe -count_packets` (que demultiplexa el fichero, lento en MKVs grandes). Por qué y cómo se optimizó: ver [caso-rendimiento-subtitulos.md](caso-rendimiento-subtitulos.md).
+  - **Forzado** → disposition `default+forced`, título "Forzados". **Completo** → sin default, sin forced, sin título (también el completo suelto).
+  - Orden en el MKV: forzados antes que completos. Con 2+ completos, se conservan todos con un aviso.
+  - Si hay subtítulos pero **ninguno del idioma preferido**, se **pregunta** cuáles conservar (menú multi-selección con nº de cues; `Select-SubtitlesKeep`). Opciones del menú: `P N` reproduce el vídeo con ese subtítulo superpuesto (ffplay `-sst`, `Show-SubtitlePreview`); **`V N` ve el contenido** (extrae la pista de texto a un `.srt` temporal y lo abre con el editor asociado de Windows; `Show-SubtitleContent`).

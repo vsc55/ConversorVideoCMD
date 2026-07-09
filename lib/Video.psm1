@@ -31,8 +31,8 @@ function Find-CropDetect {
 function Find-CropDetectSamples {
     <#
         Escanea bordes en VARIOS puntos repartidos del video y agrupa los recortes por "votos".
-        Reparte el presupuesto total ($Duration) entre los $Samples puntos (para no tardar mas
-        que un escaneo unico), desde $Start hasta cerca del final. Devuelve:
+        Cada punto escanea $Duration segundos (NO se reparte: N puntos = N escaneos de $Duration),
+        desde $Start hasta cerca del final. Devuelve:
           @{ Groups = @( @{Crop; Count} ordenados por votos desc ); Samples }
         Con 1 punto o duracion desconocida, cae al escaneo unico clasico.
     #>
@@ -53,7 +53,7 @@ function Find-CropDetectSamples {
         return [pscustomobject]@{ Groups = $g; Samples = 1 }
     }
 
-    $win = [Math]::Max(5, [int]($Duration / $Samples))          # ventana por punto (~total/N)
+    $win = [Math]::Max(5, [int]$Duration)                       # cada punto escanea $Duration (no se reparte)
     $lastStart = [Math]::Max($Start, [int]($VideoDuration - $win - 1))
     $crops = @()
     for ($i = 0; $i -lt $Samples; $i++) {
@@ -213,19 +213,35 @@ function Invoke-VideoAsk {
                 $res.Crop = ''; $done = $true; continue
             }
 
-            if ($groups.Count -eq 1) {
-                $extra = if ($groups[0].Count -gt 1) { " (coincide en $($groups[0].Count) puntos)" } else { '' }
-                Write-CvLog 'VIDEO' ("[BORDE] - Recorte detectado: {0}{1}" -f $groups[0].Crop, $extra) -Indent 3
+            # ¿Hay ganador claro por votos? Los grupos vienen ordenados por votos desc. El mas
+            # votado se acepta AUTOMATICAMENTE si (a) alcanza el % 'border.autoAcceptPct' de los
+            # puntos que detectaron borde Y (b) supera al 2o por al menos 'autoAcceptMinMargin'
+            # votos. El % descarta atipicos (escena oscura, creditos con otro encuadre); el margen
+            # evita auto-aceptar con evidencia debil cuando hay pocas muestras (2/3=67% pero 1 de
+            # margen -> pregunta). Si no se cumplen ambas, se muestra el menu para elegir a mano.
+            $tot    = ($groups | Measure-Object -Property Count -Sum).Sum
+            $topPct = if ($tot -gt 0) { [int][math]::Round(100 * $groups[0].Count / $tot) } else { 0 }
+            $margin = $groups[0].Count - $(if ($groups.Count -ge 2) { $groups[1].Count } else { 0 })
+            $autoWin = ($groups.Count -eq 1) -or (($topPct -ge $Context.BorderAutoAcceptPct) -and ($margin -ge $Context.BorderAutoAcceptMargin))
+
+            if ($autoWin) {
+                if ($groups.Count -eq 1) {
+                    $extra = if ($groups[0].Count -gt 1) { " (coincide en $($groups[0].Count) puntos)" } else { '' }
+                    Write-CvLog 'VIDEO' ("[BORDE] - Recorte detectado: {0}{1}" -f $groups[0].Crop, $extra) -Indent 3
+                } else {
+                    $disc = (@($groups | Select-Object -Skip 1 | ForEach-Object { "{0} ({1})" -f $_.Crop, $_.Count }) -join ', ')
+                    Write-CvLog 'VIDEO' ("[BORDE] - Recorte por mayoria: {0} ({1}/{2} puntos, {3}%, +{4}); descartado(s): {5}" -f $groups[0].Crop, $groups[0].Count, $tot, $topPct, $margin, $disc) -Indent 3
+                }
             } else {
                 $lst = ($groups | ForEach-Object { "{0} ({1})" -f $_.Crop, $_.Count }) -join ' / '
-                Write-CvLog 'VIDEO' ("[AVISO] - Los bordes difieren entre puntos del video: {0}" -f $lst) -Indent 3
+                Write-CvLog 'VIDEO' ("[AVISO] - Bordes sin mayoria fiable ({0}%/margen +{1}; min {2}%/+{3}): {4}" -f $topPct, $margin, $Context.BorderAutoAcceptPct, $Context.BorderAutoAcceptMargin, $lst) -Indent 3
             }
 
             # Seleccion/preview sobre los recortes YA detectados (no re-escanea salvo re-detectar).
             $reScan = $false
             while (-not $done -and -not $reScan) {
                 $crop = $null
-                if ($groups.Count -eq 1) {
+                if ($autoWin) {
                     $crop = $groups[0].Crop
                 } else {
                     $lines = @()
@@ -259,7 +275,7 @@ function Invoke-VideoAsk {
                 # Preview del candidato (original + recorte) y confirmacion.
                 Show-Preview -Context $Context -File $Info.format.filename -VideoPos $vpos -Duration $vdur
                 Show-Preview -Context $Context -File $Info.format.filename -Crop $crop -VideoPos $vpos -Duration $vdur
-                $volver = if ($groups.Count -eq 1) { 'volver a detectar' } else { 'volver al menu' }
+                $volver = if ($autoWin) { 'volver a detectar' } else { 'volver al menu' }
                 $a = (Read-Host ("   [VIDEO] [BORDE] - [ENTER/S] usar / [N] {0} / [M] manual / [0] sin recorte" -f $volver)).Trim()
                 if ($a -eq '' -or $a -match '^[SsYy]$') { $res.Crop = $crop; $done = $true }
                 elseif ($a -match '^0$') { $res.Crop = ''; $done = $true }
@@ -272,8 +288,8 @@ function Invoke-VideoAsk {
                     $res.Crop = $manual; $done = $true
                 }
                 else {
-                    # [N]: con un solo recorte, re-escanear (otro tramo); con varios, volver al menu.
-                    if ($groups.Count -eq 1) {
+                    # [N]: si hubo auto-aceptacion, re-escanear (otro tramo); con menu, volver al menu.
+                    if ($autoWin) {
                         $start = Read-IntOrDefault '   Segundo de inicio del scan' $start
                         $dur   = Read-IntOrDefault '   Duracion total del scan (seg)' $dur
                         $reScan = $true
@@ -385,6 +401,8 @@ function Invoke-VideoRun {
     # congelado en el job, la deteccion y la codificacion usan SIEMPRE la misma pista. Sin -Index
     # (jobs antiguos) se cae a '0:v:0' como antes.
     $vmap = if ($Index -ge 0) { "0:$Index" } else { '0:v:0' }
+    # Modo pruebas: limitar la salida a los primeros TestLimit segundos (-t como opcion de salida).
+    if ($Context.TestLimit -gt 0) { $ffArgs += @('-t',"$($Context.TestLimit)") }
     $ffArgs += @('-map',$vmap,'-f','matroska',$outTmp)
 
     Start-CvStep $Context 'VIDEO' 'Procesando Video...'

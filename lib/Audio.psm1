@@ -261,7 +261,10 @@ function Invoke-AudioRun {
         if (Test-Path -LiteralPath $wav) { Remove-Item -Force -LiteralPath $wav -ErrorAction SilentlyContinue }
         $fc = ("[0:{0}]aformat=channel_layouts={3}[a2];aevalsrc=0:d={1}:sample_rate={2}:channel_layout={3}[sil];[sil][a2]concat=n=2:v=0:a=1[out]" -f $Index, $Sync, $hz, $layout)
         Start-CvStep $Context 'AUDIO' ("Generando silencio de {0}s + pista..." -f $Sync)
-        Invoke-ToolShow -Exe $Context.FFmpeg -Arguments @('-hide_banner','-y','-i',$File,'-filter_complex',$fc,'-map','[out]',$wav) -Context $Context | Out-Null
+        $wavArgs = @('-hide_banner','-y','-i',$File,'-filter_complex',$fc,'-map','[out]')
+        if ($Context.TestLimit -gt 0) { $wavArgs += @('-t',"$($Context.TestLimit)") }  # modo pruebas
+        $wavArgs += $wav
+        Invoke-ToolShow -Exe $Context.FFmpeg -Arguments $wavArgs -Context $Context | Out-Null
         $syncOk = (Test-Path -LiteralPath $wav)
         Stop-CvStep $Context 'AUDIO' $syncOk -FailMsg '[ERR] - No se pudo generar el audio sincronizado'
         if (-not $syncOk) { return $false }
@@ -287,7 +290,11 @@ function Invoke-AudioRun {
         # (0 dBFS por defecto; -1 deja margen contra el clipping inter-sample del AAC).
         # Solo se AMPLIFICA (gain > 0): si el pico ya supera el objetivo no se atenua.
         $target = [double]$Context.PeakTarget
-        $peak = Get-MaxVolume -Context $Context -InputArgs ($sourceInput + $mapPre)
+        # En modo pruebas medimos solo el tramo que se codifica (-t), asi el pico corresponde
+        # al clip real y la medicion es rapida (el wav sincronizado ya viene acotado).
+        $measureArgs = $sourceInput + $mapPre
+        if ($Context.TestLimit -gt 0 -and $Sync -le 0) { $measureArgs += @('-t',"$($Context.TestLimit)") }
+        $peak = Get-MaxVolume -Context $Context -InputArgs $measureArgs
         $gain = 0.0
         if ($null -ne $peak -and $peak -lt $target) { $gain = [math]::Round($target - $peak, 1) }
         if ($gain -gt 0) {
@@ -316,6 +323,8 @@ function Invoke-AudioRun {
 
     $ffArgs += @('-c:a','aac','-aac_coder','twoloop','-ac',"$ch",'-ar',"$hz")
     if ($Prof.AudioBitrate) { $ffArgs += @('-b:a',"$($Prof.AudioBitrate)") }
+    # Modo pruebas: acotar la salida a los primeros TestLimit segundos (si venimos de wav ya lo esta).
+    if ($Context.TestLimit -gt 0 -and $Sync -le 0) { $ffArgs += @('-t',"$($Context.TestLimit)") }
     $ffArgs += $outM4a
 
     Start-CvStep $Context 'AUDIO' 'Recodificando audio...'

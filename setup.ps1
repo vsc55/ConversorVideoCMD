@@ -155,7 +155,7 @@ function Edit-Node {
             # Perfiles propios: array de objetos; el editor de listas (escalares) los corromperia.
             Clear-Host
             Write-CvLog 'SETUP' 'Los perfiles propios se editan a mano en config.json (seccion "profiles").'
-            Write-CvLog 'SETUP' 'Se anaden al menu USAR PERFIL como 8, 9, ... (ver docs/comandos.md).'
+            Write-CvLog 'SETUP' 'Se anaden al menu USAR PERFIL como 8, 9, ... (ver docs/ref-comandos.md).'
             Wait-Setup
             continue
         }

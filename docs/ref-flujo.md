@@ -53,7 +53,7 @@ flowchart TD
 `Get-SourceFiles` construye la lista de candidatos. El **único** filtro de entrada es **carpeta + extensión**:
 
 - **Carpeta**: solo `Original\` (`$ctx.Original`; configurable en `paths.original`, por defecto `<programa>\Original`). **No es recursivo** — solo el nivel superior de esa carpeta, no subcarpetas.
-- **Extensión**: los ficheros cuya extensión esté en `encode.extensions` (por defecto `avi`, `flv`, `mp4`, `mov`, `mkv`; ver [configuracion.md](configuracion.md)). Internamente se usan como globs `*.ext`.
+- **Extensión**: los ficheros cuya extensión esté en `encode.extensions` (por defecto `avi`, `flv`, `mp4`, `mov`, `mkv`; ver [ref-configuracion.md](ref-configuracion.md)). Internamente se usan como globs `*.ext`.
 - El resultado se ordena por nombre.
 
 No hay más criterios: cualquier fichero con esa extensión en `Original\` es un candidato (el prefijo `_` **no** excluye; solo fuerza la detección de bordes, ver abajo).
@@ -90,7 +90,7 @@ Por cada candidato:
 
 ## Fase PREPARAR
 
-Se elige **un** perfil ([perfiles.md](perfiles.md)) que se aplica a todo el lote, y para cada archivo sin preparar se hacen las preguntas/detecciones y se escribe el job.
+Se elige **un** perfil ([ref-perfiles.md](ref-perfiles.md)) que se aplica a todo el lote, y para cada archivo sin preparar se hacen las preguntas/detecciones y se escribe el job.
 
 ```mermaid
 flowchart TD
@@ -103,7 +103,7 @@ flowchart TD
     P6 --> P1
 ```
 
-El job **congela**: el perfil completo, las respuestas del usuario (índice de vídeo, recorte, resize, animación, índice de audio, sincronía, subtítulos) y **las versiones de ffmpeg/aacgain** en uso. Es autosuficiente: el worker no depende de la config global. Ver [jobs.md](jobs.md).
+El job **congela**: el perfil completo, las respuestas del usuario (índice de vídeo, recorte, resize, animación, índice de audio, sincronía, subtítulos) y **las versiones de ffmpeg/aacgain** en uso. Es autosuficiente: el worker no depende de la config global. Ver [ref-jobs.md](ref-jobs.md).
 
 **Salida por archivo:** en uso normal, PREPARAR imprime primero el **nombre del archivo** como cabecera (`- <nombre>`) y, **debajo e indentadas**, las preguntas interactivas (selección de pista de vídeo/audio/subtítulo, bordes, animación, sincronía) — así siempre se sabe de qué archivo son. Al terminar, una línea de estado: `Preparado ✓` (verde), `Preparado (seleccion manual) ✓` (amarillo, si hubo **cualquier** pregunta) o `No se pudo preparar ✗` (rojo, si ffprobe no puede leerlo). Los avisos (p. ej. **varias pistas de vídeo** o **audio sin idioma preferido**) salen como *badge* `▐ AVISO - … ▌`. En **modo debug** (`behavior.debug` / marcador `debug_on`) se ve el detalle completo (marco, tamaño/duración, y los `[INFO]` de audio/subtítulo/vídeo).
 
@@ -175,13 +175,13 @@ flowchart TB
     AUD --> VID --> MUX
 ```
 
-Ver los comandos exactos en [comandos.md](comandos.md).
+Ver los comandos exactos en [ref-comandos.md](ref-comandos.md).
 
 ## Paralelismo y lock
 
 - El reclamo de cada archivo es un **fichero-lock** `Proceso\<nombre>.lock` creado con `FileMode.CreateNew` (falla atómicamente si ya existe). Solo un worker gana.
 - Se pueden lanzar **varias ventanas** (`Convert.cmd`) a la vez: cuando todos los archivos tienen `.job`, cada ventana entra como worker y se reparten los archivos por el lock.
-- El lock se libera siempre en el `finally`, incluso si la codificación falla. Si un worker muere a mitad, otro puede **robar el lock caducado** (guarda `PID`+equipo; ver [jobs.md](jobs.md)).
+- El lock se libera siempre en el `finally`, incluso si la codificación falla. Si un worker muere a mitad, otro puede **robar el lock caducado** (guarda `PID`+equipo; ver [ref-jobs.md](ref-jobs.md)).
 - **Reintentos con límite**: un archivo que falla se reintenta hasta un máximo (`behavior.retries`, por defecto 2); superado, se **abandona** (se marca en `skip`). Los ilegibles se descartan y un error inesperado se captura por archivo (no aborta el lote). Esto evita el bucle infinito con inputs corruptos o ffmpeg que no arranca.
 - La codificación de audio/vídeo debe terminar con éxito (ffmpeg código 0 + salida no vacía) para que se multiplexe; si no, el archivo cuenta como fallo (no se genera un MKV con vídeo sin recodificar).
 

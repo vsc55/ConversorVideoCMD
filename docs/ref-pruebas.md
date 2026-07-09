@@ -22,13 +22,13 @@ Prueban clasificación de formatos, decodificación, recodificación de vídeo/a
 
 ## Fixtures multipista (selección de audio/subtítulos)
 
-Idioma preferido por defecto = `spa`/`es`. Resultado esperado validado con `Select-AudioStream` / `Select-Subtitles` (ver [comandos.md](comandos.md) y [perfiles.md](perfiles.md)).
+Idioma preferido por defecto = `spa`/`es`. Resultado esperado validado con `Select-AudioStream` / `Select-Subtitles` (ver [ref-comandos.md](ref-comandos.md) y [ref-perfiles.md](ref-perfiles.md)).
 
 | Fichero | Qué prueba | Resultado esperado |
 |---|---|---|
 | `subs-forzado-predefinido.mkv` | Subtítulo **forzado + predefinido** (`default+forced`) que antes perdía el flag `default` al convertir. | Se conserva el forzado spa con **`default=1 forced=1`**. |
-| `audio-y-subs-multiidioma.mkv` | Varias pistas de audio (spa/eng/fra) y subtítulos (spa completo, spa forzado, eng, fra forzado). | Audio → **spa**; subs → **spa completo + spa forzado**; eng/fra descartados. |
-| `subs-varios-completos-espanol-menu.mkv` | **2+ subtítulos completos** del idioma preferido (+ forzado + eng). | **Menú** para elegir el completo (`Select-SubtitleInteractive`); el forzado spa se conserva. |
+| `audio-y-subs-multiidioma.mkv` | Varias pistas de audio (spa/eng/fra) y subtítulos (spa completo, spa forzado, eng, fra forzado). | Audio → **spa**; subs → **spa forzado (1º) + spa completo** (se conservan ambos); eng/fra descartados. |
+| `subs-varios-completos-espanol-menu.mkv` | **2+ subtítulos completos** del idioma preferido (+ forzado + eng). | Se conservan **todos** los spa (forzado + 2 completos), sin menú; aviso de 2+ completos. |
 | `audio-espanol-estereo-y-51.mkv` | Dos pistas spa (2.0 y **5.1**) + eng. | Audio → **spa 5.1** (preferencia de 5.1); en ASK aparece el **menú** por haber 2+ pistas spa. |
 | `audio-sin-espanol-fallback.mkv` | Audio solo en eng (default) y fra, **sin español**. | Audio → **pista `default`** (eng), por descarte. |
 | `subs-sin-espanol-descartar.mkv` | Subtítulos solo en eng y fra, **sin español**. | **Ningún** subtítulo (no hay del idioma preferido). |
@@ -36,6 +36,8 @@ Idioma preferido por defecto = `spa`/`es`. Resultado esperado validado con `Sele
 | `pistas-video-multiple.mkv` | **2 pistas de vídeo** (640×480 y 320×240) + audio spa. | Se elige la **1ª pista de vídeo** y se codifica esa (se comprueba que el ancho de salida es 640, no 320): valida el mapeo `0:<index>` congelado en el job. |
 
 Las pistas de audio adicionales y los subtítulos de estas fixtures son **sintéticos** (audio duplicado/silencioso vía `anullsrc`, subtítulos SRT generados); solo cambian sus etiquetas de idioma/`disposition` para ejercitar la selección.
+
+Los subtítulos sintéticos llevan un número de cues **repartido por toda la duración del vídeo** (no agrupados al inicio) y **variable por rol**, entre 3 y 9: el **forzado** con pocos (3) y los **completos** con muchos (9 y 7). Así, además de por flag/título, se ejercita la distinción forzado/completo **por tamaño** (nº de cues). Al generarse con ffmpeg, estas muestras **no** traen el tag `NUMBER_OF_FRAMES` de mkvmerge, por lo que el recuento de cues usa el fallback `-count_packets` (ver [caso-rendimiento-subtitulos.md](caso-rendimiento-subtitulos.md)).
 
 ## Regenerar las fixtures
 

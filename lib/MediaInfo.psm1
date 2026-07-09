@@ -126,6 +126,51 @@ function Get-SubtitleStreamPos {
     return 0
 }
 
+function Get-CvSubtitleCueCount {
+    <#
+        Nº de cues (entradas) de una pista de subtitulo por su indice absoluto. Devuelve -1 si no
+        se puede determinar. Sirve para distinguir forzado (pocas) de completo (muchas) por tamaño.
+
+        RAPIDO primero: el tag de estadisticas de mkvmerge 'NUMBER_OF_FRAMES' (= nº de cues) es
+        instantaneo (ya viene en el stream cargado por Get-MediaInfo, o en un ffprobe de METADATOS).
+        Solo si falta ese tag se recurre a '-count_packets', que DEMULTIPLEXA el fichero entero
+        (varios segundos en MKVs de varios GB, por cada pista). Muchos MKVs (los muxeados con
+        mkvmerge/MKVToolNix) traen el tag, asi que PREPARAR no tiene por que demultiplexar.
+    #>
+    param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)][string]$File, [int]$Index, $Stream = $null)
+    $n = 0
+
+    # 1) Tag NUMBER_OF_FRAMES. Si se pasa el stream (ya viene de Get-MediaInfo CON todos sus tags),
+    #    se lee de memoria: si no lo trae, un ffprobe extra tampoco lo encontraria -> directo al
+    #    fallback. Sin stream, un ffprobe de METADATOS (rapido, sin demux) para leer el tag.
+    $nf = ''
+    if ($Stream) {
+        $nf = "$(Get-Tag $Stream 'NUMBER_OF_FRAMES')"
+    } else {
+        $t = Invoke-ToolCapture -Exe $Context.FFprobe -Arguments @(
+            '-v','error','-select_streams',"$Index",
+            '-show_entries','stream_tags=NUMBER_OF_FRAMES','-of','default=nw=1:nk=1', $File
+        ) -Context $Context
+        $nf = "$($t.StdOut)".Trim()
+    }
+    if ([int]::TryParse("$nf".Trim(), [ref]$n)) { return $n }
+
+    # 2) Sin tag: contar paquetes demultiplexando (lento en ficheros grandes).
+    $r = Invoke-ToolCapture -Exe $Context.FFprobe -Arguments @(
+        '-v','error','-select_streams',"$Index",'-count_packets',
+        '-show_entries','stream=nb_read_packets','-of','default=nw=1:nk=1', $File
+    ) -Context $Context
+    if ([int]::TryParse("$($r.StdOut)".Trim(), [ref]$n)) { return $n }
+    return -1
+}
+
+function Get-CvChapterCount {
+    <# Nº de capitulos del contenedor (ffprobe -show_chapters), 0 si no hay. #>
+    param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)][string]$File)
+    $r = Invoke-ToolCapture -Exe $Context.FFprobe -Arguments @('-v','error','-show_chapters','-of','csv=p=0', $File) -Context $Context
+    return @("$($r.StdOut)" -split "`r?`n" | Where-Object { $_.Trim() -ne '' }).Count
+}
+
 function Get-DurationText {
     <# Duracion formateada H:MM:SS a partir de format.duration (segundos). #>
     param([Parameter(Mandatory)]$Info)
@@ -137,6 +182,78 @@ function Get-DurationText {
     return ('{0}:{1:00}:{2:00}' -f [int][math]::Floor($ts.TotalHours), $ts.Minutes, $ts.Seconds)
 }
 
+function Write-SourceSummary {
+    <#
+        Resumen del ARCHIVO DE ORIGEN antes de procesarlo (usado en modo pruebas): toda la info
+        de las pistas del contenedor -> video (resolucion/codec/fps), TODAS las de audio
+        (codec/canales/idioma/titulo), TODAS las de subtitulo (idioma/tipo/forzado/default/nº de
+        cues) y capitulos. Sirve para revisar de un vistazo que trae el fichero.
+    #>
+    param(
+        [Parameter(Mandatory)]$Context,
+        [Parameter(Mandatory)][string]$File,
+        [Parameter(Mandatory)]$Info
+    )
+    $name = [System.IO.Path]::GetFileName($File)
+
+    $lines = @(
+        ("Archivo : {0}" -f $name),
+        ("Duracion: {0}" -f (Get-DurationText $Info)),
+        ''
+    )
+
+    # --- Video (pistas reales, excluye caratulas) ---
+    $lines += 'Video:'
+    $vids = @(Get-VideoStreams -Info $Info)
+    if ($vids.Count -eq 0) { $lines += '  (ninguna)' }
+    foreach ($v in $vids) {
+        $fps = ''
+        $rate = if ($v.PSObject.Properties['avg_frame_rate'] -and $v.avg_frame_rate -notmatch '^0') { $v.avg_frame_rate } else { $v.r_frame_rate }
+        if ("$rate" -match '^(\d+)/(\d+)$' -and [int]$Matches[2] -ne 0) { $fps = "  {0:0.##} fps" -f ([double]$Matches[1] / [int]$Matches[2]) }
+        $lines += ("  [{0}] {1}  {2}x{3}{4}" -f [int]$v.index, $v.codec_name, [int]$v.width, [int]$v.height, $fps)
+    }
+
+    # --- Audio (todas) ---
+    $lines += 'Audio:'
+    $auds = @(Get-AudioStreams -Info $Info)
+    if ($auds.Count -eq 0) { $lines += '  (ninguna)' }
+    foreach ($a in $auds) {
+        $lang  = "$(Get-Tag $a 'language')"; if ($lang -eq '') { $lang = 'und' }
+        $title = "$(Get-Tag $a 'title')"
+        $ttl   = if ($title -ne '') { ('  "{0}"' -f $title) } else { '' }
+        $lines += ("  [{0}] {1}  {2}ch  {3}{4}" -f [int]$a.index, $a.codec_name, [int]$a.channels, $lang, $ttl)
+    }
+
+    # --- Subtitulos (todos): idioma, tipo (codec), forzado, default, nº de cues (tamaño) ---
+    $lines += 'Subtitulos:'
+    $subs = @($Info.streams | Where-Object { $_.codec_type -eq 'subtitle' })
+    if ($subs.Count -eq 0) { $lines += '  (ninguno)' }
+    foreach ($s in $subs) {
+        $lang  = "$(Get-Tag $s 'language')"; if ($lang -eq '') { $lang = 'und' }
+        $title = "$(Get-Tag $s 'title')"
+        $flags = @()
+        if ($s.disposition -and $s.disposition.forced  -eq 1) { $flags += 'forzado' }
+        if ($s.disposition -and $s.disposition.default -eq 1) { $flags += 'default' }
+        $fstr  = if ($flags.Count -gt 0) { '  ' + ($flags -join ' ') } else { '' }
+        $cues  = Get-CvSubtitleCueCount -Context $Context -File $File -Index ([int]$s.index) -Stream $s
+        $csz   = if ($cues -ge 0) { "  cues={0}" -f $cues } else { '' }
+        $ttl   = if ($title -ne '') { ('  "{0}"' -f $title) } else { '' }
+        $lines += ("  [{0}] {1}  {2}{3}{4}{5}" -f [int]$s.index, $s.codec_name, $lang, $fstr, $csz, $ttl)
+    }
+
+    # --- Capitulos ---
+    $lines += ("Capitulos: {0}" -f (Get-CvChapterCount -Context $Context -File $File))
+
+    $dash = '-' * 64
+    Write-Host ''
+    Write-Host $dash
+    Write-Host 'RESUMEN DEL ORIGEN'
+    Write-Host $dash
+    $lines | ForEach-Object { Write-Host $_ }
+    Write-Host $dash
+    Write-Host ''
+}
+
 function Write-ConversionSummary {
     <# Muestra un resumen enmarcado al terminar la conversion de un archivo. #>
     param(
@@ -144,7 +261,8 @@ function Write-ConversionSummary {
         [Parameter(Mandatory)][string]$File,
         [Parameter(Mandatory)]$Info,
         [Parameter(Mandatory)][string]$Output,
-        [TimeSpan]$Elapsed = [TimeSpan]::Zero
+        [TimeSpan]$Elapsed = [TimeSpan]::Zero,
+        $Prof = $null
     )
     $name = [System.IO.Path]::GetFileName($File)
 
@@ -169,19 +287,54 @@ function Write-ConversionSummary {
     $outVc  = if ($ov) { $ov.codec_name } else { '?' }
     $outAc  = if ($oa) { $oa.codec_name } else { '?' }
     $outAch = if ($oa) { "$($oa.channels)ch" } else { '?' }
+    # Bitrate del audio: preferimos el medido por ffprobe; si no lo trae (habitual con AAC en
+    # MKV), usamos el CONFIGURADO en el perfil (el objetivo de la recodificacion), marcado.
     $outAbr = ''
     if ($oa -and $oa.PSObject.Properties['bit_rate'] -and $oa.bit_rate) {
         $outAbr = " {0}k" -f [math]::Round(([double]$oa.bit_rate) / 1000)
+    } elseif ($Prof -and "$($Prof.AudioEncoder)" -ne 'copy' -and $Prof.AudioBitrate) {
+        $outAbr = " {0} (config)" -f $Prof.AudioBitrate
     }
+
+    # Subtitulos de la salida: nº + idioma (+ 'forzado' si lo es). OJO: asignacion DIRECTA con
+    # @(...), no via 'if () { @() }' (el if desenvuelve el array de 1 elemento a escalar).
+    $osubs = @()
+    if ($oInfo) { $osubs = @($oInfo.streams | Where-Object { $_.codec_type -eq 'subtitle' }) }
+    $subTxt = if ($osubs.Count -gt 0) {
+        "{0} ({1})" -f $osubs.Count, ((@($osubs | ForEach-Object {
+            $l = "$(Get-Tag $_ 'language')"; if ($l -eq '') { $l = 'und' }
+            if ($_.disposition -and $_.disposition.forced -eq 1) { "$l forzado" } else { $l }
+        })) -join ', ')
+    } else { 'ninguno' }
+    # Capitulos de la salida.
+    $nChap = Get-CvChapterCount -Context $Context -File $Output
+
+    # Duracion: la del fichero GENERADO (de lo que trata este resumen), no la del original. En
+    # modo pruebas ambas difieren (la salida es un recorte), asi que se indica tambien el origen.
+    $outDur = if ($oInfo) { Get-DurationText $oInfo } else { Get-DurationText $Info }
+    $durTxt = if ($Context.TestLimit -gt 0) { "{0} (origen {1})" -f $outDur, (Get-DurationText $Info) } else { $outDur }
 
     $lines = @(
         ("Archivo : {0}" -f $name),
-        ("Duracion: {0}     Tiempo de proceso: {1:hh\:mm\:ss}" -f (Get-DurationText $Info), $Elapsed),
+        ("Duracion: {0}     Tiempo de proceso: {1:hh\:mm\:ss}" -f $durTxt, $Elapsed),
         '',
         ("Tamano  : {0} MB  ->  {1} MB   (ahorro {2}%)" -f $origMB, $outMB, $ahorro),
-        ("Video   : {0} {1}  ->  {2} {3}" -f $origVc, $origRes, $outVc, $outRes),
-        ("Audio   : {0} {1}{2}" -f $outAc, $outAch, $outAbr)
+        # Video: codec origen -> destino; la resolucion se muestra a ambos lados SOLO si cambia
+        # (resize); si es la misma, se pone una sola vez para no repetir '1920x1080 -> 1920x1080'.
+        ("Video   : {0}" -f $(if ($origRes -eq $outRes) {
+            "{0} -> {1}  {2}" -f $origVc, $outVc, $outRes
+        } else {
+            "{0} {1}  ->  {2} {3}" -f $origVc, $origRes, $outVc, $outRes
+        })),
+        ("Audio   : {0} {1}{2}" -f $outAc, $outAch, $outAbr),
+        ("Subs    : {0}" -f $subTxt),
+        ("Caps    : {0}" -f $nChap)
     )
+    # En modo pruebas la salida es un RECORTE (la 'Duracion' de arriba ya lo refleja: salida +
+    # origen): se avisa explicitamente para que no se confunda con una conversion completa.
+    if ($Context.TestLimit -gt 0) {
+        $lines += ('', ("*** MODO PRUEBAS: salida recortada a los primeros {0} min ***" -f [int]($Context.TestLimit / 60)))
+    }
     # Sin encuadrar: los cuadros recortan las lineas largas (p.ej. el nombre del archivo).
     $dash = '-' * 64
     $eq   = '=' * 64

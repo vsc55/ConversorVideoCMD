@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Regenera las fixtures multipista (*.mkv) de la carpeta test/ a partir de la
 # muestra base `video-1080p-basico.mp4` (fuente: samplelib.com) + pistas sinteticas.
-# Documentacion (que prueba cada fixture, fuentes/licencias): docs/pruebas.md
+# Documentacion (que prueba cada fixture, fuentes/licencias): docs/ref-pruebas.md
 # Uso:  bash test/generate-fixtures.sh
 # Requiere ffmpeg (usa el de tools/ si existe, si no el del PATH).
 set -e
@@ -14,9 +14,31 @@ BASE="test/video-1080p-basico.mp4"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
-printf '1\n00:00:01,000 --> 00:00:03,000\n[texto forzado]\n\n2\n00:00:04,000 --> 00:00:05,000\n[texto forzado]\n' > "$TMP/forced.srt"
-printf '1\n00:00:00,500 --> 00:00:02,500\nDialogo completo linea 1.\n\n2\n00:00:03,000 --> 00:00:05,000\nDialogo completo linea 2.\n' > "$TMP/full.srt"
-printf '1\n00:00:00,500 --> 00:00:02,500\n[door creaks] Full SDH.\n\n2\n00:00:03,000 --> 00:00:05,000\n[music] Full SDH.\n' > "$TMP/full2.srt"
+
+# Duracion del video base (para repartir los cues por toda su longitud).
+FFP="tools/ffmpeg/7.1.1/x64/ffprobe.exe"; [ -x "$FFP" ] || FFP="ffprobe"
+DUR="$("$FFP" -v error -show_entries format=duration -of default=nw=1:nk=1 "$BASE" 2>/dev/null)"
+case "$DUR" in ''|*[!0-9.]*) DUR="5.7" ;; esac
+
+# gen_srt <count> <prefix> <outfile>: SRT con <count> cues REPARTIDOS por el 100% del video.
+# Cada cue ocupa el centro de su reparto (10%..90% del hueco), sin solaparse.
+gen_srt() {
+  local count="$1" prefix="$2" out="$3"
+  : > "$out"
+  awk -v n="$count" -v dur="$DUR" -v pfx="$prefix" 'BEGIN{
+    slot=dur/n
+    for(i=0;i<n;i++){
+      a=slot*i+slot*0.1; b=slot*i+slot*0.9
+      printf "%d\n%s --> %s\n%s %d.\n\n", i+1, ts(a), ts(b), pfx, i+1
+    }
+  }
+  function ts(s,  h,m,sec,ms){ h=int(s/3600); m=int((s%3600)/60); sec=int(s%60); ms=int((s-int(s))*1000);
+    return sprintf("%02d:%02d:%02d,%03d",h,m,sec,ms) }' > "$out"
+}
+# forzado = POCOS cues (3); completos = MUCHOS (9 y 7) -> distingue por tamaño ademas de por flag.
+gen_srt 3 "[Forzado]"        "$TMP/forced.srt"
+gen_srt 9 "Dialogo completo" "$TMP/full.srt"
+gen_srt 7 "[SDH]"            "$TMP/full2.srt"
 Q(){ "$@" >/dev/null 2>&1; }
 
 # subtitulo forzado + predefinido (regresion del flag default)

@@ -66,14 +66,14 @@ Modelo **preparar → procesar**:
 
 La documentación técnica y detallada (cómo trabaja, flujos, diagramas y **los comandos exactos** que se lanzan en cada fase) está en **[`docs/`](docs/README.md)**:
 
-- [Arquitectura](docs/arquitectura.md) — módulos, contexto, fuentes de verdad.
-- [Flujo de trabajo](docs/flujo.md) — clasificar → preparar → worker, con diagramas.
-- [Comandos de las herramientas](docs/comandos.md) — ffmpeg/ffprobe/ffplay/aacgain por fase.
-- [Perfiles](docs/perfiles.md) — perfiles 1–7, propios de `config.json` y custom.
-- [Configuración](docs/configuracion.md) — referencia de `config.json`.
-- [Herramientas](docs/herramientas.md) — versiones, plataforma, descargas y `setup`.
-- [Jobs](docs/jobs.md) — formato del job, lock y temporales.
-- [Pruebas](docs/pruebas.md) — muestras de test, batería del pipeline y fuentes/licencias.
+- [Arquitectura](docs/ref-arquitectura.md) — módulos, contexto, fuentes de verdad.
+- [Flujo de trabajo](docs/ref-flujo.md) — clasificar → preparar → worker, con diagramas.
+- [Comandos de las herramientas](docs/ref-comandos.md) — ffmpeg/ffprobe/ffplay/aacgain por fase.
+- [Perfiles](docs/ref-perfiles.md) — perfiles 1–7, propios de `config.json` y custom.
+- [Configuración](docs/ref-configuracion.md) — referencia de `config.json`.
+- [Herramientas](docs/ref-herramientas.md) — versiones, plataforma, descargas y `setup`.
+- [Jobs](docs/ref-jobs.md) — formato del job, lock y temporales.
+- [Pruebas](docs/ref-pruebas.md) — muestras de test, batería del pipeline y fuentes/licencias.
 
 ## Star History
 

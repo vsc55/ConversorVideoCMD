@@ -125,6 +125,10 @@ if ("$($ctx.VolumeMethod)".ToLower() -eq 'aacgain') {
     $agInstalled = Get-CvToolInstalledVersion -Context $ctx -Name 'aacgain' -Version $ctx.AacGainVersion
     if ($agInstalled) { Write-CvLog 'GLOBAL' ("[AACGAIN] - Version en uso: {0}" -f $agInstalled) }
 }
+# Modo pruebas activo: avisar bien visible de que la salida sera un RECORTE, no el archivo entero.
+if ($ctx.TestLimit -gt 0) {
+    Write-CvLog 'GLOBAL' ("[AVISO] - MODO PRUEBAS: se codifican solo los primeros {0} min de cada archivo (behavior.testMode)" -f [int]($ctx.TestLimit / 60))
+}
 
 function Get-SourceFiles {
     param($Context)
@@ -314,6 +318,17 @@ if ($needPrepare) {
         exit 0
     }
 
+    # No abrir mas workers que archivos por codificar (jobs pendientes sin salida). Con 1 solo
+    # archivo no se abre ninguna ventana extra: se codifica en esta misma.
+    $pending = @($files | Where-Object {
+        (-not (Test-Path -LiteralPath (Get-OutputPath $ctx $_.BaseName))) -and (Test-CvJob -Context $ctx -Name $_.BaseName)
+    }).Count
+    $cap = [Math]::Max(1, $pending)
+    if ($nw -gt $cap) {
+        Write-CvLog 'GLOBAL' ("[WORKER] - {0} archivo(s) por codificar; se usan {1} worker(s) en vez de {2}." -f $pending, $cap, $nw)
+        $nw = $cap
+    }
+
     $extra = $nw - 1
     if ($extra -gt 0) {
         $cmdPath = Join-Path $Root 'Convert.cmd'
@@ -393,6 +408,9 @@ while ($didAny) {
             $res = if ($vs) { ("Resolucion: {0}  Duracion: {1}" -f (Get-VideoSize -VideoStream $vs), (Get-DurationText $info)) } else { ("Duracion: {0}" -f (Get-DurationText $info)) }
             if ($jctx.Debug) { Write-CvLog 'WORKER' ("[INFO] - {0}" -f $res) } else { Write-Host (" - {0}" -f $res) }
 
+            # Modo pruebas: resumen COMPLETO de las pistas del origen antes de codificar.
+            if ($jctx.TestLimit -gt 0) { Write-SourceSummary -Context $jctx -File $f.FullName -Info $info }
+
             # ---------- AUDIO ----------
             if ($jctx.Debug) { Write-Host '' }
             $audioOk = $true
@@ -430,7 +448,7 @@ while ($didAny) {
                     Write-Host ''
                     Write-CvLog 'WORKER' ("[OK] - Finalizado: {0}" -f $name)
                 }
-                Write-ConversionSummary -Context $jctx -File $f.FullName -Info $info -Output $out -Elapsed $sw.Elapsed
+                Write-ConversionSummary -Context $jctx -File $f.FullName -Info $info -Output $out -Elapsed $sw.Elapsed -Prof $prof
             } else {
                 $n = 1 + [int]$fail[$name]; $fail[$name] = $n
                 Write-Host ''

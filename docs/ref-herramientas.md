@@ -87,7 +87,7 @@ Detecta de antemano el caso típico de una versión de ffmpeg demasiado nueva pa
 - En el **WORKER**, antes de codificar se llama a `Confirm-CvTool` con la versión del job: si no está instalada, **la descarga sola**; luego `New-CvToolContext` apunta las herramientas a esa versión.
 - Distintos jobs pueden usar distintas versiones sin conflicto.
 
-Ver [jobs.md](jobs.md).
+Ver [ref-jobs.md](ref-jobs.md).
 
 ## `setup.ps1` / `setup.cmd`
 

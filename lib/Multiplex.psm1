@@ -36,21 +36,27 @@ function Invoke-Multiplex {
     # Adjuntos del original a conservar (fuentes/caratulas segun config; por defecto ninguno).
     $keepAtt = @(Select-Attachments -Context $Context -Info $Info)
 
-    # El original ($File) hace falta como input si aporta subtitulos y/o adjuntos.
-    $needOrig = $hasSubs -or ($keepAtt.Count -gt 0)
+    # El original ($File) hace falta como input si aporta subtitulos/adjuntos, o si el video se
+    # recodifico (el intermedio se creo con -map_chapters -1, asi que los CAPITULOS hay que
+    # tomarlos del original). En modo copy el video ya es el original (input 0).
+    $isEncode = (Test-Path -LiteralPath $vTmp)
+    $needOrig = $hasSubs -or ($keepAtt.Count -gt 0) -or $isEncode
 
     $ffArgs = @('-hide_banner','-y','-threads',"$($Context.Threads)")
     $ffArgs += @('-i',$videoSrc)                      # input 0 = video
     if ($useAudioFile) { $ffArgs += @('-i',$aTmp) }   # input 1 = audio (m4a)
-    if ($needOrig)     { $ffArgs += @('-i',$File) }   # input N = original (subtitulos y/o adjuntos)
+    if ($needOrig)     { $ffArgs += @('-i',$File) }   # input N = original (subtitulos/adjuntos/capitulos)
     $origInput = if ($useAudioFile) { 2 } else { 1 }
+    # Fuente de los capitulos: el original. En encode es el input $origInput; en copy es input 0.
+    $chapInput = if ($isEncode) { $origInput } else { 0 }
 
     # Limpiar TODOS los metadatos heredados de una sola vez: '-map_metadata -1' global tambien
     # vacia los tags de cada pista (ENCODER/_STATISTICS obsoletos que se copian al recodificar el
     # video, VENDOR_ID/HANDLER_NAME que anade el contenedor .m4a). '-fflags +bitexact' evita
     # ademas que ffmpeg escriba su propia etiqueta ENCODER global. Despues re-fijamos solo lo
-    # que queremos (titulo/idioma/disposition).
-    $ffArgs += @('-map_metadata','-1','-fflags','+bitexact')
+    # que queremos (titulo/idioma/disposition). '-map_chapters' conserva los capitulos del original
+    # (el -map_metadata -1 no los borra, pero fijamos la fuente explicitamente).
+    $ffArgs += @('-map_metadata','-1','-fflags','+bitexact','-map_chapters',"$chapInput")
     $ffArgs += @('-metadata','title=')
 
     # mapeo video: titulo en blanco, idioma indefinido.
@@ -102,6 +108,10 @@ function Invoke-Multiplex {
     $ffArgs += @('-c:v','copy','-c:a','copy')
     if ($hasSubs)             { $ffArgs += @('-c:s','copy') }
     if ($keepAtt.Count -gt 0) { $ffArgs += @('-c:t','copy') }
+    # Modo pruebas: acotar la salida final. Imprescindible en perfil copy (el video se copia del
+    # original a longitud COMPLETA, mientras el audio recodificado ya viene a TestLimit); tambien
+    # recorta subtitulos/capitulos al mismo tramo. En encode el video ya es corto (-t es inocuo).
+    if ($Context.TestLimit -gt 0) { $ffArgs += @('-t',"$($Context.TestLimit)") }
     $ffArgs += @('-f','matroska',$out)
 
     Start-CvStep $Context 'MULTIPLEX' 'Uniendo pistas...'

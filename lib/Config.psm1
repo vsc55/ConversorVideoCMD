@@ -105,11 +105,14 @@ function Get-CvConfigDefaults {
         # = estereo; 6 = 5.1; 8 = 7.1); threads/fps/audioHz para ffmpeg.
         encode    = [ordered]@{ outputExtension = 'mkv'; extensions = @('avi','flv','mp4','mov','mkv'); threads = 0; fps = '23.976'; audioHz = 44100; audioChannels = 2 }
         # border: deteccion de bordes negros con cropdetect.
-        #  - start/duration: punto inicial y presupuesto total de escaneo (segundos).
-        #  - samples: en cuantos puntos repartidos del video se escanea (1 = solo al inicio,
-        #    clasico). Con 2+ se reparte el presupuesto entre los puntos y, si discrepan, se
-        #    avisa y se usa el recorte menos agresivo.
-        border    = [ordered]@{ start = 120; duration = 120; samples = 3 }
+        #  - start: segundo del primer punto de escaneo. duration: segundos que escanea CADA punto.
+        #  - samples: en cuantos puntos repartidos del video se escanea (1 = solo al inicio, clasico).
+        #  - autoAcceptPct: si el recorte mas votado alcanza este % de los puntos que detectaron
+        #    borde, se acepta AUTOMATICAMENTE (se descartan los atipicos); por debajo, se pregunta.
+        #  - autoAcceptMinMargin: ADEMAS del %, el mas votado debe superar al 2o por al menos estos
+        #    votos. Evita auto-aceptar con evidencia debil cuando hay pocas muestras (2/3 = 67% pero
+        #    solo 1 de margen -> pregunta; 6/9 = 67% con 3+ de margen -> auto). 0 = sin margen.
+        border    = [ordered]@{ start = 120; duration = 120; samples = 9; autoAcceptPct = 60; autoAcceptMinMargin = 2 }
         # Previsualizacion con ffplay (audio/video/bordes en PREPARAR): desde que segundo empieza
         # y cuantos dura la muestra. Util para buscar dialogo y saber el idioma de una pista.
         preview   = [ordered]@{ start = 120; seconds = 30 }
@@ -128,6 +131,9 @@ function Get-CvConfigDefaults {
             attachments = [ordered]@{ keep = $false; fonts = $true; covers = $false; other = $false }
         }
         behavior  = [ordered]@{ cleanTemps = $true; separateWindow = $true; lockCloseButton = $true; debug = $false; log = $true; workers = 2; retries = 2; asciiMarks = $false }
+        # Modo pruebas: si 'enabled', cada archivo se codifica solo hasta 'minutes' minutos (el resto
+        #   se descarta). Sirve para validar perfiles/ajustes rapido. Tambien se activa con 'test_on'.
+        test      = [ordered]@{ enabled = $false; minutes = 5 }
         console   = [ordered]@{ background = 'DarkBlue'; foreground = 'Yellow'; font = 'Cascadia Code'; fontSize = 18; windowWidth = 100; windowHeight = 50 }
         # Carpetas de trabajo: vacio = junto al programa; admite ruta absoluta o relativa.
         paths     = [ordered]@{ original = ''; proceso = ''; convertido = ''; logs = '' }

@@ -2,7 +2,7 @@
     generate-fixtures.ps1 - Version Windows/PowerShell de generate-fixtures.sh.
     Regenera las fixtures multipista (*.mkv) de test\ a partir de la muestra base
     video-1080p-basico.mp4 (fuente: samplelib.com) + pistas sinteticas.
-    Documentacion (que prueba cada fixture, fuentes/licencias): docs\pruebas.md
+    Documentacion (que prueba cada fixture, fuentes/licencias): docs\ref-pruebas.md
     Uso:  powershell -ExecutionPolicy Bypass -File test\generate-fixtures.ps1
     Requiere ffmpeg (usa el de tools\ si existe, si no el del PATH).
 #>
@@ -18,13 +18,48 @@ if (-not (Test-Path -LiteralPath $FF)) {
 $base = Join-Path $root 'test\video-1080p-basico.mp4'
 if (-not (Test-Path -LiteralPath $base)) { throw "Falta $base (descargar de samplelib.com)." }
 
+# Duracion del video base (para repartir los cues de subtitulo por toda su longitud).
+$FFP = Join-Path (Split-Path $FF -Parent) 'ffprobe.exe'
+$dur = 5.7
+if (Test-Path -LiteralPath $FFP) {
+    $d = & $FFP -v error -show_entries format=duration -of default=nw=1:nk=1 $base
+    # OJO: parsear con InvariantCulture. En locale ES, [double]::TryParse("5.75") toma el '.' como
+    # separador de MILES -> 575 (o 5.758.549), reventando el reparto de cues.
+    $ci = [System.Globalization.CultureInfo]::InvariantCulture
+    $p = 0.0
+    if ([double]::TryParse("$d".Trim(), [System.Globalization.NumberStyles]::Float, $ci, [ref]$p) -and $p -gt 0) { $dur = $p }
+}
+
+function Format-SrtTs([double]$Seconds) {
+    $t = [TimeSpan]::FromSeconds($Seconds)
+    '{0:00}:{1:00}:{2:00},{3:000}' -f [int][math]::Floor($t.TotalHours), $t.Minutes, $t.Seconds, $t.Milliseconds
+}
+function New-SrtText {
+    <#
+        SRT sintetico con $Count cues REPARTIDOS uniformemente por el 100% del video ($Duration):
+        cada cue ocupa el centro de su reparto (10%..90% del hueco), sin solaparse. Asi el nº de
+        cues (tamaño) varia entre pistas y se distribuye por toda la longitud, no al inicio.
+    #>
+    param([int]$Count, [double]$Duration, [string]$Prefix = 'Linea')
+    $slot = $Duration / $Count
+    $sb = New-Object System.Text.StringBuilder
+    for ($i = 0; $i -lt $Count; $i++) {
+        $a = ($slot * $i) + ($slot * 0.1)
+        $b = ($slot * $i) + ($slot * 0.9)
+        [void]$sb.Append(("{0}`r`n{1} --> {2}`r`n{3} {0}.`r`n`r`n" -f ($i + 1), (Format-SrtTs $a), (Format-SrtTs $b), $Prefix))
+    }
+    return $sb.ToString()
+}
+
 $tmp = Join-Path $env:TEMP ('cv-fixtures-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $tmp -Force | Out-Null
 try {
-    # --- Subtitulos SRT sinteticos ---
-    $forced = "1`r`n00:00:01,000 --> 00:00:03,000`r`n[texto forzado]`r`n`r`n2`r`n00:00:04,000 --> 00:00:05,000`r`n[texto forzado]`r`n"
-    $full   = "1`r`n00:00:00,500 --> 00:00:02,500`r`nDialogo completo linea 1.`r`n`r`n2`r`n00:00:03,000 --> 00:00:05,000`r`nDialogo completo linea 2.`r`n"
-    $full2  = "1`r`n00:00:00,500 --> 00:00:02,500`r`n[door creaks] Full SDH.`r`n`r`n2`r`n00:00:03,000 --> 00:00:05,000`r`n[music] Full SDH.`r`n"
+    # --- Subtitulos SRT sinteticos: cues repartidos por todo el video (3..9) ---
+    #  forzado = POCOS cues (3); completos = MUCHOS (9 y 7), para que ademas del flag/titulo la
+    #  clasificacion por TAMAÑO distinga forzado (pocos) de completo (muchos).
+    $forced = New-SrtText -Count 3 -Duration $dur -Prefix '[Forzado]'
+    $full   = New-SrtText -Count 9 -Duration $dur -Prefix 'Dialogo completo'
+    $full2  = New-SrtText -Count 7 -Duration $dur -Prefix '[SDH]'
     $sForced = Join-Path $tmp 'forced.srt'; $sFull = Join-Path $tmp 'full.srt'; $sFull2 = Join-Path $tmp 'full2.srt'
     Set-Content -LiteralPath $sForced -Value $forced -Encoding Ascii -NoNewline
     Set-Content -LiteralPath $sFull   -Value $full   -Encoding Ascii -NoNewline

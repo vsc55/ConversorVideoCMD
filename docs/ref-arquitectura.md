@@ -33,7 +33,7 @@ ConversorVideoCMD/
 └── .github/workflows/      CI: release.yml (empaqueta y publica al pushear un tag v*)
 ```
 
-Las carpetas de trabajo (`Original`, `Proceso`, `Convertido`, `logs`) se pueden reubicar en `config.json` (sección `paths`); ver [configuracion.md](configuracion.md).
+Las carpetas de trabajo (`Original`, `Proceso`, `Convertido`, `logs`) se pueden reubicar en `config.json` (sección `paths`); ver [ref-configuracion.md](ref-configuracion.md).
 
 Las carpetas de trabajo (`Original`, `Proceso`, `Convertido`, `tools`) se crean automáticamente si faltan.
 
@@ -89,9 +89,9 @@ flowchart LR
 | **Profile** | `Get-CvProfiles` (los 7 de serie), `ConvertTo-CvProfile`/`Format-CvProfileLabel` (perfiles propios de `config.json`), `Select-Profile` (`-Extra`), `New-CustomProfile`. |
 | **Video** | `Find-CropDetect` + `Find-CropDetectSamples` (bordes en varios puntos, agrupados por votos), `Show-Preview`/`Show-VideoPreview`, `Select-VideoInteractive` (menú con reproducción cuando hay 2+ pistas de vídeo), `Invoke-VideoAsk`, `Get-VideoArgs`, `Invoke-VideoRun` (mapea `0:<index>` del job). |
 | **Audio** | `Invoke-AudioAsk`, `Select-AudioInteractive` (2+ pistas preferidas, con reproducción) / `Select-AudioFallback` (sin idioma preferido: elegir pista + idioma), `Show-AudioPreview` (ffplay `-ast`), `Get-AudioInitDelay`, `Get-MaxVolume`, `Get-CvChannelLayout`, `Invoke-AudioRun`. |
-| **Subtitle** | `Select-Subtitles`, `Select-SubtitleInteractive` (2+ completos, con reproducción) / `Show-SubtitlePreview` (ffplay `-sst`), `ConvertTo-SubSel` (conserva el flag `default`/predefinida original de la pista), `Test-SubForced`/`Test-SubDefault`. |
+| **Subtitle** | `Select-Subtitles` (auto: conserva todos los del idioma, forzados+completos), `Split-CvSubtitlesByRole` (clasifica forzado/completo por flag o por tamaño de cues), `Select-SubtitlesKeep` (fallback: elegir cuáles conservar si ninguno es del idioma) / `Show-SubtitlePreview` (ffplay `-sst`) / `Show-SubtitleContent` (extrae a `.srt` y abre en el editor), `ConvertTo-SubSel` (`-Forced`/`-Default` override), `Test-SubForced`/`Test-SubDefault`. |
 | **Attachment** | `Select-Attachments` (adjuntos a conservar según config: fuentes/carátulas/otros), `Get-AttachmentKind`. |
-| **Multiplex** | `Invoke-Multiplex` (une pistas, mapea los adjuntos elegidos, limpia los metadatos heredados y quita las etiquetas con `mkvpropedit`; ver [comandos.md](comandos.md#9-multiplexado-final-invoke-multiplex)). |
+| **Multiplex** | `Invoke-Multiplex` (une pistas, mapea los adjuntos elegidos, limpia los metadatos heredados y quita las etiquetas con `mkvpropedit`; ver [ref-comandos.md](ref-comandos.md#9-multiplexado-final-invoke-multiplex)). |
 
 ## El contexto (`$ctx`)
 
@@ -113,7 +113,7 @@ flowchart LR
 | `Console*`, `Window*` | `config.console` | Apariencia. |
 | `Extensions` | fijo | `*.avi *.flv *.mp4 *.mov *.mkv`. |
 
-En el **worker**, cada job se ejecuta con un contexto clonado (`New-CvToolContext`) que apunta las herramientas a la versión congelada en ese job — ver [jobs.md](jobs.md).
+En el **worker**, cada job se ejecuta con un contexto clonado (`New-CvToolContext`) que apunta las herramientas a la versión congelada en ese job — ver [ref-jobs.md](ref-jobs.md).
 
 ## Fuentes únicas de verdad
 

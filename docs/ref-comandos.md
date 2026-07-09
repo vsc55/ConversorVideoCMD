@@ -52,13 +52,13 @@ ffmpeg -hide_banner -ss <start> -to <start+dur> -i <file> -vf cropdetect -f null
 
 De la salida (`stderr`) se extraen las líneas `crop=W:H:X:Y` y se agrupan; gana la más repetida.
 
-**Muestreo en varios puntos** (`Find-CropDetectSamples`, `border.samples`): en vez de un solo tramo, se escanea en `samples` puntos repartidos entre `border.start` y el final del vídeo, repartiendo el presupuesto `border.duration` entre ellos (para no tardar más). Los recortes de cada punto se agrupan por **votos**: si todos coinciden, se usa ese recorte (preview + confirmar); si discrepan, se avisa (`[AVISO]`) y se ofrece un menú ordenado por votos para elegir cuál probar. Con `samples=1` (o duración desconocida) se comporta como el escaneo único clásico.
+**Muestreo en varios puntos** (`Find-CropDetectSamples`, `border.samples`): en vez de un solo tramo, se escanea en `samples` puntos repartidos uniformemente entre `border.start` y el final del vídeo. **Cada punto escanea `border.duration` segundos completos** (no se reparte: N puntos = N escaneos de `border.duration`, así que más puntos = más tiempo total de análisis). Los recortes de cada punto se agrupan por **votos**: si el más votado alcanza `border.autoAcceptPct` % (por defecto 60) de los puntos que detectaron borde **y** supera al segundo por al menos `border.autoAcceptMinMargin` votos (por defecto 2), se **acepta automáticamente** descartando los atípicos (una escena oscura o unos créditos con otro encuadre no obligan a intervenir) → preview + confirmar. El margen evita auto-aceptar con evidencia débil cuando hay pocas muestras (`2/3` = 67% pero solo +1 → pregunta; `6/9` = 67% con +3 → auto). Si no se cumplen ambas condiciones (voto repartido/empate) se avisa (`[AVISO]`) y se ofrece un menú ordenado por votos para elegir cuál probar. Con `samples=1` (o duración desconocida) se comporta como el escaneo único clásico. Explicación completa con matriz de decisión: [explica-deteccion-bordes.md](explica-deteccion-bordes.md).
 
 ---
 
 ## 3. Previsualización (ffplay)
 
-Todas las previews reproducen un tramo y se cierran solas (`-autoexit`, o antes con ESC/Q). `<start>`/`<seg>` salen de `preview.start`/`preview.seconds` (ver [configuracion.md](configuracion.md#preview)); si el vídeo es más corto que `<start>`, el inicio se ajusta solo (`Get-CvSafeStart`). En los menús se puede indicar un inicio puntual (`P N <seg>`). La preview se ejecuta en la consola principal (no en ventana aparte).
+Todas las previews reproducen un tramo y se cierran solas (`-autoexit`, o antes con ESC/Q). `<start>`/`<seg>` salen de `preview.start`/`preview.seconds` (ver [ref-configuracion.md](ref-configuracion.md#preview)); si el vídeo es más corto que `<start>`, el inicio se ajusta solo (`Get-CvSafeStart`). En los menús se puede indicar un inicio puntual (`P N <seg>`). La preview se ejecuta en la consola principal (no en ventana aparte).
 
 **Bordes** (`Show-Preview`) — primero el original, luego con el recorte aplicado; con varias pistas de vídeo apunta a la elegida (`-vst`):
 
@@ -172,7 +172,7 @@ ffmpeg -hide_banner -y -threads <N> -i <file> -an -sn -map_chapters -1 \
 
 `<filtros>` combina recorte y escalado si aplican: `crop=<W:H:X:Y>,scale=<resize>`.
 
-`<ARGS_ENCODER>` según el encoder del perfil ([perfiles.md](perfiles.md)):
+`<ARGS_ENCODER>` según el encoder del perfil ([ref-perfiles.md](ref-perfiles.md)):
 
 ### hevc_nvenc (H.265 GPU)
 ```
@@ -214,19 +214,21 @@ Une vídeo (temporal recodificado, o el original si es `copy`) + audio (`.m4a`, 
 ffmpeg -hide_banner -y -threads <N> \
   -i <video>            # input 0 (temporal .mkv o el original)
   [-i <name>.m4a]       # input 1 (audio recodificado, si existe)
-  [-i <file>]           # input N (para los subtítulos del original)
-  -map_metadata -1 -fflags +bitexact \                          # limpieza de metadatos (ver abajo)
+  [-i <file>]           # input N (subtítulos/adjuntos/capítulos del original)
+  -map_metadata -1 -fflags +bitexact -map_chapters <in> \       # limpieza de metadatos + capítulos del original
   -metadata title= \
   <-map 0:v:0 (encode: intermedio, 1 pista)   |   -map 0:<idx_video> (copy: pista elegida del original)> -metadata:s:v title= -metadata:s:v language=und \
   <-map 1:a:0 -metadata:s:a title= -metadata:s:a language=<lang>   |   -map 0:a:0 -map_metadata:s:a:0 0:s:a:0> \
-  # por cada subtítulo seleccionado:
+  # subtítulos: primero forzados, luego completos:
   -map <sub_input>:<idx>? -metadata:s:s:<n> language=<lang> -metadata:s:s:<n> title=<"Forzados"|""> -disposition:s:<n> <default+forced|0> \
   # por cada adjunto conservado (si postprocess.attachments.keep):
   -map <orig>:<idx>? -metadata:s:t:<n> filename=<...> -metadata:s:t:<n> mimetype=<...> \
   -c:v copy -c:a copy [-c:s copy] [-c:t copy] -f matroska <name>_fix.mkv
 ```
 
-**Subtítulos:** se mantiene el completo + los forzados del idioma preferido; el título de la pista se pone a `Forzados` en las forzadas y en blanco en las completas. El `disposition` de cada subtítulo se compone con `default` y/o `forced`: el `forced` se toma de si la pista es forzada y el `default` **se conserva del original** (un forzado que ya era "pista predefinida" lo sigue siendo). La selección la hace `Select-Subtitles`/`ConvertTo-SubSel` en [Subtitle.psm1](../lib/Subtitle.psm1).
+**Subtítulos:** del idioma preferido se conservan **todos**, clasificados en **forzado** y **completo** (por flag/título o por tamaño de cues; ver [ref-perfiles.md](ref-perfiles.md)). El **forzado** → título `Forzados` y disposition `default+forced`; el **completo** → título en blanco y **sin** disposition (`0`, ni default ni forced). Orden: forzados antes que completos. Si ninguno es del idioma preferido, se pregunta cuáles conservar. La lógica está en `Select-Subtitles`/`Split-CvSubtitlesByRole`/`ConvertTo-SubSel` en [Subtitle.psm1](../lib/Subtitle.psm1).
+
+**Capítulos:** se conservan del original con `-map_chapters <in>` (en modo copy el input 0 ya es el original; al recodificar, el intermedio se creó con `-map_chapters -1`, así que se toman del input del original).
 
 ### Limpieza de metadatos (evitar "Etiquetas" que no están en el original)
 
@@ -257,7 +259,7 @@ Por eso, tras multiplexar, se pasa **mkvpropedit** (de MKVToolNix), que borra la
 mkvpropedit <name>_fix.mkv --tags all:
 ```
 
-Es opcional (`postprocess.stripTags`) y usa el `mkvpropedit` de `tools\mkvtoolnix\<ver>\<plataforma>` (auto-descargado) o el que se indique en `postprocess.mkvpropedit`. Ver [herramientas.md](herramientas.md) y [configuracion.md](configuracion.md).
+Es opcional (`postprocess.stripTags`) y usa el `mkvpropedit` de `tools\mkvtoolnix\<ver>\<plataforma>` (auto-descargado) o el que se indique en `postprocess.mkvpropedit`. Ver [ref-herramientas.md](ref-herramientas.md) y [ref-configuracion.md](ref-configuracion.md).
 
 ---
 

@@ -61,8 +61,8 @@ $expect = [ordered]@{
     'entrada-contenedor-mp4-1080p.mp4'       = @{ subCount=0; forcedDefault=$false; audioMin=1; note='contenedor MP4' }
     # Fixtures multipista (seleccion de audio/subtitulos).
     'subs-forzado-predefinido.mkv'           = @{ subCount=1; forcedDefault=$true;  audioMin=1; note='forzado+predefinido conserva default' }
-    'audio-y-subs-multiidioma.mkv'           = @{ subCount=2; forcedDefault=$false; audioMin=1; note='elige spa; completo+forzado' }
-    'subs-varios-completos-espanol-menu.mkv' = @{ subCount=2; forcedDefault=$false; audioMin=1; note='completo[0]+forzado (menu omitido)' }
+    'audio-y-subs-multiidioma.mkv'           = @{ subCount=2; forcedDefault=$true;  audioMin=1; note='spa: forzado (1o) + completo' }
+    'subs-varios-completos-espanol-menu.mkv' = @{ subCount=3; forcedDefault=$true;  audioMin=1; note='spa: forzado (1o) + 2 completos (se conservan todos)' }
     'audio-espanol-estereo-y-51.mkv'         = @{ subCount=0; forcedDefault=$false; audioMin=1; note='audio spa 5.1 seleccionado' }
     'audio-sin-espanol-fallback.mkv'         = @{ subCount=0; forcedDefault=$false; audioMin=1; note='sin spa -> audio default' }
     'subs-sin-espanol-descartar.mkv'         = @{ subCount=0; forcedDefault=$false; audioMin=1; note='subs no preferidos -> ninguno' }
@@ -121,15 +121,17 @@ try {
         $aIdx  = if ($aSel) { $aSel.Index } else { 0 }
         $expectAudioLang[$fx] = $(if ($aSel -and $aSel.Language) { "$($aSel.Language)" } else { 'und' })
 
-        # Subtitulos: misma logica que Select-Subtitles pero sin menu (completo[0] + forzados),
-        # usando las funciones reales (ConvertTo-SubSel conserva el 'default' original del forzado).
+        # Subtitulos: usa la clasificacion REAL (Split-CvSubtitlesByRole) del idioma preferido y
+        # conserva TODOS - forzados primero (default+forced), completos despues (sin flags). El
+        # fallback interactivo (sin subs del idioma) no se ejercita aqui (se prueba por stdin).
         $subSel = @()
         $subs = @(Get-SubtitleStreams -Info $info)
         $pref = @($subs | Where-Object { Test-CvLanguage (Get-Tag $_ 'language') $ctx.SubLangs })
-        $full = @($pref | Where-Object { -not (Test-SubForced $_) })
-        $forc = @($pref | Where-Object { Test-SubForced $_ })
-        if ($full.Count -ge 1) { $subSel += (ConvertTo-SubSel $full[0] -Default $true) }
-        foreach ($fs in $forc) { $subSel += (ConvertTo-SubSel $fs) }
+        if ($pref.Count -gt 0) {
+            $roles = Split-CvSubtitlesByRole -Context $ctx -Info $info -Subs $pref
+            foreach ($fs in @($roles.Forced))   { $subSel += (ConvertTo-SubSel $fs -Forced $true  -Default $true) }
+            foreach ($cs in @($roles.Complete)) { $subSel += (ConvertTo-SubSel $cs -Forced $false -Default $false) }
+        }
 
         $vSkip = ($prof.VideoEncoder -eq 'copy')
         $vSel  = Get-VideoStream -Info $info

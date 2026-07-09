@@ -4,7 +4,7 @@ Se carga al arrancar (`Get-CvConfig`) y se **fusiona en profundidad** con los va
 
 Por eso el `config.json` distribuido es **mínimo**: solo lleva lo que se **sobrescribe** respecto a los defaults (p. ej. la versión de ffmpeg, el idioma de audio o el tamaño de ventana). Todo lo demás —incluido el catálogo completo de `downloads` (`ffmpeg`, `aacgain`, `sevenzip`, `mkvtoolnix`) y la sección `postprocess`— sale de los defaults. Un `config.json` vacío (`{}`) también es válido.
 
-La forma cómoda de editarlo es `setup.cmd` → **Editar configuración** (ver [herramientas.md](herramientas.md)), que carga el config **fusionado** (así ves y editas TODAS las opciones aunque el fichero sea mínimo) pero al guardar aplica **solo los valores que cambiaste** sobre el `config.json` actual, sin reescribir el resto: un fichero mínimo sigue mínimo (+ lo editado) y uno completo sigue completo. Para (re)generar un `config.json` **completo** con todos los valores por defecto, usa **Restablecer config.json**.
+La forma cómoda de editarlo es `setup.cmd` → **Editar configuración** (ver [ref-herramientas.md](ref-herramientas.md)), que carga el config **fusionado** (así ves y editas TODAS las opciones aunque el fichero sea mínimo) pero al guardar aplica **solo los valores que cambiaste** sobre el `config.json` actual, sin reescribir el resto: un fichero mínimo sigue mínimo (+ lo editado) y uno completo sigue completo. Para (re)generar un `config.json` **completo** con todos los valores por defecto, usa **Restablecer config.json**.
 
 Carga (arranque) y edición (setup):
 
@@ -46,7 +46,7 @@ Esquema completo (tras la fusión con los defaults):
 
 ## `downloads` — catálogo de herramientas
 
-Una entrada por app. Ver el sistema completo en [herramientas.md](herramientas.md).
+Una entrada por app. Ver el sistema completo en [ref-herramientas.md](ref-herramientas.md).
 
 | Clave | Ejemplo | Significado |
 |---|---|---|
@@ -82,11 +82,15 @@ Se **canonicalizan** las variantes (`Get-CvLangCanon`): `es`, `es-ES`, `es_es`, 
 
 ## `border`
 
+Detección de bordes negros con `cropdetect` en varios puntos del vídeo. Cómo se reparten los puntos, se votan los recortes y se decide auto-aceptar o preguntar (con matriz de decisión) en [explica-deteccion-bordes.md](explica-deteccion-bordes.md).
+
 | Clave | Ejemplo | Uso |
 |---|---|---|
 | `start` | `120` | Segundo donde empieza el muestreo de `cropdetect` (primer punto). Si el vídeo es más corto, se ajusta solo a ~10% de su duración. |
-| `duration` | `120` | Presupuesto **total** (s) de escaneo; se reparte entre los `samples` puntos. |
-| `samples` | `3` | Nº de puntos repartidos del vídeo donde se escanean bordes (`1` = solo al inicio, clásico). Con 2+, si los puntos discrepan se avisa y se ofrece un menú de recortes ordenado por votos. |
+| `duration` | `120` | Segundos que escanea **cada** punto (no es un total: con `samples=9` son 9 escaneos de `duration` s cada uno). |
+| `samples` | `9` | Nº de puntos repartidos del vídeo donde se escanean bordes (`1` = solo al inicio, clásico). Cuantos más puntos, más fiable la detección (p. ej. si los créditos iniciales o una escena oscura tienen distinto encuadre); cada punto mantiene su ventana de `duration` s, así que subir `samples` **aumenta el tiempo total** de análisis (N × `duration`). |
+| `autoAcceptPct` | `60` | % de votos que debe alcanzar el recorte **más votado** (sobre los puntos que detectaron borde) para **aceptarse automáticamente**, descartando los atípicos (p. ej. una escena oscura con otro encuadre). Si el más votado llega a ese % **y** cumple `autoAcceptMinMargin`, se usa sin preguntar (preview + confirmar); si no, se muestra el menú de recortes por votos para elegir a mano. `100` = exigir unanimidad. Detalle y matriz de decisión: [explica-deteccion-bordes.md](explica-deteccion-bordes.md). |
+| `autoAcceptMinMargin` | `2` | Margen mínimo de votos del más votado sobre el segundo para auto-aceptar (**además** del %). Evita auto-aceptar con evidencia débil cuando hay pocas muestras: `2/3` = 67% pero solo `+1` de margen → pregunta; `6/9` = 67% con `+3` → auto. `0` = solo cuenta el %. Detalle y matriz de decisión: [explica-deteccion-bordes.md](explica-deteccion-bordes.md). |
 
 ## `preview`
 
@@ -103,7 +107,7 @@ Reproducción con ffplay en PREPARAR (previews de **pista de audio**, **pista de
 
 | Clave | Valores | Uso |
 |---|---|---|
-| `method` | `peak` / `loudnorm` / `aacgain` | Método de normalización (ver "Audio" en [comandos.md](comandos.md)). |
+| `method` | `peak` / `loudnorm` / `aacgain` | Método de normalización (ver "Audio" en [ref-comandos.md](ref-comandos.md)). |
 | `peakTarget` | `0` | Pico objetivo (dBFS) del método `peak`: `0` = máximo sin recorte; `-1` deja margen (*headroom*) contra el clipping inter-sample del AAC. Solo amplifica (si el pico ya supera el objetivo, no atenúa). Se limita a ≤ 0. |
 | `loudnorm.I` | ej. `-16` | Integrated loudness (LUFS) — solo `loudnorm`. |
 | `loudnorm.TP` | ej. `-1.5` | True peak (dBTP). |
@@ -111,7 +115,7 @@ Reproducción con ffplay en PREPARAR (previews de **pista de audio**, **pista de
 
 ## `postprocess`
 
-Limpieza del MKV final tras multiplexar (ver "Tag DURATION y limpieza con mkvpropedit" en [comandos.md](comandos.md)).
+Limpieza del MKV final tras multiplexar (ver "Tag DURATION y limpieza con mkvpropedit" en [ref-comandos.md](ref-comandos.md)).
 
 | Clave | Def. | Uso |
 |---|---|---|
@@ -136,6 +140,21 @@ Limpieza del MKV final tras multiplexar (ver "Tag DURATION y limpieza con mkvpro
 | `asciiMarks` | `false` | Usa marcas ASCII (`[OK]`/`[ERROR]`) y corchetes `[ ]` en los avisos, en vez de los símbolos `✓`/`✗` y el badge `▐ … ▌`. Útil si la consola/fuente no tiene esos glifos (se verían como cuadros). | — |
 
 Los marcadores son ficheros vacíos en la raíz del proyecto que fuerzan el comportamiento sin editar el JSON.
+
+## `test` — modo pruebas
+
+Codifica solo un tramo del principio de cada archivo, para validar un perfil/ajuste **rápido** sin procesar el vídeo entero.
+
+| Clave | Def. | Uso | Marcador equivalente |
+|---|---|---|---|
+| `enabled` | `false` | Activa el modo pruebas: codifica solo los **primeros `minutes` minutos** de cada archivo (el resto se descarta). Se avisa al arrancar y en el resumen (la salida es un **recorte**, no el archivo completo). Funciona con todos los perfiles, incluido `copy` (recorta también el vídeo copiado del original y los subtítulos/capítulos al mismo tramo). | `test_on` |
+| `minutes` | `5` | Minutos que se codifican por archivo cuando `enabled` está activo (mínimo 1). | — |
+
+Se aplica con `-t` en la codificación de vídeo, en la de audio (incluidos el wav de sincronía y la medición de pico) y en el multiplex final. `TestLimit` (segundos) en el contexto.
+
+Con el modo activo, antes de procesar cada archivo se imprime un **resumen del origen** (`Write-SourceSummary`) con toda la info de sus pistas: vídeo (resolución/codec/fps), **todas** las de audio (codec/canales/idioma/título), **todas** las de subtítulo (tipo/idioma/forzado/default/nº de cues/título) y nº de capítulos.
+
+En el **resumen de conversión** (al terminar), la duración es la del fichero **generado**; en modo pruebas se indica también la del origen entre paréntesis (`Duracion: 0:05:00 (origen 0:56:19)`), para que quede claro que la salida es un recorte. La resolución del vídeo solo aparece a ambos lados (`origen -> destino`) cuando cambia por un resize; si no cambia, se muestra una sola vez.
 
 ## `console`
 
@@ -181,7 +200,7 @@ Array **opcional** de perfiles que se **añaden** a los 7 de serie en el menú *
 | `changeSize` | `"1920:-1"` | `scale=` (altura `-1` = auto). |
 | `audioEncoder` / `audioBitrate` / `audioHz` | `"aac_coder"` / `"192k"` / `44100` | Audio. |
 
-Se editan **a mano** en el JSON (el editor navegable de `setup` los muestra pero remite a este documento, para no corromper el array de objetos). Ver [perfiles.md](perfiles.md).
+Se editan **a mano** en el JSON (el editor navegable de `setup` los muestra pero remite a este documento, para no corromper el array de objetos). Ver [ref-perfiles.md](ref-perfiles.md).
 
 ## Fichero de config alternativo (`-Config`)
 
