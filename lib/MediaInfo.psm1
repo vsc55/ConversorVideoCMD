@@ -129,13 +129,12 @@ function Get-SubtitleStreamPos {
 function Get-DurationText {
     <# Duracion formateada H:MM:SS a partir de format.duration (segundos). #>
     param([Parameter(Mandatory)]$Info)
-    $sec = $null
-    if ($Info.PSObject.Properties['format'] -and $Info.format.PSObject.Properties['duration']) {
-        $sec = ConvertTo-InvDouble $Info.format.duration
-    }
-    if ($null -eq $sec) { return '?' }
+    $sec = Get-MediaDuration $Info
+    if ($sec -le 0) { return '?' }
     $ts = [TimeSpan]::FromSeconds([math]::Floor($sec))
-    return ('{0}:{1:00}:{2:00}' -f [int]$ts.TotalHours, $ts.Minutes, $ts.Seconds)
+    # OJO: [int] REDONDEA en PowerShell (0.9 h -> 1); hay que TRUNCAR las horas totales
+    # (ej. 53:56 = 0.899 h) con [math]::Floor, si no un video de <1h saldria como "1:MM:SS".
+    return ('{0}:{1:00}:{2:00}' -f [int][math]::Floor($ts.TotalHours), $ts.Minutes, $ts.Seconds)
 }
 
 function Write-ConversionSummary {

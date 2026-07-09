@@ -5,7 +5,7 @@
 
 function Get-CvVersion {
     <# Version del proyecto (fuente unica; la usan Convert.ps1 y setup.ps1). #>
-    '4.2'
+    '4.2.1'
 }
 
 function Get-CvWorkDirs {

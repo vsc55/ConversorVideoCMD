@@ -1,5 +1,11 @@
 # CHANGELOG
 
+## VERSION 4.2.1 - 09/07/2026
+### FIX
+  - Duración mal formateada en vídeos de menos de 1 hora: `Get-DurationText` usaba `[int]$ts.TotalHours`, pero en PowerShell `[int]` **redondea** (0,9 h → 1), así que un vídeo de 53:56 (0,899 h) se mostraba como `1:53:56`. Ahora se trunca con `[math]::Floor`. Verificado (53:56 → `0:53:56`; 59:59 → `0:59:59`, antes `1:00:59`).
+
+---
+
 ## VERSION 4.2 - 08/07/2026
 ### NEW
   - PICO OBJETIVO DE LA NORMALIZACION `peak` CONFIGURABLE (`volume.peakTarget`, POR DEFECTO `0` dBFS): CON `-1` SE DEJA MARGEN (*HEADROOM*) CONTRA EL CLIPPING INTER-SAMPLE DEL AAC. SOLO AMPLIFICA (SI EL PICO YA SUPERA EL OBJETIVO NO ATENUA) Y SE LIMITA A <= 0. `PeakTarget` EN EL CONTEXTO; VERIFICADO E2E (CON `-1`, EL PICO DE SALIDA MEDIDO ES -1.0 dB).
