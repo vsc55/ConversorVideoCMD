@@ -110,7 +110,10 @@ function Get-CvConfigDefaults {
         # multipass: 2-pass de NVENC (solo hevc_nvenc/h264_nvenc). 'off' (por defecto) | 'qres'
         #   (1a pasada a 1/4 de resolucion) | 'fullres' (a resolucion completa). Mas calidad a costa
         #   de mas tiempo de GPU. No afecta a los encoders de CPU (libx264/libx265).
-        encode    = [ordered]@{ outputExtension = 'mkv'; extensions = @('avi','flv','mp4','mov','mkv'); threads = 0; fps = '23.976'; forceFps = $true; multipass = 'off'; audioHz = 44100; audioChannels = 2 }
+        # tonemapHdr: convierte el HDR (BT.2020/PQ o HLG) a SDR BT.709 al recodificar, para que no se
+        #   vea "lavado" al reproducir en SDR. 'auto' (por defecto) = solo actua si el origen es HDR;
+        #   'off' = nunca (deja el video como esta). Usa el filtro libplacebo en la GPU (Vulkan).
+        encode    = [ordered]@{ outputExtension = 'mkv'; extensions = @('avi','flv','mp4','mov','mkv'); threads = 0; fps = '23.976'; forceFps = $true; multipass = 'off'; tonemapHdr = 'auto'; audioHz = 44100; audioChannels = 2 }
         # customProfile: valores por DEFECTO del constructor de perfil CUSTOM interactivo (opcion 0
         #   del menu USAR PERFIL). En cada menu, ENTER acepta el valor por defecto (o eliges otro).
         #   videoEncoder: libx264|h264_nvenc|libx265|hevc_nvenc|copy. videoProfile: main|main10|...
@@ -128,7 +131,13 @@ function Get-CvConfigDefaults {
         #  - autoAcceptMinMargin: ADEMAS del %, el mas votado debe superar al 2o por al menos estos
         #    votos. Evita auto-aceptar con evidencia debil cuando hay pocas muestras (2/3 = 67% pero
         #    solo 1 de margen -> pregunta; 6/9 = 67% con 3+ de margen -> auto). 0 = sin margen.
-        border    = [ordered]@{ start = 120; duration = 120; samples = 9; autoAcceptPct = 60; autoAcceptMinMargin = 2 }
+        #  - autoSamples/autoDuration: puntos y segundos del PRE-ESCANEO del modo 'auto' del perfil
+        #    (DetectBorder='auto'), mas ligero que el escaneo normal (pocos puntos y cortos). OJO: el
+        #    escaneo aplica un minimo de 5 s por punto (cropdetect necesita estabilizarse), asi que
+        #    autoDuration < 5 se trata como 5. minCropPct: reduccion minima (%) para considerar que
+        #    hay barras de verdad (por debajo = ruido de borde -> no recorta). El modo 'auto' reusa
+        #    autoAcceptPct/autoAcceptMinMargin para el voto de mayoria.
+        border    = [ordered]@{ start = 120; duration = 120; samples = 9; autoAcceptPct = 60; autoAcceptMinMargin = 2; autoSamples = 3; autoDuration = 5; minCropPct = 2 }
         # Previsualizacion con ffplay (audio/video/bordes en PREPARAR): desde que segundo empieza
         # y cuantos dura la muestra. Util para buscar dialogo y saber el idioma de una pista.
         preview   = [ordered]@{ start = 120; seconds = 30 }
@@ -159,7 +168,7 @@ function Get-CvConfigDefaults {
         # Perfiles de codificacion PROPIOS: se ANADEN a los 7 de serie en el menu USAR PERFIL
         # (no los sustituyen). Cada objeto admite: label, videoEncoder, videoProfile, videoLevel,
         # qmin, qmax, crf, detectBorder, changeSize, audioEncoder, audioCodec, audioBitrate, audioHz.
-        # Ejemplo: { "label":"Anime 1080p", "videoEncoder":"libx265", "crf":18, "changeSize":"1920:-1" }
+        # Ejemplo: { "label":"Anime 1080p", "videoEncoder":"libx265", "crf":18, "changeSize":"1920:-2" }
         profiles  = @()
     }
 }

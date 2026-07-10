@@ -9,15 +9,17 @@ Documentación técnica y detallada del conversor. Para la visión general y la 
 | [ref-arquitectura.md](ref-arquitectura.md) | Estructura de ficheros, módulos, el contexto (`$ctx`), y las "fuentes únicas de verdad". |
 | [ref-flujo.md](ref-flujo.md) | Cómo trabaja: clasificar → preparar → worker. Diagramas, locks, paralelismo, regla del prefijo `_`. |
 | [ref-comandos.md](ref-comandos.md) | **Los comandos exactos** de ffmpeg/ffprobe/ffplay/aacgain que se lanzan en cada fase. |
-| [ref-perfiles.md](ref-perfiles.md) | Perfiles de codificación 1–7, los propios de `config.json` (sección `profiles`), el perfil custom y las preguntas por archivo (vídeo/audio/subs/bordes). |
+| [ref-perfiles.md](ref-perfiles.md) | Perfiles de codificación de serie, los propios de `config.json` (sección `profiles`), el perfil custom y las preguntas por archivo (vídeo/audio/subs/bordes). |
 | [ref-configuracion.md](ref-configuracion.md) | Referencia completa de `config.json` (todas las secciones y claves). |
 | [ref-herramientas.md](ref-herramientas.md) | Sistema de herramientas versionadas (`tools\<app>\<version>\<plataforma>`), descargas, plataforma y `setup.ps1`. |
 | [ref-jobs.md](ref-jobs.md) | Formato del `.job.json`, el lock atómico y los ficheros temporales. |
 | [ref-pruebas.md](ref-pruebas.md) | Muestras de test (`test\`): qué prueba cada una, resultado esperado, cómo regenerarlas y las fuentes/licencias. |
 | [explica-audio.md](explica-audio.md) | Selección de la pista de audio (mejor por canales/códec/bitrate) con diagramas, y comparativa de tiempo de los métodos de volumen (peak/loudnorm/aacgain). |
 | [explica-control-tasa.md](explica-control-tasa.md) | Qué son **CRF**, **QMIN/QMAX** y **QP**, para qué sirven, cómo se traducen a ffmpeg y cómo elegir valores (escala 0–51). |
+| [explica-tonemap-hdr.md](explica-tonemap-hdr.md) | Por qué un **4K HDR** se ve "lavado" al pasarlo a SDR y cómo el conversor lo **tone-mapea** a BT.709 (detección `Test-CvHdr`, filtro `libplacebo` en GPU, clave `encode.tonemapHdr`). |
 | [explica-deteccion-bordes.md](explica-deteccion-bordes.md) | Detección de bordes negros: escaneo `cropdetect` multipunto, reparto por el vídeo, y la auto-aceptación por votos (% + margen) con matriz de decisión. |
 | [caso-rendimiento-subtitulos.md](caso-rendimiento-subtitulos.md) | Nota técnica: diagnóstico de la lentitud de PREPARAR con subtítulos (conteo de cues vía tag `NUMBER_OF_FRAMES` en vez de demultiplexar), cómo se localizó y la mejora medida. |
+| [ref-gotchas.md](ref-gotchas.md) | **Trampas y cosas a tener en cuenta**: fallos reales ya corregidos y reglas para no repetirlos (PowerShell tipos/números, ffmpeg/códecs, NVENC/GPU, verificación). Revisar antes de tocar esas áreas. |
 
 ## Convención de nombres
 

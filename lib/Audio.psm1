@@ -223,7 +223,7 @@ function Invoke-AudioAsk {
         # Indentado bajo la linea del archivo (y linea en blanco despues) para agrupar la
         # pregunta interactiva con su archivo en el listado compacto de PREPARAR.
         Write-CvLog 'AUDIO' ("[SYNC] - El audio empieza {0}s mas tarde que el video" -f $delay) -Indent 3
-        $ans = (Read-Host ("   [VIDEO] - [SYNC] - Silencio a anadir al inicio en seg [{0}] (ENTER=usar / 0=ninguno)" -f $delay)).Trim()
+        $ans = (Read-Host ("   [AUDIO] - [SYNC] - Silencio a anadir al inicio en seg [{0}] (ENTER=usar / 0=ninguno)" -f $delay)).Trim()
         $res.Manual = $true   # se pregunto por el silencio de sincronia (intervencion manual)
         if ($ans -eq '') { $res.Sync = $delay }
         else {

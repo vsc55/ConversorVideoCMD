@@ -48,13 +48,13 @@ $expectedVCodec = @{ hevc_nvenc='hevc'; libx265='hevc'; h264_nvenc='h264'; libx2
 #   subCount     : nº de subtitulos esperados en la salida
 #   forcedDefault: si el (unico) subtitulo debe salir forced=1 default=1
 #   audioMin     : nº minimo de pistas de audio esperadas
-#   resize       : (opcional) escalado a aplicar en el job (p.ej. '1280:-1')
+#   resize       : (opcional) escalado a aplicar en el job (p.ej. '1280:-2')
 #   width        : (opcional) ancho esperado en la salida cuando hay resize
 $expect = [ordered]@{
     # Muestras base (variedad de entrada): recodifican video, 1 audio, 0 subtitulos.
     'video-1080p-basico.mp4'                 = @{ subCount=0; forcedDefault=$false; audioMin=1; note='base 1080p h264' }
     'video-1080p-60fps-audio51-und.mp4'      = @{ subCount=0; forcedDefault=$false; audioMin=1; note='60 fps + audio 5.1' }
-    'video-4k-2160p-resize.mp4'              = @{ subCount=0; forcedDefault=$false; audioMin=1; resize='1280:-1'; width=1280; note='RESIZE 4K -> 1280 de ancho' }
+    'video-4k-2160p-resize.mp4'              = @{ subCount=0; forcedDefault=$false; audioMin=1; resize='1280:-2'; width=1280; note='RESIZE 4K -> 1280 de ancho' }
     'entrada-codec-h265.mp4'                 = @{ subCount=0; forcedDefault=$false; audioMin=1; note='entrada HEVC' }
     'entrada-codec-vp9.mp4'                  = @{ subCount=0; forcedDefault=$false; audioMin=1; note='entrada VP9' }
     'entrada-contenedor-avi-720p.avi'        = @{ subCount=0; forcedDefault=$false; audioMin=1; note='contenedor AVI' }

@@ -4,7 +4,29 @@ Cómo el conversor detecta y recorta las barras negras (letterbox/pillarbox), po
 
 ## Cuándo se activa
 
-La detección de bordes se ejecuta en PREPARAR cuando **el perfil la activa** (`detectBorder`) o el nombre del archivo **empieza por `_`**. Si no, se codifica sin recorte.
+La detección de bordes se ejecuta en PREPARAR según el campo **`detectBorder`** del perfil (o si el nombre del archivo **empieza por `_`**, que fuerza el modo interactivo):
+
+- **`false`** — nunca; se codifica sin recorte.
+- **`true`** — **siempre, interactivo**: escaneo completo (`border.samples` puntos × `border.duration` s), con preview y confirmación. **Antes de escanear pregunta el nº de muestras** (por defecto `border.samples`, editable); útil para hacerlo más rápido o más fiable puntualmente. Al reescanear (`R`) se puede volver a cambiar.
+- **`'auto'`** — **decide solo** con un pre-escaneo rápido (ver abajo).
+
+## Modo `auto` (decidir si recortar sin preguntar)
+
+Pensado para no tener que saber de antemano si un vídeo tiene barras. Hace un **pre-escaneo ligero** (`border.autoSamples` puntos × `border.autoDuration` s — mucho menos que el escaneo completo) y decide:
+
+1. **Tolerancia (¿es ruido o barra real?)** — `cropdetect` casi siempre recorta unos pocos píxeles de borde aunque no haya barras (p. ej. `3824:1600` sobre `3832:1600` = 0,2%). Solo se considera que **hay barras** si el recorte más votado reduce **≥ `border.minCropPct`%** (def. 2). Por debajo → **no recorta**.
+2. **Consistencia (¿son barras de verdad?)** — unas barras reales son **constantes**: el **mismo** recorte significativo aparece en varios puntos. Un recorte que solo sale en **un** punto es ruido (una escena oscura o un plano con formato distinto da un recorte disparatado, p. ej. `336:752` o `2304:1600`). Así que se filtra: se descartan los near-full (paso 1) y, de los significativos, se mira el más votado.
+
+Resultado (sobre los puntos del pre-escaneo):
+
+| Situación | Acción |
+|---|---|
+| Todos los recortes near-full / despreciables (< `minCropPct`%) | **No recorta** (sin preguntar) |
+| Ningún recorte significativo se repite (todos 1 voto, dispersos) | **No recorta** — es ruido, no barras |
+| Un recorte significativo con **mayoría fiable** (`autoAcceptPct` + `autoAcceptMinMargin`, o unánime) | **Aplica el recorte** (sin preguntar) |
+| Un recorte significativo **repetido** (≥2 puntos) pero sin mayoría fiable | **Pasa al modo interactivo** (menú por votos) |
+
+Así, en la práctica: los vídeos **sin barras** (incluidos los scope nativos donde cropdetect da recortes dispersos por escenas oscuras) y los que las tienen **claras** se resuelven **sin intervención**; solo los que tienen barras dudosas (acuerdo parcial) preguntan.
 
 ## Cómo funciona
 
@@ -75,6 +97,8 @@ flowchart TD
 | `samples` | `9` | Nº de puntos repartidos por el vídeo (`1` = escaneo único clásico). |
 | `autoAcceptPct` | `60` | % de votos del más votado para auto-aceptar. `100` = exigir unanimidad. |
 | `autoAcceptMinMargin` | `2` | Margen mínimo de votos sobre el 2º (además del %). `0` = solo cuenta el %. |
+| `autoSamples` / `autoDuration` | `3` / `5` | Pre-escaneo del modo `'auto'`: puntos y segundos por punto (mín. 5 s/punto por el escáner). |
+| `minCropPct` | `2` | Reducción mínima (% de ancho/alto) para que el modo `'auto'` tome el recorte como barras reales; por debajo lo ignora (ruido de borde). |
 
 Ejemplos de configuración:
 

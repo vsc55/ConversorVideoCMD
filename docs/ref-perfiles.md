@@ -7,7 +7,7 @@ Flujo de selección (`Select-Profile`):
 ```mermaid
 flowchart TD
     M["Menú USAR PERFIL"] --> S{"opción"}
-    S -- "1–7" --> B["Perfil de serie"]
+    S -- "de serie" --> B["Perfil de serie"]
     S -- "8, 9, … (si hay)" --> C["Perfil propio de config.json (profiles)"]
     S -- "0" --> CU["Custom interactivo (New-CustomProfile)"]
     S -- "X" --> Q["Salir (cierre limpio)"]
@@ -21,34 +21,42 @@ flowchart TD
 
 Menú (`Select-Profile`):
 
+La numeración (1..N) se **genera sola** a partir de los grupos de `Get-CvProfiles`; los grupos se separan con una línea en blanco en el menú. Estado actual:
+
 | # | Audio | Vídeo | Detección bordes | Resize |
 |---|---|---|---|---|
 | **1** | 192k AAC | `copy` (no recodifica vídeo) | — | — |
 | **2** | 192k AAC | hevc_nvenc, main10, L5, Q 1–23 | no | no |
-| **3** | 192k AAC | hevc_nvenc, main10, L5, Q 1–23 | **sí** | no |
-| **4** | 192k AAC | hevc_nvenc, main10, L5, Q auto | no | no |
-| **5** | 192k AAC | hevc_nvenc, main10, L5, Q auto | **sí** | no |
-| **6** | 192k AAC | hevc_nvenc, main10, L5, Q 1–23 | no | **1920:-1** |
-| **7** | 192k AAC | h264_nvenc, L5, Q 1–23 | no | no |
-| **8, 9, …** | — | **Perfiles propios de `config.json`** (si hay) | — | — |
+| **3** | 192k AAC | hevc_nvenc, main10, L5, Q 1–23 | **sí** (interactivo) | no |
+| **4** | 192k AAC | hevc_nvenc, main10, L5, Q 1–23 | **auto** | no |
+| **5** | 192k AAC | hevc_nvenc, main10, L5, Q 1–23 | no | **≤1920 ancho** (solo si es mayor) |
+| **6** | 192k AAC | hevc_nvenc, main10, L5, Q 1–23 | **sí** | **≤1920 ancho** (solo si es mayor) |
+| **7** | 192k AAC | hevc_nvenc, main10, L5, Q 1–23 | **auto** | **≤1920 ancho** (solo si es mayor) |
+| **8** | 192k AAC | hevc_nvenc, main10, L5, Q 1–23 | no | **1920:-2** (escala siempre) |
+| **9** | 192k AAC | hevc_nvenc, main10, L5, Q auto | no | no |
+| **10** | 192k AAC | hevc_nvenc, main10, L5, Q auto | **sí** | no |
+| **11** | 192k AAC | h264_nvenc, L5, Q 1–23 | no | no |
+| **12, 13, …** | — | **Perfiles propios de `config.json`** (si hay) | — | — |
 | **0** | — | **Custom** (interactivo) | — | — |
 
 - "Q 1–23" = `-qmin 1 -qmax 23`. "Q auto" = sin `qmin`/`qmax` (el encoder decide).
+- **Detección de bordes**: **sí** = escaneo completo con preguntas/preview (antes de escanear te pregunta el nº de muestras, por defecto `border.samples`). **auto** = pre-escaneo rápido que decide solo si hay barras: si son claras las recorta sin preguntar, si no hay las ignora, y si es ambiguo pasa al modo interactivo. Detalle en [explica-deteccion-bordes.md](explica-deteccion-bordes.md).
+- **Resize ≤1920 ancho** (`maxWidth`): reduce a 1920 de ancho **solo si el vídeo es mayor**; no amplía. **1920:-2** (`changeSize`): escala **siempre** al ancho dado (la altura `-2` se calcula automática y **par**). El nº de menú es orientativo (se autogenera): si añades/quitas perfiles, cambia.
 - Todos usan encoder NVENC (GPU) salvo el 1 (copy). Para CPU (libx264/libx265), usar el custom.
 
 ## Perfiles propios en `config.json`
 
-La sección `profiles` de `config.json` permite definir perfiles **adicionales** que se **añaden** a los 7 de serie (no los sustituyen), numerados a partir del **8** en el menú *USAR PERFIL*. Es un **array de objetos**; cada objeto usa los mismos campos que un perfil (en `camelCase`), todos opcionales:
+La sección `profiles` de `config.json` permite definir perfiles **adicionales** que se **añaden** a los de serie (no los sustituyen), numerados **a continuación** de ellos en el menú *USAR PERFIL*. Es un **array de objetos**; cada objeto usa los mismos campos que un perfil (en `camelCase`), todos opcionales:
 
 ```json
 "profiles": [
-  { "label": "Anime 1080p", "videoEncoder": "libx265", "crf": 18, "changeSize": "1920:-1" },
+  { "label": "Anime 1080p", "videoEncoder": "libx265", "crf": 18, "changeSize": "1920:-2" },
   { "videoEncoder": "hevc_nvenc", "videoProfile": "main10", "videoLevel": "5", "qmin": 1, "qmax": 20, "detectBorder": true }
 ]
 ```
 
-- `label` (opcional): texto que se muestra en el menú. Si se omite, se genera un resumen automático a partir de sus valores (p. ej. `A: 192K, V: h265[NV]/M10/L5/Q(1-20)/DETECT BORDE`). Es la **misma** función (`Format-CvProfileLabel`) que genera las etiquetas de los 7 perfiles de serie en el menú, así que no hay una lista de texto duplicada que mantener.
-- El resto de campos son los de la tabla de abajo pero en `camelCase`: `videoEncoder`, `videoProfile`, `videoLevel`, `qmin`, `qmax`, `crf`, `detectBorder`, `changeSize`, `multipass`, `audioEncoder`, `audioCodec`, `audioBitrate`, `audioHz`.
+- `label` (opcional): texto que se muestra en el menú. Si se omite, se genera un resumen automático a partir de sus valores (p. ej. `A: 192K, V: h265[NV]/M10/L5/Q(1-20)/DETECT BORDE`). Es la **misma** función (`Format-CvProfileLabel`) que genera las etiquetas de los perfiles de serie en el menú, así que no hay una lista de texto duplicada que mantener.
+- El resto de campos son los de la tabla de abajo pero en `camelCase`: `videoEncoder`, `videoProfile`, `videoLevel`, `qmin`, `qmax`, `crf`, `detectBorder`, `changeSize`, `maxWidth`, `multipass`, `audioEncoder`, `audioCodec`, `audioBitrate`, `audioHz`.
 - Se editan **a mano** en el JSON (el editor navegable de `setup` los muestra pero remite aquí, para no corromper el array de objetos). Se cargan al arrancar (`$ctx.Profiles`) y se pasan a `Select-Profile -Extra`.
 
 ## Campos de un perfil
@@ -62,8 +70,9 @@ La sección `profiles` de `config.json` permite definir perfiles **adicionales**
 | `VideoLevel` | ej. `5`, `4.1`, `''` | `-level:v`. |
 | `Qmin`, `Qmax` | 0–51 / `null` | NVENC: `-qmin`/`-qmax`. Si `Qmin == Qmax` → `-rc constqp -qp`. Qué son y cómo elegirlos: [explica-control-tasa.md](explica-control-tasa.md). |
 | `Crf` | 0–51 / `null` | CPU (libx264/libx265): `-crf`. Qué es y cómo elegirlo: [explica-control-tasa.md](explica-control-tasa.md). |
-| `DetectBorder` | `true`/`false` | Activa la detección de bordes por archivo. |
-| `ChangeSize` | ej. `1920:-1`, `''` | `scale=` (altura `-1` = automático manteniendo aspecto). |
+| `DetectBorder` | `false` / `true` / `'auto'` | Detección de bordes por archivo. `false` = nunca; `true` = siempre (escaneo completo interactivo, pregunta nº de muestras y previsualiza); `'auto'` = pre-escaneo rápido que decide (recorta solo si hay barras claras, ignora si no, y escala al interactivo si es ambiguo). Ver [explica-deteccion-bordes.md](explica-deteccion-bordes.md). |
+| `ChangeSize` | ej. `1920:-2`, `''` | `scale=` (altura `-2` = automática manteniendo aspecto **y par**). Escala **siempre**, incluso amplía un vídeo más pequeño. Se usa `-2` y **no** `-1`: `-1` puede dar altura **impar** (más aún combinado con recorte de bordes) y 4:2:0 exige dimensiones pares → en **CPU** (libx264/libx265) abortaría; `-2` redondea a par. |
+| `MaxWidth` | ej. `1920`, `null` | Reescalado **solo hacia abajo**: reduce a ese ancho (manteniendo aspecto) **solo si el vídeo es más ancho**; si ya es ≤ ese valor, no lo toca (no amplía). Se decide en PREPARAR comparando el ancho de origen: si es mayor congela un `scale=<W>:-2`, si no, no reescala. Alternativa a `ChangeSize` (si se ponen ambos, manda `ChangeSize`). |
 | `Multipass` | `''`/`off`/`qres`/`fullres` | **NVENC**: 2-pass (`-multipass`). `''` = usa el global `encode.multipass`; `off`/`qres`/`fullres` lo fijan para este perfil (tienen prioridad sobre el global). Ignorado por los encoders de CPU. |
 | `AudioEncoder` | `aac_coder` / `copy` | Recodifica el audio o copia la pista original. |
 | `AudioCodec` | `aac` / `ac3` / `eac3` / `libmp3lame` / `flac` / `libopus` | Codec de salida al recodificar (`-c:a`). Por defecto `aac` (comportamiento previo). AAC va en un intermedio `.m4a`; el resto en `.mka`. FLAC ignora el bitrate (sin pérdida); Opus fuerza 48 kHz. Detalle en [explica-audio.md](explica-audio.md). |
@@ -81,7 +90,7 @@ Construcción interactiva:
 1. **Encoder de vídeo**: libx264 / h264_nvenc / libx265 / hevc_nvenc / copy.
 2. Si no es `copy`:
    - ¿Detectar bordes en cada archivo? (s/N)
-   - ¿Cambiar el tamaño? → menú de tamaños de referencia (360p…4K) o valor libre (`W:H`, altura `-1` = auto).
+   - ¿Cambiar el tamaño? → menú de tamaños de referencia (360p…4K) o valor libre (`W:H`, altura `-2` = auto y par; si solo das el ancho se completa con `:-2`).
    - **Perfil** y **Level** del codec (selectores; opciones distintas para H.264 vs H.265).
    - **Control de tasa**: CRF (CPU) o QMIN/QMAX (NVENC).
    - **2-pass NVENC (multipass)**: solo si el encoder es NVENC — `off` / `qres` / `fullres`.

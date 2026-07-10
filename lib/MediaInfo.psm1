@@ -42,6 +42,18 @@ function Get-VideoStream {
     @(Get-VideoStreams -Info $Info) | Select-Object -First 1
 }
 
+function Test-CvHdr {
+    <#
+        $true si la pista de video de $Info es HDR: su 'color_transfer' es PQ (smpte2084) o HLG
+        (arib-std-b67). Esos son los casos que, mostrados como SDR, se ven "lavados". Si se pasa
+        -Index, comprueba ESA pista (por indice absoluto); si no, la primera de video real.
+    #>
+    param([Parameter(Mandatory)]$Info, [int]$Index = -1)
+    $s = if ($Index -ge 0) { @($Info.streams | Where-Object { [int]$_.index -eq $Index })[0] } else { Get-VideoStream -Info $Info }
+    if (-not $s) { return $false }
+    return ("$($s.color_transfer)".ToLower() -in @('smpte2084','arib-std-b67'))
+}
+
 function Get-VideoStreamPos {
     <#
         Posicion 0-based de una pista (por su indice absoluto) entre TODAS las de codec_type=video
@@ -306,7 +318,8 @@ function Write-ConversionSummary {
         [Parameter(Mandatory)]$Info,
         [Parameter(Mandatory)][string]$Output,
         [TimeSpan]$Elapsed = [TimeSpan]::Zero,
-        $Prof = $null
+        $Prof = $null,
+        [int]$AudioIndex = -1   # indice absoluto de la pista de audio de ORIGEN elegida (para el resumen)
     )
     $name = [System.IO.Path]::GetFileName($File)
 
@@ -320,6 +333,13 @@ function Write-ConversionSummary {
     $vs      = Get-VideoStream -Info $Info
     $origRes = if ($vs) { Get-VideoSize -VideoStream $vs } else { '?' }
     $origVc  = if ($vs) { $vs.codec_name } else { '?' }
+
+    # Audio de ORIGEN: la pista elegida (por indice absoluto) o, si no se dio, la primera de audio.
+    $srcA = if ($AudioIndex -ge 0) { @($Info.streams | Where-Object { [int]$_.index -eq $AudioIndex })[0] } else { @($Info.streams | Where-Object { $_.codec_type -eq 'audio' })[0] }
+    $origAc  = if ($srcA) { $srcA.codec_name } else { '?' }
+    $origAch = if ($srcA) { "$($srcA.channels)ch" } else { '?' }
+    $origAbrBps = if ($srcA) { Get-CvAudioBitrate -Stream $srcA } else { $null }
+    $origAbr = if ($origAbrBps) { " {0}k" -f [math]::Round(([double]$origAbrBps) / 1000) } else { '' }
 
     $oInfo = Get-MediaInfo -Context $Context -File $Output
     $ov = $null; $oa = $null
@@ -370,7 +390,12 @@ function Write-ConversionSummary {
         } else {
             "{0} {1}  ->  {2} {3}" -f $origVc, $origRes, $outVc, $outRes
         })),
-        ("Audio   : {0} {1}{2}" -f $outAc, $outAch, $outAbr),
+        # Audio: origen -> destino (coherente con Video/Tamano). En modo copy no cambia -> una sola vez.
+        ("Audio   : {0}" -f $(if ("$($Prof.AudioEncoder)" -eq 'copy') {
+            "{0} {1}{2}" -f $outAc, $outAch, $outAbr
+        } else {
+            "{0} {1}{2}  ->  {3} {4}{5}" -f $origAc, $origAch, $origAbr, $outAc, $outAch, $outAbr
+        })),
         ("Subs    : {0}" -f $subTxt),
         ("Caps    : {0}" -f $nChap)
     )

@@ -282,7 +282,7 @@ if ($needPrepare) {
             profile        = $cfgProfile
             ffmpegVersion  = $ctx.FFmpegVersion
             aacgainVersion = $ctx.AacGainVersion
-            video          = @{ skip = $vAsk.Skip; index = $vAsk.Index; crop = $vAsk.Crop; resize = $vAsk.Resize; anim = $vAsk.Anim }
+            video          = @{ skip = $vAsk.Skip; index = $vAsk.Index; crop = $vAsk.Crop; resize = $vAsk.Resize; anim = $vAsk.Anim; hdr = [bool](Test-CvHdr -Info $info -Index $(if ($null -ne $vAsk.Index) { [int]$vAsk.Index } else { -1 })) }
             audio          = @{ skip = $aAsk.Skip; index = $aAsk.Index; is51 = $aAsk.Is51; sync = $aAsk.Sync; lang = $aAsk.Lang }
             subtitles      = @($subSel)
         }
@@ -424,7 +424,7 @@ while ($didAny) {
             # campo -> -1, y tanto Invoke-VideoRun como Invoke-Multiplex caen a '0:v:0' como antes.
             $vIdx = if ($null -ne $job.video.index) { [int]$job.video.index } else { -1 }
             if ($job.video.skip) { if ($jctx.Debug) { Write-CvLog 'VIDEO' '[SKIP] - se omite (copy)' } else { Write-Host ' - Video (copy)' } }
-            else { $videoOk = Invoke-VideoRun -Context $jctx -Prof $prof -File $f.FullName -Crop $job.video.crop -Resize $job.video.resize -Anim ([bool]$job.video.anim) -Index $vIdx }
+            else { $videoOk = Invoke-VideoRun -Context $jctx -Prof $prof -File $f.FullName -Crop $job.video.crop -Resize $job.video.resize -Anim ([bool]$job.video.anim) -Index $vIdx -Hdr ([bool]$job.video.hdr) }
 
             # ---------- MULTIPLEX ----------
             if ((-not $audioOk) -or (-not $videoOk)) {
@@ -448,7 +448,7 @@ while ($didAny) {
                     Write-Host ''
                     Write-CvLog 'WORKER' ("[OK] - Finalizado: {0}" -f $name)
                 }
-                Write-ConversionSummary -Context $jctx -File $f.FullName -Info $info -Output $out -Elapsed $sw.Elapsed -Prof $prof
+                Write-ConversionSummary -Context $jctx -File $f.FullName -Info $info -Output $out -Elapsed $sw.Elapsed -Prof $prof -AudioIndex $(if ($null -ne $job.audio.index) { [int]$job.audio.index } else { -1 })
             } else {
                 $n = 1 + [int]$fail[$name]; $fail[$name] = $n
                 Write-Host ''

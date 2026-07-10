@@ -185,29 +185,90 @@ function Invoke-VideoAsk {
     }
 
     # ---- Deteccion de bordes ----
-    $detect = [bool]$Prof.DetectBorder
+    # Modo por perfil: $false (nunca) | $true (siempre, interactivo) | 'auto' (pre-escaneo rapido que
+    # decide si hay barras: si son claras las aplica solo; si es ambiguo pasa al modo interactivo).
+    $dbv        = "$($Prof.DetectBorder)".ToLower()
+    $borderOn   = ($dbv -eq 'true')
+    $borderAuto = ($dbv -eq 'auto')
     if ($ForceBorder) {
-        $detect = $true
+        $borderOn = $true; $borderAuto = $false
         Write-CvLog 'VIDEO' '[BORDE] - Prefijo _ : se fuerza la deteccion de bordes' -Indent 3
     }
-    if ($detect) {
-        $res.Manual = $true   # la deteccion de bordes hace preguntas interactivas
+    if ($borderOn -or $borderAuto) {
         # Duracion del video (para repartir los puntos de escaneo entre inicio y final).
         $vdur  = Get-MediaDuration $Info
         $start = [int]$Context.BorderStart
         $dur   = [int]$Context.BorderDur
+        $runInteractive = $borderOn
+
+        if ($borderAuto) {
+            # AUTO: pre-escaneo rapido (border.autoSamples/autoDuration), sin preguntar. Decide:
+            #  - reduccion < border.minCropPct % -> ruido de borde, NO hay barras -> no recorta;
+            #  - barras con mayoria fiable (mismo voto que el modo normal) -> aplica el recorte solo;
+            #  - ambiguo (sin mayoria) -> pasa al modo interactivo (menu).
+            Write-CvLog 'VIDEO' '[BORDE] - [AUTO] - Comprobando si hay barras negras...' -Indent 3
+            $ag = @((Find-CropDetectSamples -Context $Context -File $Info.format.filename -Start $start -Duration ([int]$Context.BorderAutoDuration) -VideoDuration $vdur -Index $res.Index -Samples ([int]$Context.BorderAutoSamples)).Groups)
+            $decided = $false
+            if ($ag.Count -eq 0) {
+                Write-CvLog 'VIDEO' '[BORDE] - [AUTO] - Sin bordes detectados: no se recorta' -Indent 3
+                $res.Crop = ''; $decided = $true
+            } else {
+                # Unas barras reales son CONSTANTES: el MISMO recorte significativo aparece en varios
+                # puntos. Recortes near-full (< minCropPct, = sin barras) o dispersos de 1 voto (ruido
+                # de escenas oscuras) NO son barras. Nota: castear a [double] en Max (si el ancho no
+                # cambia, 1-w/iw = 0 ENTERO y Max(int,int) truncaria el otro termino y daria 0%).
+                $iw = [int]$vstream.width; $ih = [int]$vstream.height
+                $sig = @($ag | Where-Object {
+                    $q = "$($_.Crop)" -split ':'
+                    ($iw -gt 0 -and $ih -gt 0) -and
+                    (([math]::Max([double](1 - [int]$q[0] / $iw), [double](1 - [int]$q[1] / $ih)) * 100) -ge [double]$Context.BorderMinCropPct)
+                })
+                if ($sig.Count -eq 0) {
+                    Write-CvLog 'VIDEO' '[BORDE] - [AUTO] - Sin barras (recortes despreciables o near-full): no se recorta' -Indent 3
+                    $res.Crop = ''; $decided = $true
+                } else {
+                    $top    = $sig[0]                                    # candidato significativo mas votado
+                    $tot    = ($ag | Measure-Object -Property Count -Sum).Sum
+                    $topPct = if ($tot -gt 0) { [int][math]::Round(100 * $top.Count / $tot) } else { 0 }
+                    $others = @($ag | Where-Object { $_.Crop -ne $top.Crop } | Sort-Object Count -Descending)
+                    $margin = $top.Count - $(if ($others.Count -ge 1) { $others[0].Count } else { 0 })
+                    $reliable = ($ag.Count -eq 1) -or (($topPct -ge $Context.BorderAutoAcceptPct) -and ($margin -ge $Context.BorderAutoAcceptMargin))
+                    if ($reliable) {
+                        Write-CvLog 'VIDEO' ('[BORDE] - [AUTO] - Barras detectadas: recorte {0} (auto)' -f $top.Crop) -Indent 3
+                        $res.Crop = $top.Crop; $decided = $true
+                    } elseif ($top.Count -ge 2) {
+                        # Varios puntos coinciden en el recorte pero no llega al umbral -> ambiguo -> menu.
+                        Write-CvLog 'VIDEO' '[BORDE] - [AUTO] - Barras posibles sin mayoria fiable; se pasa a seleccion manual.' -Indent 3
+                    } else {
+                        # Ningun recorte se repite (todos 1 voto) -> ruido de escenas, no barras.
+                        Write-CvLog 'VIDEO' '[BORDE] - [AUTO] - Recortes dispersos sin coincidencia: no se recorta' -Indent 3
+                        $res.Crop = ''; $decided = $true
+                    }
+                }
+            }
+            if (-not $decided) {
+                Write-CvLog 'VIDEO' '[BORDE] - [AUTO] - Deteccion no concluyente; se pasa a seleccion manual.' -Indent 3
+                $runInteractive = $true
+            }
+        }
+
+      if ($runInteractive) {
+        $res.Manual = $true   # la deteccion de bordes hace preguntas interactivas
         $done  = $false
+        # Nº de muestras (puntos de escaneo) ANTES de escanear: por defecto el configurado, editable.
+        $samples = Read-IntOrDefault '   Numero de muestras (puntos de escaneo)' ([int]$Context.BorderSamples)
 
         while (-not $done) {
-            # Escaneo en varios puntos (border.samples); agrupa recortes por votos.
-            $groups = @((Find-CropDetectSamples -Context $Context -File $Info.format.filename -Start $start -Duration $dur -VideoDuration $vdur -Index $res.Index).Groups)
+            # Escaneo en varios puntos; agrupa recortes por votos.
+            $groups = @((Find-CropDetectSamples -Context $Context -File $Info.format.filename -Start $start -Duration $dur -VideoDuration $vdur -Index $res.Index -Samples $samples).Groups)
 
             if ($groups.Count -eq 0) {
                 Write-CvLog 'VIDEO' '[BORDE] - No se detectaron bordes en este tramo' -Indent 3
                 $a = (Read-Host '   [VIDEO] [BORDE] - [R] reintentar con otro tramo / [ENTER] continuar sin recorte').Trim()
                 if ($a -match '^[Rr]') {
-                    $start = Read-IntOrDefault '   Segundo de inicio del scan' $start
-                    $dur   = Read-IntOrDefault '   Duracion total del scan (seg)' $dur
+                    $start   = Read-IntOrDefault '   Segundo de inicio del scan' $start
+                    $dur     = Read-IntOrDefault '   Duracion total del scan (seg)' $dur
+                    $samples = Read-IntOrDefault '   Numero de muestras (puntos de escaneo)' $samples
                     continue
                 }
                 $res.Crop = ''; $done = $true; continue
@@ -250,8 +311,9 @@ function Invoke-VideoAsk {
                     $sel = (Read-Host '   [VIDEO] [BORDE] - Opcion').Trim()
                     if ($sel -match '^0$') { $res.Crop = ''; $done = $true; continue }
                     if ($sel -match '^[Rr]$') {
-                        $start = Read-IntOrDefault '   Segundo de inicio del scan' $start
-                        $dur   = Read-IntOrDefault '   Duracion total del scan (seg)' $dur
+                        $start   = Read-IntOrDefault '   Segundo de inicio del scan' $start
+                        $dur     = Read-IntOrDefault '   Duracion total del scan (seg)' $dur
+                        $samples = Read-IntOrDefault '   Numero de muestras (puntos de escaneo)' $samples
                         $reScan = $true; continue
                     }
                     if ($sel -match '^[Mm]$') { $crop = '__MANUAL__' }
@@ -290,26 +352,37 @@ function Invoke-VideoAsk {
                 else {
                     # [N]: si hubo auto-aceptacion, re-escanear (otro tramo); con menu, volver al menu.
                     if ($autoWin) {
-                        $start = Read-IntOrDefault '   Segundo de inicio del scan' $start
-                        $dur   = Read-IntOrDefault '   Duracion total del scan (seg)' $dur
+                        $start   = Read-IntOrDefault '   Segundo de inicio del scan' $start
+                        $dur     = Read-IntOrDefault '   Duracion total del scan (seg)' $dur
+                        $samples = Read-IntOrDefault '   Numero de muestras (puntos de escaneo)' $samples
                         $reScan = $true
                     }
                 }
             }
         }
         Write-Host ''
+      }
     }
 
     # ---- Resize (se puede combinar con recorte: se aplica crop y luego scale) ----
+    # ChangeSize escala SIEMPRE (valor literal 'W:H'). MaxWidth reduce solo HACIA ABAJO: se decide
+    # AQUI comparando el ancho de origen; si es mayor se reescala a ese ancho ('W:-2' = mantiene
+    # aspecto y altura par), y si ya es <= no se reescala (Resize vacio). ChangeSize tiene prioridad.
     if ($Prof.ChangeSize) {
         $res.Resize = $Prof.ChangeSize
-        if ($Context.Debug) {
-            if ($res.Crop -ne '') {
-                Write-CvLog 'VIDEO' ("[RESIZE] - Se aplicara recorte {0} y luego escalado {1}" -f $res.Crop, $res.Resize)
-            } else {
-                Write-CvLog 'VIDEO' ("[RESIZE] - Escalado a {0}" -f $res.Resize)
-            }
+    } elseif ($null -ne $Prof.MaxWidth -and [int]$Prof.MaxWidth -gt 0) {
+        $mw = [int]$Prof.MaxWidth
+        $sw = [int]$vstream.width
+        if ($sw -gt $mw) {
+            $res.Resize = "{0}:-2" -f $mw
+            Write-CvLog 'VIDEO' ("[RESIZE] - Origen {0}px de ancho > {1}px: se reescala a {1}px." -f $sw, $mw) -Indent 3
+        } elseif ($Context.Debug) {
+            Write-CvLog 'VIDEO' ("[RESIZE] - Origen {0}px de ancho <= {1}px: no se reescala." -f $sw, $mw)
         }
+    }
+    if ($res.Resize -and $Context.Debug) {
+        if ($res.Crop -ne '') { Write-CvLog 'VIDEO' ("[RESIZE] - Se aplicara recorte {0} y luego escalado {1}" -f $res.Crop, $res.Resize) }
+        else                  { Write-CvLog 'VIDEO' ("[RESIZE] - Escalado a {0}" -f $res.Resize) }
     }
 
     # ---- Animacion (solo libx264/libx265) ----
@@ -387,21 +460,42 @@ function Invoke-VideoRun {
         [Parameter(Mandatory)]$Context,
         [Parameter(Mandatory)]$Prof,
         [Parameter(Mandatory)][string]$File,
-        [string]$Crop = '', [string]$Resize = '', [bool]$Anim = $false, [int]$Index = -1
+        [string]$Crop = '', [string]$Resize = '', [bool]$Anim = $false, [int]$Index = -1, [bool]$Hdr = $false
     )
     $name = [System.IO.Path]::GetFileNameWithoutExtension($File)
     $outTmp = (Get-CvTempPaths -Context $Context -Name $name).Video
     if (Test-Path -LiteralPath $outTmp) { Remove-Item -Force -LiteralPath $outTmp -ErrorAction SilentlyContinue }
 
-    # filtro de video
+    # Tone-mapping HDR->SDR: solo si el origen es HDR y encode.tonemapHdr != 'off'. Convierte
+    # BT.2020/PQ (o HLG) a BT.709 SDR con libplacebo (GPU/Vulkan), para que no se vea "lavado".
+    $tonemap = $Hdr -and ("$($Context.TonemapHdr)".ToLower() -ne 'off')
+
+    # filtro de video: crop -> scale -> (tonemap). El tonemap va DESPUES del reescalado.
     $vf = @()
     if ($Crop)   { $vf += "crop=$Crop" }
-    if ($Resize) { $vf += "scale=$Resize" }
+    if ($Resize) {
+        $vf += "scale=$Resize"
+        # Indicador en el worker de que se esta reescalando (y a que tamano).
+        $rzTxt = "a $Resize"
+        if ($Resize -match '^(\d+):(-?\d+)$') { $rzTxt = if ([int]$Matches[2] -lt 0) { "a {0}px de ancho" -f $Matches[1] } else { "a {0}x{1}" -f $Matches[1], $Matches[2] } }
+        Write-CvInfoStep $Context 'VIDEO' ("Reescalando $rzTxt")
+    }
+    if ($tonemap) {
+        # 10 bits (p010le) si el perfil es main10 en HEVC; 8 bits (yuv420p) en el resto.
+        $fmt = if ("$($Prof.VideoProfile)" -eq 'main10' -and $Prof.VideoEncoder -in @('hevc_nvenc','libx265')) { 'p010le' } else { 'yuv420p' }
+        $vf += 'libplacebo=tonemapping=bt.2390:colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv'
+        $vf += "format=$fmt"
+        Write-CvInfoStep $Context 'VIDEO' 'Tone-mapping HDR -> SDR (BT.709)'
+    }
 
-    $ffArgs = @('-hide_banner','-y','-threads',"$($Context.Threads)",'-i',$File,'-an','-sn','-map_chapters','-1')
+    $ffArgs = @('-hide_banner','-y')
+    if ($tonemap) { $ffArgs += @('-init_hw_device','vulkan') }   # necesario para el filtro libplacebo
+    $ffArgs += @('-threads',"$($Context.Threads)",'-i',$File,'-an','-sn','-map_chapters','-1')
     $ffArgs += @('-metadata','title=', '-metadata:s:v','title=', '-metadata:s:v','language=und')
     if ($vf.Count -gt 0) { $ffArgs += @('-vf', ($vf -join ',')) }
     $ffArgs += (Get-VideoArgs -Context $Context -Prof $Prof -Anim $Anim)
+    # Etiquetar la salida como SDR BT.709 (el tonemap ya convirtio el contenido).
+    if ($tonemap) { $ffArgs += @('-color_primaries','bt709','-color_trc','bt709','-colorspace','bt709','-color_range','tv') }
     # Mapear explicitamente la PISTA DE VIDEO elegida por su indice absoluto ('0:<Index>'),
     # no el primer stream (0:0) ni '0:v:0' (que incluiria una caratula si va antes). Con -Index
     # congelado en el job, la deteccion y la codificacion usan SIEMPRE la misma pista. Sin -Index

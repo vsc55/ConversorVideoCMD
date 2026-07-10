@@ -48,6 +48,28 @@ public static class CvProc {
 '@
 }
 
+# Helper nativo: traer una ventana al PRIMER PLANO y darle el foco. Se usa para la ventana de
+# previsualizacion (ffplay), que debe recibir el foco para poder cerrarla ('q'/ESC) y que las
+# teclas vayan a ella y no a la consola (al contrario que las ventanas de codificacion, que van
+# sin foco). Al reves que el no-foco de CvProc.
+if (-not ('CvWin' -as [type])) {
+    Add-Type -Language CSharp -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class CvWin {
+    [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr h);
+    [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int nCmdShow);
+    [DllImport("user32.dll")] static extern bool BringWindowToTop(IntPtr h);
+    const int SW_SHOW = 5; const int SW_RESTORE = 9;
+    public static void ToForeground(IntPtr h) {
+        if (h == IntPtr.Zero) return;
+        ShowWindow(h, SW_RESTORE); ShowWindow(h, SW_SHOW);
+        BringWindowToTop(h); SetForegroundWindow(h);
+    }
+}
+'@
+}
+
 function Write-CvDebug {
     param([Parameter(Mandatory)]$Context, [string]$Message)
     if ($Context.Debug) { Write-Host ("[DEBUG] {0}" -f $Message) -ForegroundColor DarkGray }
@@ -155,6 +177,19 @@ function Invoke-ToolShow {
     $psi.Arguments       = ConvertTo-ArgString $Arguments
     $psi.UseShellExecute = $false
     $p = [System.Diagnostics.Process]::Start($psi)
+    if ($Preview) {
+        # La ventana de preview (ffplay) DEBE tener el foco: si no, las teclas ('q'/ESC para
+        # cerrarla) irian a la consola. Windows no siempre le da el primer plano al abrirla, asi
+        # que se espera a que cree su ventana (hasta ~2 s) y se trae al frente. Best-effort.
+        try {
+            for ($i = 0; $i -lt 40 -and $p.MainWindowHandle -eq [IntPtr]::Zero -and -not $p.HasExited; $i++) {
+                Start-Sleep -Milliseconds 50; $p.Refresh()
+            }
+            if ($p.MainWindowHandle -ne [IntPtr]::Zero) { [CvWin]::ToForeground($p.MainWindowHandle) }
+        } catch {
+            Write-CvDebug -Context $Context -Message ("no se pudo dar foco a la preview: {0}" -f $_.Exception.Message)
+        }
+    }
     $p.WaitForExit()
     return $p.ExitCode
 }

@@ -76,6 +76,8 @@ function New-CvContext {
         ForceFps       = [bool]$cfg.encode.forceFps
         # 2-pass de NVENC (-multipass): 'off'|'qres'|'fullres'. Solo lo usan los encoders NVENC.
         Multipass      = $(if ("$($cfg.encode.multipass)".ToLower() -in @('qres','fullres')) { "$($cfg.encode.multipass)".ToLower() } else { 'off' })
+        # Tone-mapping HDR->SDR (BT.709): 'auto' = solo si el origen es HDR; 'off' = nunca.
+        TonemapHdr     = $(if ("$($cfg.encode.tonemapHdr)".ToLower() -eq 'off') { 'off' } else { 'auto' })
         DefaultAudioHz = [int]$cfg.encode.audioHz
         BorderStart    = [int]$cfg.border.start
         BorderDur      = [int]$cfg.border.duration
@@ -85,6 +87,11 @@ function New-CvContext {
         BorderAutoAcceptPct = [Math]::Min(100, [Math]::Max(0, [int]$cfg.border.autoAcceptPct))
         # Margen minimo de votos del mas votado sobre el 2o para auto-aceptar (ademas del %).
         BorderAutoAcceptMargin = [Math]::Max(0, [int]$cfg.border.autoAcceptMinMargin)
+        # Modo DetectBorder='auto': puntos/seg del pre-escaneo y reduccion minima (%) para tomar el
+        # recorte como barras reales (por debajo = ruido de borde -> no recorta).
+        BorderAutoSamples = [Math]::Max(1, [int]$cfg.border.autoSamples)
+        BorderAutoDuration = [Math]::Max(1, [int]$cfg.border.autoDuration)
+        BorderMinCropPct  = [Math]::Max(0.0, [double]$cfg.border.minCropPct)   # 0.0 (no 0) para forzar el overload double y no truncar un valor fraccionario
         # Previsualizacion ffplay (inicio y duracion de la muestra en PREPARAR).
         PreviewStart   = [int]$cfg.preview.start
         PreviewSeconds = [int]$cfg.preview.seconds
@@ -202,7 +209,7 @@ function Get-CvSafeStart {
     param([int]$Start, [double]$Duration, [int]$Window = 5)
     if ($Duration -le 0) { return $Start }
     if (($Start + $Window) -lt $Duration) { return $Start }
-    return [int]([Math]::Max(0, [Math]::Floor($Duration * 0.1)))
+    return [int]([Math]::Max(0.0, [Math]::Floor($Duration * 0.1)))
 }
 
 function Test-CvLanguage {

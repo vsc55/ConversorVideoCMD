@@ -79,7 +79,7 @@ powershell -ExecutionPolicy Bypass -File test\run-tests.ps1 -Keep            # c
 Cubre **las 15 muestras** (las 7 base de entrada + las 8 fixtures multipista). No es interactivo: los `.job.json` se generan por adelantado (con la selección **real** de audio vía `Select-AudioStream` y de subtítulos vía `ConvertTo-SubSel`), de modo que `Convert.ps1` entra directo como worker y codifica sin preguntar. Por cada muestra comprueba:
 
 - **Vídeo recodificado** al codec esperado (`hevc`/`h264` según el encoder; se omite con `copy`) — ejercita la decodificación de cada entrada (h264, HEVC, VP9, AVI, MP4, 60 fps, 4K).
-- **Resize**: la muestra 4K se escala a `1280:-1` y se verifica que el ancho de salida es 1280.
+- **Resize**: la muestra 4K se escala a `1280:-2` y se verifica que el ancho de salida es 1280.
 - **Recuento de audio y subtítulos** correcto (p. ej. 0 subtítulos si no hay del idioma preferido).
 - **Subtítulo forzado que conserva `default`** (regresión del bug de "pista predefinida").
 - **Cero etiquetas** en ninguna pista (solo se permite `language`/`title`): valida tanto la limpieza de metadatos del multiplex como el borrado del `DURATION` con `mkvpropedit`.

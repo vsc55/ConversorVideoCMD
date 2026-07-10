@@ -13,8 +13,9 @@ function New-CvProfile {
         [object]$Qmin = $null,
         [object]$Qmax = $null,
         [object]$Crf  = $null,
-        [bool]$DetectBorder = $false,
-        [string]$ChangeSize = '',      # '' = no | '1920:-1' etc.
+        [object]$DetectBorder = $false,   # $false (nunca) | $true (siempre, interactivo) | 'auto' (pre-escaneo decide)
+        [string]$ChangeSize = '',      # '' = no | '1920:-2' etc. (escala SIEMPRE; altura -2 = auto y PAR)
+        [object]$MaxWidth = $null,     # $null = no | 1920 etc. (reduce a ese ancho SOLO si es mayor; nunca amplia)
         [string]$Multipass = '',       # '' = usar el global (encode.multipass) | off | qres | fullres (NVENC)
         [string]$AudioEncoder = 'aac_coder',  # aac_coder (recodificar) | copy
         [string]$AudioCodec = 'aac',   # codec de salida al recodificar: aac | ac3 | eac3 | libmp3lame | flac | libopus
@@ -23,7 +24,7 @@ function New-CvProfile {
     )
     [pscustomobject]@{
         VideoEncoder = $VideoEncoder; VideoProfile = $VideoProfile; VideoLevel = $VideoLevel
-        Qmin = $Qmin; Qmax = $Qmax; Crf = $Crf; DetectBorder = $DetectBorder; ChangeSize = $ChangeSize
+        Qmin = $Qmin; Qmax = $Qmax; Crf = $Crf; DetectBorder = $DetectBorder; ChangeSize = $ChangeSize; MaxWidth = $MaxWidth
         Multipass = $Multipass
         AudioEncoder = $AudioEncoder; AudioCodec = $AudioCodec; AudioBitrate = $AudioBitrate; AudioHz = $AudioHz
     }
@@ -43,13 +44,21 @@ function Get-CvProfiles {
         [pscustomobject]@{ Profiles = @(
             (New-CvProfile -VideoEncoder 'hevc_nvenc' -VideoProfile 'main10' -VideoLevel '5' -Qmin 1 -Qmax 23)
             (New-CvProfile -VideoEncoder 'hevc_nvenc' -VideoProfile 'main10' -VideoLevel '5' -Qmin 1 -Qmax 23 -DetectBorder $true)
+            (New-CvProfile -VideoEncoder 'hevc_nvenc' -VideoProfile 'main10' -VideoLevel '5' -Qmin 1 -Qmax 23 -DetectBorder 'auto')
+        )}
+        [pscustomobject]@{ Profiles = @(
+            (New-CvProfile -VideoEncoder 'hevc_nvenc' -VideoProfile 'main10' -VideoLevel '5' -Qmin 1 -Qmax 23 -MaxWidth 1920)
+            (New-CvProfile -VideoEncoder 'hevc_nvenc' -VideoProfile 'main10' -VideoLevel '5' -Qmin 1 -Qmax 23 -MaxWidth 1920 -DetectBorder $true)
+            (New-CvProfile -VideoEncoder 'hevc_nvenc' -VideoProfile 'main10' -VideoLevel '5' -Qmin 1 -Qmax 23 -MaxWidth 1920 -DetectBorder 'auto')
+        )}
+        [pscustomobject]@{ Profiles = @(
+            (New-CvProfile -VideoEncoder 'hevc_nvenc' -VideoProfile 'main10' -VideoLevel '5' -Qmin 1 -Qmax 23 -ChangeSize '1920:-2')
         )}
         [pscustomobject]@{ Profiles = @(
             (New-CvProfile -VideoEncoder 'hevc_nvenc' -VideoProfile 'main10' -VideoLevel '5')
             (New-CvProfile -VideoEncoder 'hevc_nvenc' -VideoProfile 'main10' -VideoLevel '5' -DetectBorder $true)
         )}
         [pscustomobject]@{ Profiles = @(
-            (New-CvProfile -VideoEncoder 'hevc_nvenc' -VideoProfile 'main10' -VideoLevel '5' -Qmin 1 -Qmax 23 -ChangeSize '1920:-1')
             (New-CvProfile -VideoEncoder 'h264_nvenc' -VideoLevel '5' -Qmin 1 -Qmax 23)
         )}
     )
@@ -81,7 +90,7 @@ function Get-CvVideoSizes {
         @{ Value = '1024:576';  Text = '576p  [PAL Widescreen]' }
         @{ Value = '1280:720';  Text = '720p  [HD]' }
         @{ Value = '1920:1080'; Text = '1080p [Full HD]' }
-        @{ Value = '1920:-1';   Text = '1080p [Full HD] (mantiene aspect ratio)' }
+        @{ Value = '1920:-2';   Text = '1080p [Full HD] (mantiene aspect ratio)' }
         @{ Value = '3840:2160'; Text = '4K    [UHDTV]' }
     )
 }
@@ -221,8 +230,9 @@ function ConvertTo-CvProfile {
         -Qmin (Get-CvProfileProp $Obj 'qmin' $null) `
         -Qmax (Get-CvProfileProp $Obj 'qmax' $null) `
         -Crf  (Get-CvProfileProp $Obj 'crf'  $null) `
-        -DetectBorder ([bool](Get-CvProfileProp $Obj 'detectBorder' $false)) `
+        -DetectBorder $(if ("$(Get-CvProfileProp $Obj 'detectBorder' $false)".ToLower() -eq 'auto') { 'auto' } else { [bool](Get-CvProfileProp $Obj 'detectBorder' $false) }) `
         -ChangeSize   "$(Get-CvProfileProp $Obj 'changeSize' '')" `
+        -MaxWidth     (Get-CvProfileProp $Obj 'maxWidth' $null) `
         -Multipass    "$(Get-CvProfileProp $Obj 'multipass' '')" `
         -AudioEncoder "$(Get-CvProfileProp $Obj 'audioEncoder' 'aac_coder')" `
         -AudioCodec   "$(Get-CvProfileProp $Obj 'audioCodec' 'aac')" `
@@ -255,8 +265,10 @@ function Format-CvProfileLabel {
         elseif (($null -ne $Prof.Qmin) -or ($null -ne $Prof.Qmax)) { $parts += ('Q({0}-{1})' -f $Prof.Qmin, $Prof.Qmax) }
         elseif (-not $isCpu) { $parts += 'Q(AUTO)' }
         if ("$($Prof.Multipass)" -in @('qres','fullres')) { $parts += ('2PASS:{0}' -f $Prof.Multipass) }
-        if ($Prof.DetectBorder) { $parts += 'DETECT BORDE' }
+        if ("$($Prof.DetectBorder)".ToLower() -eq 'auto') { $parts += 'AUTO-BORDE' }
+        elseif ([bool]$Prof.DetectBorder)                 { $parts += 'DETECT BORDE' }
         if ($Prof.ChangeSize)   { $parts += ('RESIZE {0}' -f $Prof.ChangeSize) }
+        if ($null -ne $Prof.MaxWidth -and [int]$Prof.MaxWidth -gt 0) { $parts += ('RESIZE<={0}w' -f [int]$Prof.MaxWidth) }
         $v = ($parts -join '/')
     }
     if ($Prof.AudioEncoder -eq 'copy') {
@@ -317,14 +329,17 @@ function New-CustomProfile {
                     $sizeLines = @(Get-CvVideoSizes | ForEach-Object { '{0,-24}- {1}' -f $_.Text, $_.Value })
                     Show-Menu -Title 'TAMANOS DE REFERENCIA:' -Lines ($sizeLines + @(
                         '',
-                        'Altura -1 = automatico manteniendo aspecto (ej 1920:-1)',
+                        'Altura -2 = automatica manteniendo aspecto y PAR (ej 1920:-2)',
                         '',
                         'C / ESC. Cancelar'
                     ))
-                    $sz = (Read-CvLine -Prompt '   Nuevo tamano (ej 1920:-1, 1280:720) [C/ESC = cancelar]' -AllowCancel).Trim()
+                    $sz = (Read-CvLine -Prompt '   Nuevo tamano (ej 1920:-2, 1280:720) [C/ESC = cancelar]' -AllowCancel).Trim()
                     if ($sz -match '^[Cc]$') { throw 'CV_CANCEL' }
                     if ($sz -ne '') {
-                        if ($sz -notmatch ':') { $sz = "$sz`:-1" }
+                        # Si solo dan el ancho, se completa con ':-2' (no ':-1'): -2 mantiene el aspecto
+                        # y ademas fuerza altura PAR, requisito de 4:2:0 (con -1 podria salir impar y
+                        # fallar la codificacion en CPU: libx264/libx265).
+                        if ($sz -notmatch ':') { $sz = "$sz`:-2" }
                         $p.ChangeSize = $sz
                     }
                 }
@@ -463,8 +478,10 @@ function Write-ProfileInfo {
         if ($null -ne $Prof.Qmin) { Write-CvLog 'GLOBAL' ("[INFO] - [VIDEO] - QMIN:    {0}" -f $Prof.Qmin) }
         if ($null -ne $Prof.Qmax) { Write-CvLog 'GLOBAL' ("[INFO] - [VIDEO] - QMAX:    {0}" -f $Prof.Qmax) }
         if ($null -ne $Prof.Crf)  { Write-CvLog 'GLOBAL' ("[INFO] - [VIDEO] - CRF:     {0}" -f $Prof.Crf) }
-        Write-CvLog 'GLOBAL' ("[INFO] - [VIDEO] - DETECTAR BORDE: {0}" -f $Prof.DetectBorder)
+        $dbTxt = if ("$($Prof.DetectBorder)".ToLower() -eq 'auto') { 'auto' } elseif ([bool]$Prof.DetectBorder) { 'si' } else { 'no' }
+        Write-CvLog 'GLOBAL' ("[INFO] - [VIDEO] - DETECTAR BORDE: {0}" -f $dbTxt)
         if ($Prof.ChangeSize) { Write-CvLog 'GLOBAL' ("[INFO] - [VIDEO] - RESIZE: {0}" -f $Prof.ChangeSize) }
+        if ($null -ne $Prof.MaxWidth -and [int]$Prof.MaxWidth -gt 0) { Write-CvLog 'GLOBAL' ("[INFO] - [VIDEO] - RESIZE: <= {0}px de ancho (solo si es mayor)" -f [int]$Prof.MaxWidth) }
     }
     if ($Prof.AudioEncoder -eq 'copy') {
         Write-CvLog 'GLOBAL' '[INFO] - [AUDIO] - ENCODER: copy (sin recodificar)'

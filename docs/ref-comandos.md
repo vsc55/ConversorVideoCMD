@@ -178,6 +178,8 @@ ffmpeg -hide_banner -y -threads <N> -i <file> -an -sn -map_chapters -1 \
 
 `<filtros>` combina recorte y escalado si aplican: `crop=<W:H:X:Y>,scale=<resize>`.
 
+**Tone-mapping HDR→SDR:** si el origen es HDR (`video.hdr`) y `encode.tonemapHdr` ≠ `off`, se añade `-init_hw_device vulkan` y el filtro `libplacebo` al final de la cadena (`…,libplacebo=tonemapping=bt.2390:colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv,format=<p010le|yuv420p>`), y la salida se etiqueta como SDR (`-color_primaries bt709 -color_trc bt709 -colorspace bt709 -color_range tv`). Corre en la GPU (Vulkan). Detalle en [explica-tonemap-hdr.md](explica-tonemap-hdr.md).
+
 `<ARGS_ENCODER>` según el encoder del perfil ([ref-perfiles.md](ref-perfiles.md)):
 
 ### hevc_nvenc (H.265 GPU)
