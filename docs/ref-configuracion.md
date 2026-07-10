@@ -32,8 +32,8 @@ Esquema completo (tras la fusión con los defaults):
 {
   "downloads":   { "ffmpeg": {...}, "aacgain": {...}, "sevenzip": {...}, "mkvtoolnix": {...} },
   "languages":   { "audio": [...], "subtitle": [...] },
-  "encode":      { "outputExtension": "mkv", "extensions": ["avi","flv","mp4","mov","mkv"], "threads": 0, "fps": "23.976", "audioHz": 44100, "audioChannels": 2 },
-  "customProfile": { "videoEncoder": "hevc_nvenc", "videoProfile": "main10", "videoLevel": "5.0", "qmin": 1, "qmax": 23, "crf": 21, "audioBitrate": "192k" },
+  "encode":      { "outputExtension": "mkv", "extensions": ["avi","flv","mp4","mov","mkv"], "threads": 0, "fps": "23.976", "forceFps": true, "multipass": "off", "audioHz": 44100, "audioChannels": 2 },
+  "customProfile": { "videoEncoder": "hevc_nvenc", "videoProfile": "main10", "videoLevel": "5.0", "qmin": 1, "qmax": 23, "crf": 21, "audioCodec": "aac", "audioBitrate": "192k" },
   "border":      { "start": 120, "duration": 120, "samples": 9, "autoAcceptPct": 60, "autoAcceptMinMargin": 2 },
   "preview":     { "start": 120, "seconds": 30 },
   "volume":      { "method": "peak", "peakTarget": 0, "loudnorm": { "I": -16, "TP": -1.5, "LRA": 11 } },
@@ -77,9 +77,11 @@ Se **canonicalizan** las variantes (`Get-CvLangCanon`): `es`, `es-ES`, `es_es`, 
 | `outputExtension` | `"mkv"` | Extensión del contenedor de salida. |
 | `extensions` | `["avi","flv","mp4","mov","mkv"]` | Extensiones de **entrada** que se procesan de `Original\` (sin punto; se tolera `.ext`/`*.ext`). Añade aquí `ts`, `webm`, `m4v`… si las necesitas. |
 | `threads` | `0` | `-threads` de ffmpeg. **`0` = auto**: el encoder decide y, en la práctica, usa **todos los núcleos** de CPU. Pon un número `N` para limitarlo a N hilos. |
-| `fps` | `"23.976"` | `-r` en la codificación de vídeo. |
+| `fps` | `"23.976"` | Fps de salida cuando `forceFps` está activo (`-r`). |
+| `forceFps` | `true` | Si `true` (por defecto), fuerza la salida a `fps` con `-r` (reajusta dup/drop los vídeos de otro fps de origen). Si `false`, **se conserva el fps de cada archivo** (no se pasa `-r`) — recomendable si tus fuentes ya vienen a distintos fps y no quieres reajustarlas. |
+| `multipass` | `"off"` | **2-pass de NVENC** (`-multipass`), solo `hevc_nvenc`/`h264_nvenc`: `"off"` (por defecto) · `"qres"` (1ª pasada a ¼ de resolución) · `"fullres"` (a resolución completa). Más calidad a costa de más tiempo de GPU. **No** afecta a los encoders de CPU (libx264/libx265 lo ignoran). Comprobado que `qres`/`fullres` funcionan en NVENC; `off` = comportamiento actual. Es el valor **global**; un perfil (custom o de `config.json`) puede **sobreescribirlo** con su propio `multipass`. |
 | `audioHz` | `44100` | Samplerate de audio por defecto. |
-| `audioChannels` | `2` | Canales del audio **recodificado** a AAC (`-ac`): `2` = estéreo, `6` = 5.1, `8` = 7.1. (No afecta a `audioEncoder: copy`, que conserva la pista original.) |
+| `audioChannels` | `2` | Canales del audio **recodificado** (`-ac`): `2` = estéreo, `6` = 5.1, `8` = 7.1; si la fuente tiene más, se hace downmix. (No afecta a `audioEncoder: copy`, que conserva la pista original.) Detalle en [explica-audio.md](explica-audio.md). |
 
 Sobre `threads` (uso de CPU):
 
@@ -98,6 +100,8 @@ Valores **por defecto** del constructor de perfil **custom** interactivo (opció
 | `videoLevel` | `"5.0"` | Level por defecto (`4.0`, `4.1`, `5.0`, … según codec). |
 | `qmin` / `qmax` | `1` / `23` | Control de tasa por defecto en NVENC (GPU). Acotados a 0–51; **`-1` (o negativo) = auto** (sin `-qmin`/`-qmax`, decide el encoder). |
 | `crf` | `21` | Control de tasa por defecto en CPU (libx264/libx265). Acotado a 0–51; **`-1` = auto** (sin `-crf`, usa el CRF por defecto del encoder). |
+| `multipass` | `"off"` | Valor por defecto del paso **2-pass NVENC** (`off`/`qres`/`fullres`) en el builder custom (solo aparece si el encoder es NVENC). |
+| `audioCodec` | `"aac"` | Codec de audio de salida por defecto al recodificar: `aac`/`ac3`/`eac3`/`libmp3lame`/`flac`/`libopus`. Ver [explica-audio.md](explica-audio.md). |
 | `audioBitrate` | `"192k"` | Bitrate de audio por defecto (`"copy"` = copiar la pista sin recodificar). |
 
 Qué son CRF/QMIN/QMAX/QP, para qué sirven y cómo elegir valores: [explica-control-tasa.md](explica-control-tasa.md).
@@ -171,6 +175,7 @@ Codifica solo un tramo del principio de cada archivo, para validar un perfil/aju
 |---|---|---|---|
 | `enabled` | `false` | Activa el modo pruebas: codifica solo los **primeros `minutes` minutos** de cada archivo (el resto se descarta). Se avisa al arrancar y en el resumen (la salida es un **recorte**, no el archivo completo). Funciona con todos los perfiles, incluido `copy` (recorta también el vídeo copiado del original y los subtítulos/capítulos al mismo tramo). | `test_on` |
 | `minutes` | `5` | Minutos que se codifican por archivo cuando `enabled` está activo (mínimo 1). | — |
+| `syncAdelay` | `false` | **🧪 BETA.** Si `true`, el silencio de sincronía se aplica con el filtro `adelay` en **una sola pasada** (encadenado con la normalización de volumen), sin el WAV intermedio. `false` = método clásico (WAV `silencio + pista` y luego codificar). Ver [explica-audio.md](explica-audio.md). | — |
 
 Se aplica con `-t` en la codificación de vídeo, en la de audio (incluidos el wav de sincronía y la medición de pico) y en el multiplex final. `TestLimit` (segundos) en el contexto.
 
@@ -220,7 +225,7 @@ Array **opcional** de perfiles que se **añaden** a los 7 de serie en el menú *
 | `crf` | `18` | CPU (libx264/libx265). |
 | `detectBorder` | `true` | Detección de bordes por archivo. |
 | `changeSize` | `"1920:-1"` | `scale=` (altura `-1` = auto). |
-| `audioEncoder` / `audioBitrate` / `audioHz` | `"aac_coder"` / `"192k"` / `44100` | Audio. |
+| `audioEncoder` / `audioCodec` / `audioBitrate` / `audioHz` | `"aac_coder"` / `"aac"` / `"192k"` / `44100` | Audio. `audioCodec` = codec de salida al recodificar (`aac`/`ac3`/`eac3`/`libmp3lame`/`flac`/`libopus`). Ver [explica-audio.md](explica-audio.md). |
 
 Se editan **a mano** en el JSON (el editor navegable de `setup` los muestra pero remite a este documento, para no corromper el array de objetos). Ver [ref-perfiles.md](ref-perfiles.md).
 

@@ -15,14 +15,17 @@ function New-CvProfile {
         [object]$Crf  = $null,
         [bool]$DetectBorder = $false,
         [string]$ChangeSize = '',      # '' = no | '1920:-1' etc.
-        [string]$AudioEncoder = 'aac_coder',  # aac_coder | copy
+        [string]$Multipass = '',       # '' = usar el global (encode.multipass) | off | qres | fullres (NVENC)
+        [string]$AudioEncoder = 'aac_coder',  # aac_coder (recodificar) | copy
+        [string]$AudioCodec = 'aac',   # codec de salida al recodificar: aac | ac3 | eac3 | libmp3lame | flac | libopus
         [string]$AudioBitrate = '192k',
         [int]$AudioHz = 44100
     )
     [pscustomobject]@{
         VideoEncoder = $VideoEncoder; VideoProfile = $VideoProfile; VideoLevel = $VideoLevel
         Qmin = $Qmin; Qmax = $Qmax; Crf = $Crf; DetectBorder = $DetectBorder; ChangeSize = $ChangeSize
-        AudioEncoder = $AudioEncoder; AudioBitrate = $AudioBitrate; AudioHz = $AudioHz
+        Multipass = $Multipass
+        AudioEncoder = $AudioEncoder; AudioCodec = $AudioCodec; AudioBitrate = $AudioBitrate; AudioHz = $AudioHz
     }
 }
 
@@ -59,52 +62,145 @@ function Get-CvVideoEncoders {
         anadir/quitar/reordenar aqui basta. Value = valor de -VideoEncoder; Text = descripcion.
     #>
     @(
-        @{ Value = 'libx264';    Text = '[h264 - CPU]' }
-        @{ Value = 'h264_nvenc'; Text = '[h264 - GPU]' }
-        @{ Value = 'libx265';    Text = '[h265 - CPU]' }
-        @{ Value = 'hevc_nvenc'; Text = '[h265 - GPU]' }
-        @{ Value = 'copy';       Text = '' }
+        @{ Value = 'copy';       Text = 'Copia la pista de video sin recodificar' }
+        @{ Value = 'libx264';    Text = '[h264 - CPU]  muy compatible, mas lento' }
+        @{ Value = 'h264_nvenc'; Text = '[h264 - GPU]  rapido (GPU NVIDIA)' }
+        @{ Value = 'libx265';    Text = '[h265 - CPU]  mejor compresion, mas lento' }
+        @{ Value = 'hevc_nvenc'; Text = '[h265 - GPU]  rapido (GPU NVIDIA)' }
     )
 }
 
 function Get-CvVideoSizes {
     <#
-        Catalogo de tamanos de referencia para el menu de resize del perfil custom.
-        Lista de @{ Label; Size } (Size = valor de -ChangeSize 'W:H'). Solo informativo: el usuario
-        teclea el tamano; anadir/quitar filas aqui basta.
+        Catalogo de tamanos de referencia para el menu de resize del perfil custom. Lista de
+        @{ Value; Text } (formato comun): Value = tamano 'W:H' para -ChangeSize; Text = descripcion.
+        Solo informativo: el usuario teclea el tamano; anadir/quitar filas aqui basta.
     #>
     @(
-        @{ Label = '360p  [Mobile]';         Size = '640:360'   }
-        @{ Label = '576p  [PAL Widescreen]'; Size = '1024:576'  }
-        @{ Label = '720p  [HD]';             Size = '1280:720'  }
-        @{ Label = '1080p [Full HD]';        Size = '1920:1080' }
-        @{ Label = '4K    [UHDTV]';          Size = '3840:2160' }
+        @{ Value = '640:360';   Text = '360p  [Mobile]' }
+        @{ Value = '1024:576';  Text = '576p  [PAL Widescreen]' }
+        @{ Value = '1280:720';  Text = '720p  [HD]' }
+        @{ Value = '1920:1080'; Text = '1080p [Full HD]' }
+        @{ Value = '1920:-1';   Text = '1080p [Full HD] (mantiene aspect ratio)' }
+        @{ Value = '3840:2160'; Text = '4K    [UHDTV]' }
     )
 }
 
 function Get-CvCodecOptions {
     <#
-        Perfiles (-profile:v) y levels (-level:v) validos segun la familia del codec.
-        H.265 (libx265/hevc_nvenc) y H.264 (libx264/h264_nvenc) admiten valores distintos.
-        Devuelve @{ Profiles = @(...); Levels = @(...) }.
+        Perfiles (-profile:v) y levels (-level:v) validos segun la familia del codec, con una
+        descripcion por opcion para el menu. H.265 (libx265/hevc_nvenc) y H.264 (libx264/h264_nvenc)
+        admiten valores distintos.
+
+        OJO fuente: la doc de ffmpeg NO describe estos valores (-profile remite a "x264 --fullhelp"
+        y -level a "Annex A"). Las descripciones salen del ESTANDAR del codec (H.264/HEVC); las de
+        level son APROXIMADAS (marcadas con '~': tope tipico de resolucion/fps del nivel).
+        Devuelve @{ Profiles; Levels }, cada una lista de @{ Value; Text } (formato comun).
     #>
     param([string]$Encoder)
     if ($Encoder -in @('libx265','hevc_nvenc')) {
         [pscustomobject]@{
-            Profiles = @('main','main10')
-            Levels   = @('4.0','4.1','5.0','5.1','5.2','6.0','6.1','6.2')
+            Profiles = @(
+                @{ Value = 'main';   Text = '8 bits' }
+                @{ Value = 'main10'; Text = '10 bits (mas color, menos banding)' }
+            )
+            Levels = @(
+                @{ Value = '4.0'; Text = '~1080p30' }
+                @{ Value = '4.1'; Text = '~1080p60' }
+                @{ Value = '5.0'; Text = '~4K30' }
+                @{ Value = '5.1'; Text = '~4K60' }
+                @{ Value = '5.2'; Text = '~4K120 / 8K limitado' }
+                @{ Value = '6.0'; Text = '~8K30' }
+                @{ Value = '6.1'; Text = '~8K60' }
+                @{ Value = '6.2'; Text = '~8K120' }
+            )
         }
     } else {
         [pscustomobject]@{
-            Profiles = @('baseline','main','high','high10')
-            Levels   = @('3.0','3.1','4.0','4.1','4.2','5.0','5.1')
+            Profiles = @(
+                @{ Value = 'baseline'; Text = 'basico, sin B-frames (dispositivos antiguos)' }
+                @{ Value = 'main';     Text = 'estandar (SD/broadcast)' }
+                @{ Value = 'high';     Text = '8 bits, el habitual en HD' }
+                @{ Value = 'high10';   Text = '10 bits' }
+            )
+            Levels = @(
+                @{ Value = '3.0'; Text = '~480p (SD)' }
+                @{ Value = '3.1'; Text = '~720p30' }
+                @{ Value = '4.0'; Text = '~1080p30' }
+                @{ Value = '4.1'; Text = '~1080p30 (Blu-ray)' }
+                @{ Value = '4.2'; Text = '~1080p60' }
+                @{ Value = '5.0'; Text = '~1080p72 / 2K' }
+                @{ Value = '5.1'; Text = '~4K30' }
+            )
         }
     }
 }
 
 function Get-CvAudioBitrates {
-    <# Catalogo de bitrates de audio (AAC) preseleccionables en el menu del perfil custom. #>
-    @('128k','160k','192k','256k','320k')
+    <#
+        Catalogo de bitrates del menu del perfil custom, APROPIADO AL CODEC (-Codec). Lista
+        @{ Value; Text } (+ 'Position' opcional): sin Position -> preset numerado en orden;
+        'end' -> siempre la ultima ('custom', bitrate a mano). Para AC-3/E-AC-3 se ofrecen
+        bitrates de sonido envolvente (hasta 640k, el maximo de AC-3); para el resto (AAC/MP3/Opus),
+        el rango estereo/lossy habitual. FLAC no llama aqui (es sin perdida). Descripciones =
+        orientativas (no de la doc de ffmpeg). El menu se muestra DESPUES de elegir el codec.
+    #>
+    param([string]$Codec = 'aac')
+    if ("$Codec".ToLower() -in @('ac3','eac3')) {
+        @(
+            @{ Value = '192k';   Text = 'estereo / 5.1 basico' }
+            @{ Value = '256k';   Text = '5.1 buena' }
+            @{ Value = '384k';   Text = '5.1 alta (recomendado)' }
+            @{ Value = '448k';   Text = '5.1 muy alta' }
+            @{ Value = '640k';   Text = 'maxima de AC-3' }
+            @{ Value = 'custom'; Text = 'introducir un bitrate a mano (p. ej. 768k)'; Position = 'end' }
+        )
+    } else {
+        @(
+            @{ Value = '96k';    Text = 'estereo bajo' }
+            @{ Value = '128k';   Text = 'estereo basico' }
+            @{ Value = '160k';   Text = 'estereo bueno' }
+            @{ Value = '192k';   Text = 'estereo alta calidad (recomendado)' }
+            @{ Value = '256k';   Text = 'muy alta' }
+            @{ Value = '320k';   Text = 'maxima habitual' }
+            @{ Value = 'custom'; Text = 'introducir un bitrate a mano (p. ej. 224k)'; Position = 'end' }
+        )
+    }
+}
+
+function Get-CvAudioCodecs {
+    <#
+        Catalogo de la SALIDA de audio del perfil custom: 'copy' (no recodificar) + codecs a los que
+        recodificar. Lista @{ Value; Short; Text }: Value = 'copy' o el codec de ffmpeg (-c:a).
+        Al recodificar, el intermedio va en '.m4a' para AAC (compatible con la normalizacion aacgain)
+        y en '.mka' (Matroska) para el resto, que luego se remultiplexa igual al MKV final. 'aac' es
+        el codec por defecto. Notas: FLAC es sin perdida (se salta el bitrate); Opus fuerza 48 kHz.
+        Short = nombre corto para la etiqueta compacta del perfil (Format-CvProfileLabel); asi el
+        nombre "bonito" (p. ej. libmp3lame -> MP3) se define UNA sola vez, aqui.
+    #>
+    @(
+        @{ Value = 'copy';       Short = 'COPY'; Text = 'copiar la pista original (sin recodificar)' }
+        @{ Value = 'aac';        Short = 'AAC';  Text = 'AAC-LC  - muy compatible (por defecto)' }
+        @{ Value = 'ac3';        Short = 'AC3';  Text = 'Dolby Digital (AC-3)  - 5.1 compatible con TV/receptores' }
+        @{ Value = 'eac3';       Short = 'EAC3'; Text = 'Dolby Digital Plus (E-AC-3)  - mejor que AC-3 a igual bitrate' }
+        @{ Value = 'libmp3lame'; Short = 'MP3';  Text = 'MP3  - universal, con perdida' }
+        @{ Value = 'flac';       Short = 'FLAC'; Text = 'FLAC  - sin perdida (ignora el bitrate)' }
+        @{ Value = 'libopus';    Short = 'OPUS'; Text = 'Opus  - muy eficiente (fuerza 48 kHz)' }
+    )
+}
+
+function Get-CvNvencMultipass {
+    <#
+        Catalogo del 2-pass de NVENC (-multipass) para el menu del perfil custom. Lista de
+        @{ Value; Text } (formato comun) con off/qres/fullres. Descripciones tomadas de ffmpeg
+        (-h encoder=hevc_nvenc): la parte de resolucion es literal; el resto es la consecuencia
+        practica (mas pasadas = mas calidad y mas tiempo). 'off' se usa como opcion 0 en el menu.
+    #>
+    @(
+        @{ Value = 'off';     Text = 'sin 2-pass (1 sola pasada, lo mas rapido)'; Position = 'first' }
+        @{ Value = 'qres';    Text = '2 pasadas, la 1a a 1/4 de resolucion (mejora calidad; algo mas lento)' }
+        @{ Value = 'fullres'; Text = '2 pasadas, la 1a a resolucion completa (mejor calidad; el mas lento)' }
+    )
 }
 
 function Get-CvProfileProp($obj, [string]$key, $default) {
@@ -127,7 +223,9 @@ function ConvertTo-CvProfile {
         -Crf  (Get-CvProfileProp $Obj 'crf'  $null) `
         -DetectBorder ([bool](Get-CvProfileProp $Obj 'detectBorder' $false)) `
         -ChangeSize   "$(Get-CvProfileProp $Obj 'changeSize' '')" `
+        -Multipass    "$(Get-CvProfileProp $Obj 'multipass' '')" `
         -AudioEncoder "$(Get-CvProfileProp $Obj 'audioEncoder' 'aac_coder')" `
+        -AudioCodec   "$(Get-CvProfileProp $Obj 'audioCodec' 'aac')" `
         -AudioBitrate "$(Get-CvProfileProp $Obj 'audioBitrate' '192k')" `
         -AudioHz ([int](Get-CvProfileProp $Obj 'audioHz' 44100))
 }
@@ -156,11 +254,25 @@ function Format-CvProfileLabel {
         if ($null -ne $Prof.Crf) { $parts += ('CRF{0}' -f $Prof.Crf) }
         elseif (($null -ne $Prof.Qmin) -or ($null -ne $Prof.Qmax)) { $parts += ('Q({0}-{1})' -f $Prof.Qmin, $Prof.Qmax) }
         elseif (-not $isCpu) { $parts += 'Q(AUTO)' }
+        if ("$($Prof.Multipass)" -in @('qres','fullres')) { $parts += ('2PASS:{0}' -f $Prof.Multipass) }
         if ($Prof.DetectBorder) { $parts += 'DETECT BORDE' }
         if ($Prof.ChangeSize)   { $parts += ('RESIZE {0}' -f $Prof.ChangeSize) }
         $v = ($parts -join '/')
     }
-    $a = if ($Prof.AudioEncoder -eq 'copy') { 'COPY' } else { "$($Prof.AudioBitrate)".ToUpper() }
+    if ($Prof.AudioEncoder -eq 'copy') {
+        $a = 'COPY'
+    } else {
+        # Codec solo si no es el AAC por defecto (AAC 192K queda como '192K'; AC3/EAC3/... se muestran).
+        # El nombre corto sale del catalogo Get-CvAudioCodecs (columna Short), fuente unica.
+        $codec = "$($Prof.AudioCodec)"; if (-not $codec) { $codec = 'aac' }
+        $ac = ''
+        if ($codec -ne 'aac') {
+            $e = @(Get-CvAudioCodecs | Where-Object { $_.Value -eq $codec })[0]
+            $short = if ($e -and $e.Short) { "$($e.Short)" } else { "$codec".ToUpper() }
+            $ac = "$short "
+        }
+        $a = '{0}{1}' -f $ac, "$($Prof.AudioBitrate)".ToUpper()
+    }
     ('A: {0}, V: {1}' -f $a, $v)
 }
 
@@ -179,33 +291,22 @@ function New-CustomProfile {
     $defQmin = if ($Context) { $Context.CustomQmin } else { 1 }
     $defQmax = if ($Context) { $Context.CustomQmax } else { 23 }
     $defCrf  = if ($Context) { $Context.CustomCrf }  else { 21 }
-    $defAb   = if ($Context -and "$($Context.CustomAudioBitrate)" -ne '') { "$($Context.CustomAudioBitrate)" } else { '192k' }
+    $defMp    = if ($Context -and "$($Context.CustomMultipass)" -ne '') { "$($Context.CustomMultipass)" } else { 'off' }
+    $defAb    = if ($Context -and "$($Context.CustomAudioBitrate)" -ne '') { "$($Context.CustomAudioBitrate)" } else { '192k' }
+    $defCodec = if ($Context -and "$($Context.CustomAudioCodec)" -ne '') { "$($Context.CustomAudioCodec)" } else { 'aac' }
 
     while ($true) {
         try {
-            # Catalogo de encoders (Get-CvVideoEncoders); el numero de menu (1..N) se genera solo.
+            # Encoder: menu generico (Select-FromList) sin opcion "0" (-NoNone). El default es el
+            # encoder configurado; si no esta en la lista (config erronea), cae a hevc_nvenc y, si
+            # ni eso, a la 1a opcion.
             $encList = @(Get-CvVideoEncoders)
-            $encoders = [ordered]@{}
-            for ($i = 0; $i -lt $encList.Count; $i++) { $encoders["$($i + 1)"] = $encList[$i] }
-            # Clave por defecto = la del encoder configurado. Si el valor no esta en la lista
-            # (config erronea), se cae al encoder por defecto de la app (hevc_nvenc), no a la 1a
-            # opcion; y solo si ni eso existe, a la primera de la lista.
-            $encDefKey = ''
-            foreach ($ek in $encoders.Keys) { if ((Get-CvOptionValue $encoders $ek) -eq $defEnc)        { $encDefKey = $ek; break } }
-            if (-not $encDefKey) { foreach ($ek in $encoders.Keys) { if ((Get-CvOptionValue $encoders $ek) -eq 'hevc_nvenc') { $encDefKey = $ek; break } } }
-            if (-not $encDefKey) { $encDefKey = @($encoders.Keys)[0] }
-            $encLines = @(Get-CvMenuLines $encoders) | ForEach-Object {
-                if ($_ -match ("^{0}\. " -f $encDefKey)) { "$_  <= por defecto" } else { $_ }
-            }
-            Show-Menu -Title 'ENCODER DE VIDEO:' -Lines ($encLines + @('', 'C / ESC. Cancelar (volver al menu de perfiles)'))
-            $enc = ''
-            while ($enc -eq '') {
-                $k = (Read-CvLine -Prompt ("   Opcion [{0}]" -f $encDefKey) -AllowCancel).Trim()
-                if ($k -match '^[Cc]$') { throw 'CV_CANCEL' }
-                if ($k -eq '') { $k = $encDefKey }
-                $enc = Get-CvOptionValue $encoders $k
-                if (-not $enc) { Write-Host '   Opcion no valida.' -ForegroundColor Yellow }
-            }
+            $encVals = @($encList | ForEach-Object { "$($_.Value)" })
+            $encDefIdx = 1 + [array]::IndexOf($encVals, "$defEnc")
+            if ($encDefIdx -le 0) { $encDefIdx = 1 + [array]::IndexOf($encVals, 'hevc_nvenc') }
+            if ($encDefIdx -le 0) { $encDefIdx = 1 }
+            $enc = Select-FromList -Title 'ENCODER DE VIDEO:' -Options $encList -NoNone -DefaultIndex $encDefIdx `
+                -CancelLabel 'C / ESC. Cancelar (volver al menu de perfiles)' -AllowCancel
 
             $p = New-CvProfile -VideoEncoder $enc
 
@@ -213,7 +314,7 @@ function New-CustomProfile {
                 $p.DetectBorder = Read-YesNo '   Detectar bordes negros en cada archivo?' $false -AllowCancel
 
                 if (Read-YesNo '   Cambiar el tamano del video?' $false -AllowCancel) {
-                    $sizeLines = @(Get-CvVideoSizes | ForEach-Object { '{0,-24}- {1}' -f $_.Label, $_.Size })
+                    $sizeLines = @(Get-CvVideoSizes | ForEach-Object { '{0,-24}- {1}' -f $_.Text, $_.Value })
                     Show-Menu -Title 'TAMANOS DE REFERENCIA:' -Lines ($sizeLines + @(
                         '',
                         'Altura -1 = automatico manteniendo aspecto (ej 1920:-1)',
@@ -228,15 +329,18 @@ function New-CustomProfile {
                     }
                 }
 
-                # Perfil y level validos segun el codec (catalogo en Get-CvCodecOptions).
+                # Perfil y level validos segun el codec (catalogo @{Value;Text} en Get-CvCodecOptions).
                 $co       = Get-CvCodecOptions -Encoder $enc
                 $profOpts = @($co.Profiles)
                 $lvlOpts  = @($co.Levels)
-                # Indice 1-based del valor por defecto en cada lista (0 = ninguno si no aplica al codec).
-                $profDefIdx = 1 + [array]::IndexOf([string[]]$profOpts, "$defProf")
-                $lvlDefIdx  = 1 + [array]::IndexOf([string[]]$lvlOpts,  "$defLvl")
-                $p.VideoProfile = Select-FromList -Title 'Perfil de codec:' -Options $profOpts -NoneLabel 'ninguno' -DefaultIndex $profDefIdx -AllowCancel
-                $p.VideoLevel   = Select-FromList -Title 'Level:' -Options $lvlOpts -NoneLabel 'ninguno' -DefaultIndex $lvlDefIdx -AllowCancel
+                # Indice 1-based del valor por defecto. Perfil y level son OBLIGATORIOS (-NoNone): si
+                # el default de config no aplica al codec, caen a la 1a opcion (nunca a "ninguno").
+                $profDefIdx = 1 + [array]::IndexOf(@($profOpts | ForEach-Object { "$($_.Value)" }), "$defProf")
+                if ($profDefIdx -le 0) { $profDefIdx = 1 }
+                $lvlDefIdx  = 1 + [array]::IndexOf(@($lvlOpts  | ForEach-Object { "$($_.Value)" }), "$defLvl")
+                if ($lvlDefIdx -le 0) { $lvlDefIdx = 1 }
+                $p.VideoProfile = Select-FromList -Title 'Perfil de codec:' -Options $profOpts -NoNone -DefaultIndex $profDefIdx -AllowCancel
+                $p.VideoLevel   = Select-FromList -Title 'Level (resolucion/fps orientativos):' -Options $lvlOpts -NoNone -DefaultIndex $lvlDefIdx -AllowCancel
 
                 # Control de tasa: CRF (CPU) o qmin/qmax (NVENC). Defaults desde config (customProfile).
                 if ($enc -in @('libx264','libx265')) {
@@ -244,37 +348,38 @@ function New-CustomProfile {
                 } else {
                     $p.Qmin = Read-QOrNull '   QP minimo (0-51)' $defQmin -Max 51 -AllowCancel
                     $p.Qmax = Read-QOrNull '   QP maximo (0-51)' $defQmax -Max 51 -AllowCancel
+                    # 2-pass NVENC (multipass): catalogo @{Value;Text} en Get-CvNvencMultipass. Solo
+                    # NVENC. 'off' es la opcion 0 (None); qres/fullres van como opciones normales.
+                    # Catalogo @{Value;Text;Position} ('off'=first/opcion 0). Default por valor.
+                    $p.Multipass = Select-FromList -Title '2-pass NVENC (multipass):' `
+                        -Options (Get-CvNvencMultipass) -DefaultValue "$defMp" -AllowCancel
                 }
             }
 
-            # Audio ('0. copy' y '6. custom' son especiales; el resto sale del mapa). Default desde
-            # config (customProfile.audioBitrate): ENTER lo usa tal cual, sea preset o valor libre.
-            $abList = @(Get-CvAudioBitrates)
-            $abMap = [ordered]@{}
-            for ($i = 0; $i -lt $abList.Count; $i++) { $abMap["$($i + 1)"] = $abList[$i] }
-            $abCustomKey = "$($abList.Count + 1)"   # opcion 'custom' = ultima+1
-            $abDefKey = ''
-            foreach ($ak in $abMap.Keys) { if ("$($abMap[$ak])" -eq $defAb) { $abDefKey = $ak; break } }
-            $abLines = @('0. copy') + (@(Get-CvMenuLines $abMap) | ForEach-Object {
-                if ($abDefKey -and $_ -match ("^{0}\. " -f $abDefKey)) { "$_  <= por defecto" } else { $_ }
-            }) + @(("{0}. custom" -f $abCustomKey), '', 'C / ESC. Cancelar')
-            Show-Menu -Title 'BITRATE DE AUDIO:' -Lines $abLines
-            while ($true) {
-                $ab = (Read-CvLine -Prompt ("   Opcion [{0}]" -f $defAb) -AllowCancel).Trim()
-                if ($ab -match '^[Cc]$') { throw 'CV_CANCEL' }
-                if ($ab -eq '') {
-                    if ($defAb -eq 'copy') { $p.AudioEncoder = 'copy'; $p.AudioBitrate = '' }
-                    else { $p.AudioEncoder = 'aac_coder'; $p.AudioBitrate = $defAb }
-                    break
+            # AUDIO en dos pasos: 1) SALIDA = copy (no recodificar) o codec (Get-CvAudioCodecs); luego,
+            # solo al recodificar, 2) BITRATE apropiado al codec (Get-CvAudioBitrates -Codec). FLAC (sin
+            # perdida) y copy se saltan el bitrate. El default de salida = 'copy' si customProfile.audioBitrate
+            # es 'copy' (compatibilidad), si no el codec por defecto (customProfile.audioCodec).
+            $defOut = if ("$defAb" -eq 'copy') { 'copy' } else { "$defCodec" }
+            $out = Select-FromList -Title 'SALIDA DE AUDIO (codec):' -Options (Get-CvAudioCodecs) -NoNone -DefaultValue "$defOut" -AllowCancel
+            if ($out -eq 'copy') {
+                $p.AudioEncoder = 'copy'; $p.AudioCodec = 'aac'; $p.AudioBitrate = ''
+            } else {
+                $p.AudioEncoder = 'aac_coder'; $p.AudioCodec = $out
+                if ($out -eq 'flac') {
+                    $p.AudioBitrate = ''    # sin perdida: el bitrate no aplica
+                } else {
+                    while ($true) {
+                        $ab = Select-FromList -Title 'BITRATE DE AUDIO:' -Options (Get-CvAudioBitrates -Codec $out) -NoNone -DefaultValue "$defAb" -AllowCancel
+                        if ($ab -eq 'custom') {
+                            $cb = (Read-CvLine -Prompt '   Bitrate (ej 96k, 448k)' -AllowCancel).Trim()
+                            if ($cb -match '^[Cc]$') { throw 'CV_CANCEL' }
+                            if ($cb -ne '') { $p.AudioBitrate = $cb; break }
+                            continue   # vacio -> volver a mostrar el menu
+                        }
+                        $p.AudioBitrate = $ab; break
+                    }
                 }
-                if ($ab -eq '0') { $p.AudioEncoder = 'copy'; $p.AudioBitrate = ''; break }
-                if ($abMap.Contains($ab)) { $p.AudioEncoder = 'aac_coder'; $p.AudioBitrate = "$($abMap[$ab])"; break }
-                if ($ab -eq $abCustomKey) {
-                    $cb = (Read-CvLine -Prompt '   Bitrate (ej 96k, 224k)' -AllowCancel).Trim()
-                    if ($cb -match '^[Cc]$') { throw 'CV_CANCEL' }
-                    if ($cb -ne '') { $p.AudioEncoder = 'aac_coder'; $p.AudioBitrate = $cb; break }
-                }
-                Write-Host '   Opcion no valida.' -ForegroundColor Yellow
             }
 
             # Resumen y confirmacion.
@@ -361,7 +466,12 @@ function Write-ProfileInfo {
         Write-CvLog 'GLOBAL' ("[INFO] - [VIDEO] - DETECTAR BORDE: {0}" -f $Prof.DetectBorder)
         if ($Prof.ChangeSize) { Write-CvLog 'GLOBAL' ("[INFO] - [VIDEO] - RESIZE: {0}" -f $Prof.ChangeSize) }
     }
-    Write-CvLog 'GLOBAL' ("[INFO] - [AUDIO] - ENCODER: {0} / {1}" -f $Prof.AudioEncoder, $Prof.AudioBitrate)
+    if ($Prof.AudioEncoder -eq 'copy') {
+        Write-CvLog 'GLOBAL' '[INFO] - [AUDIO] - ENCODER: copy (sin recodificar)'
+    } else {
+        $codec = "$($Prof.AudioCodec)"; if (-not $codec) { $codec = 'aac' }
+        Write-CvLog 'GLOBAL' ("[INFO] - [AUDIO] - CODEC: {0} / {1}" -f $codec, $Prof.AudioBitrate)
+    }
     Write-Host ''
 }
 

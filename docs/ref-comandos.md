@@ -12,7 +12,7 @@ flowchart TD
       P3 --> P4["ffmpeg ashowinfo (desfase de audio para sincronía)"]
     end
     subgraph WORK["WORKER (desatendido)"]
-      W1["ffmpeg volumedetect (medir pico, si volume=peak)"] --> W2["ffmpeg -c:a aac (audio → .m4a)"]
+      W1["ffmpeg volumedetect (medir pico, si volume=peak)"] --> W2["ffmpeg -c:a &lt;codec&gt; (audio → .m4a/.mka)"]
       W2 --> WA["aacgain (si volume=aacgain)"]
       WA --> W3["ffmpeg codec de vídeo (vídeo → .mkv)"]
       W3 --> W4["ffmpeg mux (unir pistas → _fix.mkv)"]
@@ -95,7 +95,7 @@ Lee el `pts_time` del primer frame de la pista de audio seleccionada (índice `<
 ffmpeg -hide_banner -i <file> -map 0:<i> -af ashowinfo -f alaw -frames:a 1 -y NUL
 ```
 
-Si `pts_time > 0`, el audio empieza más tarde que el vídeo y se ofrece añadir ese silencio al inicio.
+Si `pts_time > 0`, el audio empieza más tarde que el vídeo y se ofrece añadir ese silencio al inicio. Explicación del flujo de sincronía en [explica-audio.md](explica-audio.md#3-sincronía-audiovídeo).
 
 ---
 
@@ -123,17 +123,21 @@ ffmpeg -hide_banner <input> -af volumedetect -f null -
 
 Donde `<input>` es `-i <file> -map 0:<i> ...` o `-i <name>_concat.wav -map 0:a` si hubo sincronía.
 
+Esta medición recorre **todo** el audio, así que puede tardar; en el worker se muestra como un paso `- Analizando volumen... (pico -X dB) ✓` (para que no parezca colgado antes de "Aplicando ganancia").
+
+Comparativa de tiempo de los métodos de volumen (`peak`/`loudnorm`/`aacgain`) y selección de la mejor pista de audio: [explica-audio.md](explica-audio.md).
+
 ---
 
-## 7. Audio: codificación a AAC con normalización de volumen (`Invoke-AudioRun`)
+## 7. Audio: recodificación con normalización de volumen (`Invoke-AudioRun`)
 
 Base común del comando (la fuente es `<file>` o el WAV sincronizado):
 
 ```
-ffmpeg -hide_banner -y -threads <N> -i <fuente> <VOLUMEN> -c:a aac -aac_coder twoloop -ac <canales> -ar <hz> [-b:a <bitrate>] <name>.m4a
+ffmpeg -hide_banner -y -threads <N> -i <fuente> <VOLUMEN> -c:a <codec> [-aac_coder twoloop] -ac <canales> -ar <hz> [-b:a <bitrate>] <name>.<m4a|mka>
 ```
 
-`<canales>` = `encode.audioChannels` (2 por defecto; 6 = 5.1, 8 = 7.1). La parte `<VOLUMEN>` depende de `volume.method` (`$ctx.VolumeMethod`):
+`<codec>` = `audioCodec` del perfil (`aac` por defecto; también `ac3`/`eac3`/`libmp3lame`/`flac`/`libopus`). `-aac_coder twoloop` **solo** con AAC; `-b:a` se omite en FLAC (sin pérdida); Opus fuerza `-ar 48000`. El temporal es `.m4a` para AAC y `.mka` (Matroska) para el resto. `<canales>` = `encode.audioChannels` (2 por defecto; 6 = 5.1, 8 = 7.1; downmix si la fuente tiene más). La parte `<VOLUMEN>` depende de `volume.method` (`$ctx.VolumeMethod`). Formatos soportados, especificaciones y el flujo del builder en [explica-audio.md](explica-audio.md):
 
 ### peak (por defecto)
 Mide el pico y lo sube hasta el objetivo `volume.peakTarget` (0 dBFS por defecto; `-1` deja *headroom* contra el clipping inter-sample del AAC) con el filtro `volume`:
@@ -153,6 +157,8 @@ Se codifica **sin** ajuste y luego se aplica la ganancia sobre el `.m4a` ya codi
 ```
 aacgain /r /c /q <name>.m4a
 ```
+
+Solo aplica con `audioCodec: aac` (aacgain procesa AAC/MP3 en MP4). Con otro códec (salida `.mka`) se usa `peak` en su lugar.
 
 `<label>` es `0:a` si venimos del WAV sincronizado, o `0:<i>` en caso normal.
 

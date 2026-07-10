@@ -145,18 +145,18 @@ flowchart TD
 
 Al iniciar cada archivo, el worker muestra su **resolución y duración** (útil para estimar cuánto durará la codificación). En **uso normal**, cada paso se muestra como una línea compacta `- <acción>... ✓` (o `✗` en rojo si falla), y el resumen final va enmarcado con guiones. En **modo debug** se ven los logs detallados por sección, los comandos exactos y las confirmaciones.
 
-Orden de codificación por archivo: **audio → vídeo → multiplexado**. El audio se recodifica a un `.m4a` temporal, el vídeo a un `.mkv` temporal, y el multiplexado los une con los **subtítulos** y los **adjuntos** conservados del original en `Convertido\<nombre>_fix.mkv`; después limpia los metadatos heredados y quita las etiquetas `DURATION` con **mkvpropedit**.
+Orden de codificación por archivo: **audio → vídeo → multiplexado**. El audio se recodifica a un temporal (`.m4a` si el códec es AAC, `.mka` para el resto), el vídeo a un `.mkv` temporal, y el multiplexado los une con los **subtítulos** y los **adjuntos** conservados del original en `Convertido\<nombre>_fix.mkv`; después limpia los metadatos heredados y quita las etiquetas `DURATION` con **mkvpropedit**.
 
 Pipeline interno de cada archivo (pasos de cada etapa):
 
 ```mermaid
 flowchart TB
-    subgraph AUD["1) Invoke-AudioRun → &lt;n&gt;.m4a"]
+    subgraph AUD["1) Invoke-AudioRun → &lt;n&gt;.m4a / .mka"]
       direction TB
       A0{"¿audioEncoder = copy?"} -- "sí" --> ASK["saltar (se copia en el mux)"]
       A0 -- "no" --> A1["Sincronía: silencio + pista si sync &gt; 0"]
       A1 --> A2["Volumen: peak / loudnorm / aacgain"]
-      A2 --> A3["-c:a aac -ac &lt;canales&gt; -ar &lt;hz&gt;"]
+      A2 --> A3["-c:a &lt;audioCodec&gt; -ac &lt;canales&gt; -ar &lt;hz&gt;"]
     end
     subgraph VID["2) Invoke-VideoRun → &lt;n&gt;.mkv"]
       direction TB
@@ -175,7 +175,7 @@ flowchart TB
     AUD --> VID --> MUX
 ```
 
-Ver los comandos exactos en [ref-comandos.md](ref-comandos.md).
+Ver los comandos exactos en [ref-comandos.md](ref-comandos.md). El detalle del audio (selección de pista, sincronía, canales/códec de salida y métodos de volumen) en [explica-audio.md](explica-audio.md).
 
 ## Paralelismo y lock
 

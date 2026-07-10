@@ -231,7 +231,6 @@ function Show-CvHeader {
     Write-Host $sep  -ForegroundColor Cyan
     Write-Host ("  {0}" -f $name) -ForegroundColor Cyan
     Write-Host $sep  -ForegroundColor Cyan
-    Write-Host ''
 }
 
 function Show-Menu {
@@ -291,79 +290,108 @@ function Show-CvBox {
 }
 
 
-function Get-CvMenuLines {
-    <#
-        Genera las lineas de un menu a partir de un [ordered] de opciones (clave -> valor),
-        para no duplicar los datos entre el mapa y el texto del menu. El valor puede ser:
-          - una cadena            -> "clave. valor"
-          - @{ Value=..; Text=.. } -> "clave. valor<pad> Text"  (Text descripcion, opcional)
-        Se usa el MISMO mapa para el lookup (Get-CvOptionValue).
-    #>
-    param([Parameter(Mandatory)]$Options)
-    $lines = @()
-    foreach ($key in $Options.Keys) {
-        $v = $Options[$key]
-        if ($v -is [System.Collections.IDictionary]) {
-            $txt = "$($v.Text)"
-            if ($txt) { $lines += ("{0}. {1,-12}{2}" -f $key, "$($v.Value)", $txt) }
-            else      { $lines += ("{0}. {1}"        -f $key, "$($v.Value)") }
-        } else {
-            $lines += ("{0}. {1}" -f $key, "$v")
-        }
-    }
-    $lines
-}
-
-function Get-CvOptionValue {
-    <# Valor de una opcion por su clave (Value si es hashtable, la cadena si no); '' si no existe. #>
-    param([Parameter(Mandatory)]$Options, [string]$Key)
-    if (-not $Options.Contains($Key)) { return '' }
-    $v = $Options[$Key]
-    if ($v -is [System.Collections.IDictionary]) { return "$($v.Value)" }
-    return "$v"
-}
-
-
 function Select-FromList {
     <#
         Muestra una lista numerada de opciones (enmarcada) y devuelve el valor elegido.
-        La opcion 0 devuelve el valor $NoneValue (por defecto cadena vacia).
-        ENTER selecciona la opcion por defecto ($DefaultIndex, 1-based; 0 = ninguno).
-        $Headers (opcional): hashtable { <indice0> = 'Titulo del bloque' } que inserta un
-        titulo de seccion antes de esa opcion, sin afectar a la numeracion.
+        Cada opcion puede ser una CADENA o un objeto @{ Value; Text } (Value = lo que se devuelve;
+        Text = descripcion que se muestra tras el nombre). Asi los catalogos Get-Cv* (que usan ese
+        formato) se pasan tal cual. La opcion 0 devuelve $NoneValue. ENTER = opcion por defecto
+        ($DefaultIndex, 1-based; 0 = ninguno). $Headers: { <indice0> = 'Titulo' } inserta un titulo.
     #>
     param(
         [string]$Title,
-        [Parameter(Mandatory)][string[]]$Options,
+        [Parameter(Mandatory)][object[]]$Options,   # cadenas o @{ Value; Text; Position }
         [string]$NoneLabel = 'ninguno',
         [string]$NoneValue = '',
         [int]$DefaultIndex = 0,
+        [string]$DefaultValue = '',       # si se da, ENTER devuelve este valor (aunque no este en la lista)
+        [string]$NoneKey = '',            # letra alternativa para la opcion 0 (p.ej. 'S' = salir)
+        [string[]]$Descriptions = @(),    # descripcion por opcion (si la opcion no es objeto con Text)
+        [string]$NoneDescription = '',    # descripcion opcional de la opcion 0
+        [string]$CancelLabel = '',        # texto de la linea de cancelar (si -AllowCancel)
         [hashtable]$Headers = $null,
+        [switch]$NoNone,                  # oculta la opcion 0 (salvo que haya una opcion Position='first')
         [switch]$AllowCancel
     )
-    $mark = '  <= por defecto'
-    $lines = @()
+    # Normalizar cada opcion a registro { Val; Txt; Pos }. Acepta cadenas o @{ Value; Text; Position }
+    # (o PSObject con esas propiedades). Position: 'first' -> opcion 0 (None); 'end' -> al final.
+    $recs = @()
     for ($i = 0; $i -lt $Options.Count; $i++) {
+        $o = $Options[$i]
+        if ($o -is [System.Collections.IDictionary]) {
+            $recs += @{ Val = "$($o['Value'])"; Txt = "$($o['Text'])"; Pos = "$($o['Position'])" }
+        } elseif ($o -is [psobject] -and $o.PSObject.Properties['Value']) {
+            $recs += @{ Val = "$($o.Value)"; Txt = "$($o.Text)"; Pos = "$(if ($o.PSObject.Properties['Position']) { $o.Position })" }
+        } else {
+            $recs += @{ Val = "$o"; Txt = $(if ($i -lt $Descriptions.Count) { $Descriptions[$i] } else { '' }); Pos = '' }
+        }
+    }
+    # Reparto por posicion: numeradas = mids (sin Position) + ends; la opcion 0 = 'first' si existe.
+    $numbered = @($recs | Where-Object { $_.Pos -ne 'first' -and $_.Pos -ne 'end' }) + @($recs | Where-Object { $_.Pos -eq 'end' })
+    $first    = @($recs | Where-Object { $_.Pos -eq 'first' })[0]
+    $hasNone  = $true; $noneVal = $NoneValue; $noneLbl = $NoneLabel; $noneDsc = $NoneDescription
+    if ($first) { $noneVal = $first.Val; $noneLbl = $first.Val; $noneDsc = $first.Txt }
+    elseif ($NoNone) { $hasNone = $false }
+
+    # Default: por valor (prioridad, puede ser libre) o por indice.
+    $defIdx = $DefaultIndex; $defRet = $null
+    if ($DefaultValue) {
+        $defRet = $DefaultValue
+        $mi = [array]::IndexOf(@($numbered | ForEach-Object { $_.Val }), "$DefaultValue")
+        if ($mi -ge 0) { $defIdx = $mi + 1 } elseif ($hasNone -and $noneVal -eq $DefaultValue) { $defIdx = 0 } else { $defIdx = -1 }
+    }
+    $defShown = if ($null -ne $defRet) { $defRet } else { "$defIdx" }
+
+    $mark    = '  <= por defecto'
+    $noneNum = if ($NoneKey) { '0 / {0}' -f $NoneKey.ToUpper() } else { '0' }
+    $leftNum = @(); $descNum = @()
+    for ($i = 0; $i -lt $numbered.Count; $i++) { $leftNum += ('{0}. {1}' -f ($i + 1), $numbered[$i].Val); $descNum += $numbered[$i].Txt }
+    $leftNone = if ($hasNone) { '{0}. {1}' -f $noneNum, $noneLbl } else { '' }
+    $anyDesc  = (@($descNum | Where-Object { $_ }).Count -gt 0) -or [bool]$noneDsc
+    $allLeft  = @($leftNum); if ($hasNone) { $allLeft += $leftNone }
+    $w        = if ($anyDesc -and $allLeft.Count) { ($allLeft | Measure-Object -Property Length -Maximum).Maximum } else { 0 }
+
+    # Cuerpo de cada fila (izquierda alineada a $w + su descripcion), SIN la marca de defecto.
+    $bodyNum = @()
+    for ($i = 0; $i -lt $numbered.Count; $i++) {
+        $bodyNum += $(if ($descNum[$i]) { $leftNum[$i].PadRight($w) + '  - ' + $descNum[$i] } else { $leftNum[$i] })
+    }
+    $bodyNone = ''
+    if ($hasNone) { $bodyNone = $(if ($noneDsc) { $leftNone.PadRight($w) + '  - ' + $noneDsc } else { $leftNone }) }
+    # Ancho comun para alinear "<= por defecto" en columna, tras el cuerpo (texto) mas largo.
+    $allBody = @($bodyNum); if ($hasNone) { $allBody += $bodyNone }
+    $bodyW   = if ($allBody.Count) { ($allBody | Measure-Object -Property Length -Maximum).Maximum } else { 0 }
+
+    $lines = @()
+    for ($i = 0; $i -lt $numbered.Count; $i++) {
         if ($Headers -and $Headers.Contains($i)) {
             if ($i -gt 0) { $lines += '' }                 # separacion antes del bloque
             $lines += ("-- {0} --" -f $Headers[$i])
         }
-        $def = if (($i + 1) -eq $DefaultIndex) { $mark } else { '' }
-        $lines += ("{0}. {1}{2}" -f ($i + 1), $Options[$i], $def)
+        $lines += $(if (($i + 1) -eq $defIdx) { $bodyNum[$i].PadRight($bodyW) + $mark } else { $bodyNum[$i] })
     }
-    $lines += ''
-    $lines += ("0. {0}{1}" -f $NoneLabel, $(if ($DefaultIndex -eq 0) { $mark } else { '' }))
-    if ($AllowCancel) { $lines += 'C / ESC. Cancelar' }
+    if ($hasNone) {
+        $lines += ''
+        $lines += $(if ($defIdx -eq 0) { $bodyNone.PadRight($bodyW) + $mark } else { $bodyNone })
+    }
+    if ($AllowCancel) {
+        $lines += ''                                       # separacion antes de la linea de cancelar
+        $lines += $(if ($CancelLabel) { $CancelLabel } else { 'C / ESC. Cancelar' })
+    }
     Show-Menu -Title $Title -Lines $lines
     while ($true) {
-        $pr = "   Opcion [{0}]" -f $DefaultIndex
+        $pr = "   Opcion [{0}]" -f $defShown
         $k = (& { if ($AllowCancel) { Read-CvLine -Prompt $pr -AllowCancel } else { Read-Host $pr } }).Trim()
         if ($AllowCancel -and $k -match '^[Cc]$') { throw 'CV_CANCEL' }
-        if ($k -eq '') { $k = "$DefaultIndex" }
+        if ($hasNone -and $NoneKey -and $k -ieq $NoneKey) { return $noneVal }   # letra alternativa de la opcion 0
+        if ($k -eq '') {
+            if ($null -ne $defRet) { return $defRet }      # default por valor (incluido valor libre)
+            $k = "$defIdx"
+        }
         $n = 0
         if ([int]::TryParse($k, [ref]$n)) {
-            if ($n -eq 0) { return $NoneValue }
-            if ($n -ge 1 -and $n -le $Options.Count) { return $Options[$n - 1] }
+            if ($n -eq 0 -and $hasNone) { return $noneVal }
+            if ($n -ge 1 -and $n -le $numbered.Count) { return $numbered[$n - 1].Val }
         }
         Write-Host '   Opcion no valida.' -ForegroundColor Yellow
     }

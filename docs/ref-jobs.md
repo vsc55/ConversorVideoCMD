@@ -11,7 +11,7 @@ Ejemplo:
 ```json
 {
   "file": "D:\\...\\Original\\Video [01].mkv",
-  "profile": { "VideoEncoder": "hevc_nvenc", "VideoProfile": "main10", "VideoLevel": "5", "Qmin": 1, "Qmax": 23, "DetectBorder": true, "ChangeSize": "", "AudioEncoder": "aac_coder", "AudioBitrate": "192k", "AudioHz": 44100 },
+  "profile": { "VideoEncoder": "hevc_nvenc", "VideoProfile": "main10", "VideoLevel": "5", "Qmin": 1, "Qmax": 23, "DetectBorder": true, "ChangeSize": "", "Multipass": "", "AudioEncoder": "aac_coder", "AudioCodec": "aac", "AudioBitrate": "192k", "AudioHz": 44100 },
   "ffmpegVersion": "7.1.1",
   "aacgainVersion": "2.0.0",
   "video": { "skip": false, "index": 0, "crop": "1920:800:0:140", "resize": "", "anim": false },
@@ -64,7 +64,8 @@ Durante la codificación de un archivo se generan, en `Proceso\`:
 | Fichero | Lo crea | Contenido |
 |---|---|---|
 | `<nombre>.mkv` | `Invoke-VideoRun` | Vídeo recodificado (temporal). |
-| `<nombre>.m4a` | `Invoke-AudioRun` | Audio recodificado (temporal). |
+| `<nombre>.m4a` | `Invoke-AudioRun` | Audio recodificado (temporal) cuando el codec es **AAC**. |
+| `<nombre>.mka` | `Invoke-AudioRun` | Audio recodificado (temporal) para codecs **no-AAC** (ac3/eac3/mp3/flac/opus); Matroska admite cualquier codec. |
 | `<nombre>_concat.wav` | `Invoke-AudioRun` (si hay sincronía) | Silencio + pista, para recodificar. |
 | `<nombre>.job.json.tmp` | `Write-CvJob` | Job a medio escribir (si quedó colgado). |
 

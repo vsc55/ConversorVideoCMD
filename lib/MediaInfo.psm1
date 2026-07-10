@@ -53,11 +53,58 @@ function Get-VideoStreamPos {
     return 0
 }
 
+function Get-CvAudioBitrate {
+    <#
+        Bitrate de una pista de audio en bps (o $null si no se puede saber). Se lee de
+        'stream.bit_rate' (lo traen habitualmente AC-3/E-AC-3/DTS) o, si falta, del tag de
+        estadisticas de mkvmerge 'BPS' (frecuente en MKV). Sirve para comparar calidad de pistas.
+    #>
+    param([Parameter(Mandatory)]$Stream)
+    $n = [int64]0
+    if ($Stream.PSObject.Properties['bit_rate'] -and $Stream.bit_rate -and [int64]::TryParse("$($Stream.bit_rate)".Trim(), [ref]$n) -and $n -gt 0) { return $n }
+    $bps = Get-Tag $Stream 'BPS'
+    if ($bps -and [int64]::TryParse("$bps".Trim(), [ref]$n) -and $n -gt 0) { return $n }
+    return $null
+}
+
+function Get-CvAudioCodecRank {
+    <# Rango de "calidad de master" del codec de audio (mayor = mejor); desempata pistas equivalentes. #>
+    param([string]$Codec)
+    switch -Wildcard ("$Codec".ToLower()) {
+        'truehd' { 100 }
+        'mlp'    { 100 }
+        'flac'   { 95 }
+        'pcm*'   { 95 }
+        'dts'    { 70 }
+        'eac3'   { 60 }
+        'ac3'    { 50 }
+        'opus'   { 42 }
+        'aac'    { 40 }
+        'vorbis' { 38 }
+        'mp3'    { 30 }
+        default  { 10 }
+    }
+}
+
+function Select-CvBestAudio {
+    <#
+        De un conjunto de pistas de audio, la de MEJOR calidad como fuente: primero mas canales
+        (5.1 > estereo), luego mejor codec (Get-CvAudioCodecRank: E-AC-3 > AC-3, etc.) y por
+        ultimo mayor bitrate. Devuelve el stream elegido.
+    #>
+    param([Parameter(Mandatory)]$Streams)
+    @($Streams) | Sort-Object `
+        @{ Expression = { [int]$_.channels }; Descending = $true }, `
+        @{ Expression = { Get-CvAudioCodecRank $_.codec_name }; Descending = $true }, `
+        @{ Expression = { $b = Get-CvAudioBitrate $_; if ($null -ne $b) { $b } else { [int64]-1 } }; Descending = $true } |
+        Select-Object -First 1
+}
+
 function Select-AudioStream {
     <#
-        Selecciona la pista de audio siguiendo la misma preferencia que AudioGetID.vbs:
-        (spa) > (default) > 5.1 > primera pista.
-        Devuelve un objeto con Index, Language, Channels, Is51.
+        Selecciona la pista de audio: (idioma preferido) > (default) > 5.1 > primera pista.
+        Con VARIAS del idioma preferido, elige la de mejor calidad (Select-CvBestAudio: canales,
+        luego codec, luego bitrate). Devuelve un objeto con Index, Language, Channels, Is51.
     #>
     param([Parameter(Mandatory)]$Info, [string[]]$PrefLangs = @('spa'))
     $aud = @($Info.streams | Where-Object { $_.codec_type -eq 'audio' })
@@ -65,10 +112,7 @@ function Select-AudioStream {
 
     $pick = $null
     $spa = @($aud | Where-Object { Test-CvLanguage (Get-Tag $_ 'language') $PrefLangs })
-    if ($spa.Count -gt 0) {
-        $pick = ($spa | Where-Object { $_.channels -ge 6 } | Select-Object -First 1)
-        if ($null -eq $pick) { $pick = $spa[0] }
-    }
+    if ($spa.Count -gt 0) { $pick = Select-CvBestAudio $spa }
     if ($null -eq $pick) {
         $def = @($aud | Where-Object { $_.disposition -and $_.disposition.default -eq 1 })
         if ($def.Count -gt 0) { $pick = $def[0] }

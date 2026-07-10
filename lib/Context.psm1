@@ -72,6 +72,10 @@ function New-CvContext {
         OutExt         = "$($cfg.encode.outputExtension)"
         Threads        = [int]$cfg.encode.threads
         Fps            = "$($cfg.encode.fps)"
+        # Forzar el fps de salida (-r). $true = como hasta ahora; $false = conserva el fps de origen.
+        ForceFps       = [bool]$cfg.encode.forceFps
+        # 2-pass de NVENC (-multipass): 'off'|'qres'|'fullres'. Solo lo usan los encoders NVENC.
+        Multipass      = $(if ("$($cfg.encode.multipass)".ToLower() -in @('qres','fullres')) { "$($cfg.encode.multipass)".ToLower() } else { 'off' })
         DefaultAudioHz = [int]$cfg.encode.audioHz
         BorderStart    = [int]$cfg.border.start
         BorderDur      = [int]$cfg.border.duration
@@ -105,6 +109,9 @@ function New-CvContext {
         TestLimit      = $(if (([bool]$cfg.test.enabled) -or (Test-Path (Join-Path $Root 'test_on'))) {
                               [int]([Math]::Max(1, [int]$cfg.test.minutes) * 60)
                           } else { 0 })
+        # BETA: sincronia con el filtro 'adelay' en una pasada (combinada con el volumen), sin WAV
+        # intermedio. Config test.syncAdelay. Lo consume Invoke-AudioRun.
+        SyncAdelay     = [bool]$cfg.test.syncAdelay
         # log: transcript de la ejecucion a logs\; el marcador 'no_log' lo desactiva.
         Log            = ([bool]$cfg.behavior.log -and -not (Test-Path (Join-Path $Root 'no_log')))
         # Postproceso: limpiar las etiquetas DURATION del MKV con mkvpropedit.
@@ -141,7 +148,9 @@ function New-CvContext {
         CustomQmin         = $(if ([int]$cfg.customProfile.qmin -lt 0) { $null } else { [Math]::Min(51, [int]$cfg.customProfile.qmin) })
         CustomQmax         = $(if ([int]$cfg.customProfile.qmax -lt 0) { $null } else { [Math]::Min(51, [int]$cfg.customProfile.qmax) })
         CustomCrf          = $(if ([int]$cfg.customProfile.crf  -lt 0) { $null } else { [Math]::Min(51, [int]$cfg.customProfile.crf) })
+        CustomMultipass    = $(if ("$($cfg.customProfile.multipass)".ToLower() -in @('qres','fullres')) { "$($cfg.customProfile.multipass)".ToLower() } else { 'off' })
         CustomAudioBitrate = "$($cfg.customProfile.audioBitrate)"
+        CustomAudioCodec   = "$($cfg.customProfile.audioCodec)"
     }
 
     # Rutas de las herramientas para la version 'selected' (fuente unica en New-CvToolContext).

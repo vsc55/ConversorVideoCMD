@@ -23,11 +23,12 @@ function Invoke-Multiplex {
     $out   = Get-OutputPath $Context $name
     $tmp   = Get-CvTempPaths -Context $Context -Name $name
     $vTmp  = $tmp.Video
-    $aTmp  = $tmp.Audio
+    # Audio recodificado: .m4a (AAC) o .mka (resto de codecs); el que exista.
+    $aTmp  = if (Test-Path -LiteralPath $tmp.Audio) { $tmp.Audio } elseif (Test-Path -LiteralPath $tmp.AudioMka) { $tmp.AudioMka } else { $tmp.Audio }
 
     # Fuente de video: recodificado si existe, si no el original (caso copy).
     $videoSrc = if (Test-Path -LiteralPath $vTmp) { $vTmp } else { $File }
-    # Fuente de audio: m4a recodificado si existe, si no el original (caso copy).
+    # Fuente de audio: temporal recodificado si existe, si no el original (caso copy).
     $useAudioFile = (Test-Path -LiteralPath $aTmp)
 
     # Subtitulos seleccionados en la fase preparar (filtramos posibles nulos del JSON).

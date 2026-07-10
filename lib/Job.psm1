@@ -45,10 +45,11 @@ function Get-CvTempPaths {
     #>
     param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)][string]$Name)
     [pscustomobject]@{
-        Video   = Join-Path $Context.Proceso ("{0}.mkv" -f $Name)           # video recodificado temporal
-        Audio   = Join-Path $Context.Proceso ("{0}.m4a" -f $Name)           # audio recodificado temporal
-        SyncWav = Join-Path $Context.Proceso ("{0}_concat.wav" -f $Name)    # wav de sincronizacion (silencio + audio)
-        JobTmp  = Join-Path $Context.Proceso ("{0}.job.json.tmp" -f $Name)  # job a medio escribir (si quedo colgado)
+        Video    = Join-Path $Context.Proceso ("{0}.mkv" -f $Name)           # video recodificado temporal
+        Audio    = Join-Path $Context.Proceso ("{0}.m4a" -f $Name)           # audio recodificado temporal (AAC)
+        AudioMka = Join-Path $Context.Proceso ("{0}.mka" -f $Name)           # audio recodificado temporal (no-AAC: ac3/eac3/mp3/flac/opus)
+        SyncWav  = Join-Path $Context.Proceso ("{0}_concat.wav" -f $Name)    # wav de sincronizacion (silencio + audio)
+        JobTmp   = Join-Path $Context.Proceso ("{0}.job.json.tmp" -f $Name)  # job a medio escribir (si quedo colgado)
     }
 }
 
@@ -61,7 +62,7 @@ function Remove-CvTemps {
     #>
     param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)][string]$Name)
     $tmp = Get-CvTempPaths -Context $Context -Name $Name
-    foreach ($p in @($tmp.Video, $tmp.Audio, $tmp.SyncWav, $tmp.JobTmp)) {
+    foreach ($p in @($tmp.Video, $tmp.Audio, $tmp.AudioMka, $tmp.SyncWav, $tmp.JobTmp)) {
         if (Test-Path -LiteralPath $p) { Remove-Item -Force -LiteralPath $p -ErrorAction SilentlyContinue }
     }
 }

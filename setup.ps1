@@ -354,8 +354,8 @@ function Clear-Proceso {
     $patterns = switch ($What) {
         'jobs'  { @('*.job.json','*.job.json.tmp') }
         'locks' { @('*.lock') }
-        'temps' { @('*.mkv','*.m4a','*_concat.wav','*.job.json.tmp') }
-        'all'   { @('*.job.json','*.job.json.tmp','*.lock','*.mkv','*.m4a','*_concat.wav') }
+        'temps' { @('*.mkv','*.m4a','*.mka','*_concat.wav','*.job.json.tmp') }
+        'all'   { @('*.job.json','*.job.json.tmp','*.lock','*.mkv','*.m4a','*.mka','*_concat.wav') }
     }
     $files = @()
     foreach ($p in $patterns) { $files += @(Get-ChildItem -LiteralPath $proc -Filter $p -File -ErrorAction SilentlyContinue) }
@@ -464,7 +464,7 @@ while (-not $exit) {
     $opts += 'Limpiar jobs / bloqueos (carpeta Proceso)'
     $opts += 'Limpiar logs (carpeta logs)'
 
-    $choice = Select-FromList -Title 'SETUP - Que quieres hacer?' -Options $opts -NoneLabel 'salir' -DefaultIndex 1 -Headers $headers
+    $choice = Select-FromList -Title 'SETUP - Que quieres hacer?' -Options $opts -NoneLabel 'salir' -DefaultIndex 0 -NoneKey 'S' -Headers $headers
     if ($choice -eq '') { $exit = $true; continue }
 
     if ($choice -eq 'Instalar / gestionar herramientas (ffmpeg, aacgain, mkvtoolnix...)') {

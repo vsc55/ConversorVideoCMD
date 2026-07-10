@@ -330,6 +330,12 @@ function Get-VideoArgs {
     $enc = $Prof.VideoEncoder
     $qmin = $Prof.Qmin; $qmax = $Prof.Qmax
     $constqp = ($null -ne $qmin -and $null -ne $qmax -and "$qmin" -eq "$qmax")
+    # -r solo si encode.forceFps (por defecto). Si no, se conserva el fps de origen (sin -r).
+    $fpsArg = if ($Context.ForceFps) { @('-r',"$($Context.Fps)") } else { @() }
+    # 2-pass de NVENC (-multipass); solo encoders NVENC. El perfil ('Multipass') tiene prioridad;
+    # si el perfil no lo fija ('' ), se usa el global 'encode.multipass' (Context.Multipass).
+    $mp = if ("$($Prof.Multipass)" -ne '') { "$($Prof.Multipass)".ToLower() } else { "$($Context.Multipass)" }
+    $mpArg = if ($mp -in @('qres','fullres')) { @('-multipass',$mp) } else { @() }
 
     switch ($enc) {
         'hevc_nvenc' {
@@ -344,7 +350,7 @@ function Get-VideoArgs {
                 if ($null -ne $qmax) { $a += @('-qmax',"$qmax") }
             }
             # NOTA: NVENC no admite -refs (muchas GPUs fallan con "No capable devices found").
-            $a += @('-rc-lookahead:v','32','-r',"$($Context.Fps)",'-movflags','+faststart')
+            $a += @('-rc-lookahead:v','32') + $mpArg + $fpsArg + @('-movflags','+faststart')
         }
         'h264_nvenc' {
             $a += @('-c:v','h264_nvenc','-pix_fmt','yuv420p','-preset','slow')
@@ -353,14 +359,14 @@ function Get-VideoArgs {
                 if ($null -ne $qmin) { $a += @('-qmin',"$qmin") }
                 if ($null -ne $qmax) { $a += @('-qmax',"$qmax") }
             }
-            $a += @('-rc-lookahead:v','32','-r',"$($Context.Fps)",'-movflags','+faststart')
+            $a += @('-rc-lookahead:v','32') + $mpArg + $fpsArg + @('-movflags','+faststart')
         }
         'libx264' {
             $a += @('-c:v','libx264','-pix_fmt','yuv420p')
             if ($null -ne $Prof.Crf) { $a += @('-crf',"$($Prof.Crf)") }
             $a += @('-preset','slow')
             if ($Anim) { $a += @('-tune','animation') }
-            $a += @('-refs','4','-r',"$($Context.Fps)",'-movflags','+faststart')
+            $a += @('-refs','4') + $fpsArg + @('-movflags','+faststart')
         }
         'libx265' {
             $a += @('-c:v','libx265','-pix_fmt','yuv420p')
@@ -369,7 +375,7 @@ function Get-VideoArgs {
             if ($Prof.VideoProfile) { $a += @('-profile:v',$Prof.VideoProfile) }
             if ($Prof.VideoLevel)   { $a += @('-level:v',"$($Prof.VideoLevel)") }
             if ($Anim) { $a += @('-tune','animation') }
-            $a += @('-refs','4','-r',"$($Context.Fps)",'-movflags','+faststart')
+            $a += @('-refs','4') + $fpsArg + @('-movflags','+faststart')
         }
     }
     return ,$a

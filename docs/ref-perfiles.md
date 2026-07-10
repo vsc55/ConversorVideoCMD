@@ -48,7 +48,7 @@ La sección `profiles` de `config.json` permite definir perfiles **adicionales**
 ```
 
 - `label` (opcional): texto que se muestra en el menú. Si se omite, se genera un resumen automático a partir de sus valores (p. ej. `A: 192K, V: h265[NV]/M10/L5/Q(1-20)/DETECT BORDE`). Es la **misma** función (`Format-CvProfileLabel`) que genera las etiquetas de los 7 perfiles de serie en el menú, así que no hay una lista de texto duplicada que mantener.
-- El resto de campos son los de la tabla de abajo pero en `camelCase`: `videoEncoder`, `videoProfile`, `videoLevel`, `qmin`, `qmax`, `crf`, `detectBorder`, `changeSize`, `audioEncoder`, `audioBitrate`, `audioHz`.
+- El resto de campos son los de la tabla de abajo pero en `camelCase`: `videoEncoder`, `videoProfile`, `videoLevel`, `qmin`, `qmax`, `crf`, `detectBorder`, `changeSize`, `multipass`, `audioEncoder`, `audioCodec`, `audioBitrate`, `audioHz`.
 - Se editan **a mano** en el JSON (el editor navegable de `setup` los muestra pero remite aquí, para no corromper el array de objetos). Se cargan al arrancar (`$ctx.Profiles`) y se pasan a `Select-Profile -Extra`.
 
 ## Campos de un perfil
@@ -64,9 +64,11 @@ La sección `profiles` de `config.json` permite definir perfiles **adicionales**
 | `Crf` | 0–51 / `null` | CPU (libx264/libx265): `-crf`. Qué es y cómo elegirlo: [explica-control-tasa.md](explica-control-tasa.md). |
 | `DetectBorder` | `true`/`false` | Activa la detección de bordes por archivo. |
 | `ChangeSize` | ej. `1920:-1`, `''` | `scale=` (altura `-1` = automático manteniendo aspecto). |
-| `AudioEncoder` | `aac_coder` / `copy` | Recodifica a AAC o copia la pista. |
-| `AudioBitrate` | ej. `192k` | `-b:a`. |
-| `AudioHz` | ej. `44100` | `-ar`. |
+| `Multipass` | `''`/`off`/`qres`/`fullres` | **NVENC**: 2-pass (`-multipass`). `''` = usa el global `encode.multipass`; `off`/`qres`/`fullres` lo fijan para este perfil (tienen prioridad sobre el global). Ignorado por los encoders de CPU. |
+| `AudioEncoder` | `aac_coder` / `copy` | Recodifica el audio o copia la pista original. |
+| `AudioCodec` | `aac` / `ac3` / `eac3` / `libmp3lame` / `flac` / `libopus` | Codec de salida al recodificar (`-c:a`). Por defecto `aac` (comportamiento previo). AAC va en un intermedio `.m4a`; el resto en `.mka`. FLAC ignora el bitrate (sin pérdida); Opus fuerza 48 kHz. Detalle en [explica-audio.md](explica-audio.md). |
+| `AudioBitrate` | ej. `192k` | `-b:a` (no aplica a FLAC). |
+| `AudioHz` | ej. `44100` | `-ar` (Opus se fuerza a `48000`). |
 
 Cómo se traducen estos campos a argumentos de ffmpeg: ver "Vídeo: codificación" en [ref-comandos.md](ref-comandos.md).
 
@@ -82,6 +84,7 @@ Construcción interactiva:
    - ¿Cambiar el tamaño? → menú de tamaños de referencia (360p…4K) o valor libre (`W:H`, altura `-1` = auto).
    - **Perfil** y **Level** del codec (selectores; opciones distintas para H.264 vs H.265).
    - **Control de tasa**: CRF (CPU) o QMIN/QMAX (NVENC).
+   - **2-pass NVENC (multipass)**: solo si el encoder es NVENC — `off` / `qres` / `fullres`.
 3. **Bitrate de audio**: copy / 128k / 160k / 192k / 256k / 320k / custom.
 4. **Resumen** + confirmación: `[ENTER]` usar / `[R]` rehacer.
 
@@ -97,9 +100,9 @@ Aunque el perfil es común al lote, en PREPARAR se pregunta/detecta por archivo:
 - **Bordes** (si el perfil los activa o el nombre empieza por `_`): se escanea con `cropdetect` en **varios puntos** del vídeo (`border.samples`) y se agrupan los recortes por votos. Si el más votado tiene mayoría fiable (% + margen) → se acepta solo, con preview del original y del recorte (sobre la pista de vídeo elegida) + confirmar; si no → aviso y **menú de recortes por votos** para elegir cuál probar. Opciones en la preview: usar / volver / valor manual / sin recorte. Detalle completo (reparto, votos, auto-aceptación y matriz de decisión) en [explica-deteccion-bordes.md](explica-deteccion-bordes.md).
 - **Animación** (solo `libx264`/`libx265`): añade `-tune animation`.
 - **Audio**:
-  - Si hay **2+ pistas del idioma preferido**, menú para elegir cuál — también con **reproducción** (`P N` = vídeo+audio, `A N` = solo audio, `P N <seg>` para otro segundo) para distinguirlas.
+  - Si hay **2+ pistas del idioma preferido**, menú para elegir cuál. La lista muestra idioma, códec, canales, **bitrate** y título, y viene **preseleccionada (`*`) la de mejor calidad** según el criterio: más **canales** → mejor **códec** (E-AC-3 > AC-3…) → mayor **bitrate** (`Select-CvBestAudio`). `[ENTER]` acepta esa; también hay **reproducción** (`P N` = vídeo+audio, `A N` = solo audio, `P N <seg>` para otro segundo) para distinguirlas. El bitrate se lee de `stream.bit_rate` o del tag `BPS` de mkvmerge. Diagrama del flujo de selección en [explica-audio.md](explica-audio.md).
   - Si **ninguna pista** está en el idioma preferido, se muestra la lista y se puede **reproducir** cada pista con ffplay para confirmar cuál es (`P N` = vídeo+audio, `A N` = solo audio; opcionalmente un segundo de inicio, `P N <seg>`, p. ej. `A 2 300`, para buscar diálogo) antes de elegirla; tras elegirla se pregunta qué **idioma asignar** (el de la pista con `ENTER`, otro código con `O` o tecleándolo, o `und` con `U`), por si el tag de idioma es una errata. (`Select-AudioFallback` en `lib\Audio.psm1`.)
-  - Detección de **sincronía** (silencio a añadir al inicio si el audio empieza más tarde).
+  - Detección de **sincronía** (silencio a añadir al inicio si el audio empieza más tarde). Cómo funciona: [explica-audio.md](explica-audio.md).
 - **Subtítulos**: en el idioma preferido se **conservan todos** (nada de menú ni descartes), auto-clasificados en **forzado** y **completo**:
   - Se distinguen por flag/título; si no lo traen y hay 2+, por **tamaño** (nº de cues): el más pequeño = forzado. El nº de cues se lee del tag `NUMBER_OF_FRAMES` de mkvmerge (instantáneo, ya cargado con la info del archivo) y solo si falta se cuenta con `ffprobe -count_packets` (que demultiplexa el fichero, lento en MKVs grandes). Por qué y cómo se optimizó: ver [caso-rendimiento-subtitulos.md](caso-rendimiento-subtitulos.md).
   - **Forzado** → disposition `default+forced`, título "Forzados". **Completo** → sin default, sin forced, sin título (también el completo suelto).

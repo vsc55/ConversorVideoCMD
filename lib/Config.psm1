@@ -105,7 +105,12 @@ function Get-CvConfigDefaults {
         # = estereo; 6 = 5.1; 8 = 7.1); fps/audioHz para ffmpeg. threads = -threads de ffmpeg:
         # 0 = auto (usa TODOS los nucleos de CPU); N para limitar (util con encoders CPU + varios
         # workers, que si no se pisan). Con NVENC casi no influye (trabaja la GPU).
-        encode    = [ordered]@{ outputExtension = 'mkv'; extensions = @('avi','flv','mp4','mov','mkv'); threads = 0; fps = '23.976'; audioHz = 44100; audioChannels = 2 }
+        # forceFps: si $true (por defecto) se fuerza la salida a 'fps' (-r), reajustando (dup/drop)
+        #   los videos con otro fps de origen; si $false, se CONSERVA el fps de cada archivo (sin -r).
+        # multipass: 2-pass de NVENC (solo hevc_nvenc/h264_nvenc). 'off' (por defecto) | 'qres'
+        #   (1a pasada a 1/4 de resolucion) | 'fullres' (a resolucion completa). Mas calidad a costa
+        #   de mas tiempo de GPU. No afecta a los encoders de CPU (libx264/libx265).
+        encode    = [ordered]@{ outputExtension = 'mkv'; extensions = @('avi','flv','mp4','mov','mkv'); threads = 0; fps = '23.976'; forceFps = $true; multipass = 'off'; audioHz = 44100; audioChannels = 2 }
         # customProfile: valores por DEFECTO del constructor de perfil CUSTOM interactivo (opcion 0
         #   del menu USAR PERFIL). En cada menu, ENTER acepta el valor por defecto (o eliges otro).
         #   videoEncoder: libx264|h264_nvenc|libx265|hevc_nvenc|copy. videoProfile: main|main10|...
@@ -113,7 +118,8 @@ function Get-CvConfigDefaults {
         #   qmin/qmax: control de tasa por defecto en NVENC. crf: control de tasa por defecto en CPU.
         #     Rango 0-51; -1 (o negativo) = AUTO (sin -qmin/-qmax ni -crf; decide el encoder).
         #   audioBitrate: bitrate de audio por defecto ('copy' = copiar la pista sin recodificar).
-        customProfile = [ordered]@{ videoEncoder = 'hevc_nvenc'; videoProfile = 'main10'; videoLevel = '5.0'; qmin = 1; qmax = 23; crf = 21; audioBitrate = '192k' }
+        #   audioCodec: codec de salida por defecto al recodificar: aac|ac3|eac3|libmp3lame|flac|libopus.
+        customProfile = [ordered]@{ videoEncoder = 'hevc_nvenc'; videoProfile = 'main10'; videoLevel = '5.0'; qmin = 1; qmax = 23; crf = 21; multipass = 'off'; audioCodec = 'aac'; audioBitrate = '192k' }
         # border: deteccion de bordes negros con cropdetect.
         #  - start: segundo del primer punto de escaneo. duration: segundos que escanea CADA punto.
         #  - samples: en cuantos puntos repartidos del video se escanea (1 = solo al inicio, clasico).
@@ -143,13 +149,16 @@ function Get-CvConfigDefaults {
         behavior  = [ordered]@{ cleanTemps = $true; separateWindow = $true; lockCloseButton = $true; debug = $false; log = $true; workers = 2; retries = 2; asciiMarks = $false }
         # Modo pruebas: si 'enabled', cada archivo se codifica solo hasta 'minutes' minutos (el resto
         #   se descarta). Sirve para validar perfiles/ajustes rapido. Tambien se activa con 'test_on'.
-        test      = [ordered]@{ enabled = $false; minutes = 5 }
+        #   syncAdelay (BETA): si $true, el silencio de sincronia se aplica con el filtro 'adelay' en
+        #   UNA sola pasada (combinado con la normalizacion de volumen), sin el WAV intermedio. Por
+        #   defecto $false = metodo clasico (genera WAV silencio+pista y luego lo codifica).
+        test      = [ordered]@{ enabled = $false; minutes = 5; syncAdelay = $false }
         console   = [ordered]@{ background = 'DarkBlue'; foreground = 'Yellow'; font = 'Cascadia Code'; fontSize = 18; windowWidth = 100; windowHeight = 50 }
         # Carpetas de trabajo: vacio = junto al programa; admite ruta absoluta o relativa.
         paths     = [ordered]@{ original = ''; proceso = ''; convertido = ''; logs = '' }
         # Perfiles de codificacion PROPIOS: se ANADEN a los 7 de serie en el menu USAR PERFIL
         # (no los sustituyen). Cada objeto admite: label, videoEncoder, videoProfile, videoLevel,
-        # qmin, qmax, crf, detectBorder, changeSize, audioEncoder, audioBitrate, audioHz.
+        # qmin, qmax, crf, detectBorder, changeSize, audioEncoder, audioCodec, audioBitrate, audioHz.
         # Ejemplo: { "label":"Anime 1080p", "videoEncoder":"libx265", "crf":18, "changeSize":"1920:-1" }
         profiles  = @()
     }
