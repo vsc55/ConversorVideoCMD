@@ -28,6 +28,34 @@ function Get-CvSepLine  { param([int]$Width = 0) Get-CvLine -Char '=' -Width $Wi
 function Get-CvDashLine { param([int]$Width = 0) Get-CvLine -Char '-' -Width $Width }   # separador fino ---
 function Get-CvStarLine { param([int]$Width = 0) Get-CvLine -Char '*' -Width $Width }   # separador de asteriscos ***
 
+# Ancho de la barra visual de progreso (worker). Lo fija Set-CvProgressBarWidth desde config
+# (console.progressBarWidth) al arrancar; <0 = aun no fijado -> se toma el default de config. 0 = sin
+# barra. Misma logica de fuente unica que $script:CvSepWidth.
+$script:CvProgressBarWidth = -1
+function Set-CvProgressBarWidth { param([int]$Width) $script:CvProgressBarWidth = [Math]::Max(0, $Width) }
+function Resolve-CvProgressBarWidth {
+    <# Ancho a usar: -Width explicito (>=0) | el fijado por Set-CvProgressBarWidth | el default de config. #>
+    param([int]$Width = -1)
+    if ($Width -ge 0)              { return $Width }
+    if ($script:CvProgressBarWidth -ge 0) { return $script:CvProgressBarWidth }
+    return [Math]::Max(0, [int](Get-CvConfigDefaults).console.progressBarWidth)
+}
+function Get-CvProgressBar {
+    <#
+        Barra de progreso visual para un porcentaje 0-100, p. ej. '████████░░░░░░░░░░░░'. El ancho sale
+        de -Width (>=0) o del default de config (console.progressBarWidth); 0 = cadena vacia (sin barra).
+        Usa bloques Unicode que Cascadia Code pinta bien (U+2588 lleno, U+2591 vacio). El porcentaje se
+        recorta a [0,100]. Se stringifican los caracteres antes de repetir (igual que Get-CvLine).
+    #>
+    param([Parameter(Mandatory)][int]$Percent, [int]$Width = -1)
+    $w = Resolve-CvProgressBarWidth $Width
+    if ($w -le 0) { return '' }
+    $p    = [Math]::Min(100, [Math]::Max(0, $Percent))
+    $fill = [int][math]::Round($w * $p / 100.0)
+    if ($fill -gt $w) { $fill = $w }
+    ([string]([char]0x2588)) * $fill + ([string]([char]0x2591)) * ($w - $fill)
+}
+
 function Set-CvWindowSize {
     <#
         Ajusta el tamano de la ventana de consola (columnas x lineas) desde config.json.
@@ -283,12 +311,21 @@ function Read-QOrNull {
 
 
 function Read-YesNo {
-    <# Pregunta si/no. Devuelve $true/$false. Con -AllowCancel, 'C' lanza CV_CANCEL. #>
+    <#
+        Pregunta si/no. Devuelve $true/$false. La tecla ESC: con -AllowCancel CANCELA ('C'/ESC lanzan
+        CV_CANCEL); SIN -AllowCancel equivale a NO (devuelve $false), para poder descartar rapido.
+        (Con stdin redirigido -tests- no hay ESC: cae a Read-Host.)
+    #>
     param([string]$Prompt, [bool]$Default = $true, [switch]$AllowCancel)
     $d = if ($Default) { 'S' } else { 'N' }
-    $opts = if ($AllowCancel) { 's/n/c' } else { 's/n' }
+    $opts = if ($AllowCancel) { 's/n, ESC=cancelar' } else { 's/n, ESC=no' }
     $pr = "{0} ({1}) [{2}]" -f $Prompt, $opts, $d
-    $a = (& { if ($AllowCancel) { Read-CvLine -Prompt $pr -AllowCancel } else { Read-Host $pr } }).Trim()
+    $a = ''
+    try { $a = (Read-CvLine -Prompt $pr -AllowCancel).Trim() }
+    catch {
+        if ($_.Exception.Message -eq 'CV_CANCEL') { if ($AllowCancel) { throw } else { return $false } }  # ESC: cancela / = no
+        throw
+    }
     if ($AllowCancel -and $a -match '^[Cc]$') { throw 'CV_CANCEL' }
     if ($a -eq '') { return $Default }
     return ($a -match '^[SsYy]')
@@ -309,19 +346,19 @@ function Show-CvHeader {
 
 function Show-Menu {
     <#
-        Muestra un bloque de menu enmarcado con lineas de guiones (antes y despues),
-        sin recuadro. $Title = titulo; $Lines = opciones (cadena vacia = linea en blanco).
-        No trunca: las lineas largas se imprimen enteras.
+        Muestra un bloque de menu: el $Title va como ENCABEZADO (sin enmarcar con guiones, para no
+        duplicar el marco de la cabecera), las opciones debajo y una linea de guiones al FINAL que
+        cierra el bloque antes del prompt. $Lines = opciones (cadena vacia = linea en blanco). No
+        trunca: las lineas largas se imprimen enteras.
     #>
     param([string]$Title, [string[]]$Lines = @(), [int]$Indent = 0)
     $pad = ' ' * $Indent
     $sep = $pad + (Get-CvDashLine)
     Write-Host ''
-    Write-Host $sep
-    if ($Title) {
-        Write-Host ($pad + ("  {0}" -f $Title))
-        Write-Host $sep
-    }
+    # El titulo va como encabezado con una linea DEBAJO (subrayado, lo separa de la lista); NO se pone
+    # linea encima (asi no duplica el marco de la cabecera === cuando el menu va justo debajo). Sin
+    # titulo (p. ej. el menu principal, que ya tiene cabecera) no hay subrayado, solo la lista.
+    if ($Title) { Write-Host ($pad + ("  {0}" -f $Title)); Write-Host $sep }
     foreach ($l in $Lines) {
         if ($l -eq '') { Write-Host '' } else { Write-Host ($pad + ("    {0}" -f $l)) }
     }
@@ -417,10 +454,15 @@ function Select-FromList {
     $defShown = if ($null -ne $defRet) { $defRet } else { "$defIdx" }
 
     $mark    = '  <= por defecto'
-    $noneNum = if ($NoneKey) { '0 / {0}' -f $NoneKey.ToUpper() } else { '0' }
+    # La opcion 0 (none) tambien se elige con ESC (salvo -AllowCancel, donde ESC cancela). Se anota.
+    $noneEsc = if ($AllowCancel) { '' } else { ' / ESC' }
+    $noneNum = if ($NoneKey) { '0 / {0}{1}' -f $NoneKey.ToUpper(), $noneEsc } else { '0{0}' -f $noneEsc }
+    # Ancho del NUMERO (dígitos del mayor: 13 -> 2), para alinear a la derecha los indices de 1 y 2
+    # cifras y que TODAS las etiquetas empiecen en la misma columna ('1.' vs '10.').
+    $numW    = ("$($numbered.Count)").Length
     $leftNum = @(); $descNum = @()
-    for ($i = 0; $i -lt $numbered.Count; $i++) { $leftNum += ('{0}. {1}' -f ($i + 1), $numbered[$i].Val); $descNum += $numbered[$i].Txt }
-    $leftNone = if ($hasNone) { '{0}. {1}' -f $noneNum, $noneLbl } else { '' }
+    for ($i = 0; $i -lt $numbered.Count; $i++) { $leftNum += ('{0}. {1}' -f (("$($i + 1)").PadLeft($numW)), $numbered[$i].Val); $descNum += $numbered[$i].Txt }
+    $leftNone = if ($hasNone) { '{0}. {1}' -f $noneNum.PadLeft($numW), $noneLbl } else { '' }
     $anyDesc  = (@($descNum | Where-Object { $_ }).Count -gt 0) -or [bool]$noneDsc
     $allLeft  = @($leftNum); if ($hasNone) { $allLeft += $leftNone }
     $w        = if ($anyDesc -and $allLeft.Count) { ($allLeft | Measure-Object -Property Length -Maximum).Maximum } else { 0 }
@@ -453,9 +495,21 @@ function Select-FromList {
         $lines += $(if ($CancelLabel) { $CancelLabel } else { 'C / ESC. Cancelar' })
     }
     Show-Menu -Title $Title -Lines $lines
+    # ESC captura si hay -AllowCancel (cancela) o si hay opcion 0 (vuelve = elige none). Si no hay
+    # ninguna de las dos (menu obligatorio -NoNone), ESC se ignora (lectura clasica con Read-Host).
+    $escBack = $hasNone -and -not $AllowCancel
+    $useLine = $AllowCancel -or $escBack
     while ($true) {
         $pr = "   Opcion [{0}]" -f $defShown
-        $k = (& { if ($AllowCancel) { Read-CvLine -Prompt $pr -AllowCancel } else { Read-Host $pr } }).Trim()
+        $k = $null
+        try { $k = (& { if ($useLine) { Read-CvLine -Prompt $pr -AllowCancel } else { Read-Host $pr } }).Trim() }
+        catch {
+            if ($_.Exception.Message -eq 'CV_CANCEL') {
+                if ($AllowCancel) { throw }        # cancelar de verdad (propaga)
+                return $noneVal                     # ESC = opcion 0 (volver / salir / none)
+            }
+            throw
+        }
         if ($AllowCancel -and $k -match '^[Cc]$') { throw 'CV_CANCEL' }
         if ($hasNone -and $NoneKey -and $k -ieq $NoneKey) { return $noneVal }   # letra alternativa de la opcion 0
         if ($k -eq '') {

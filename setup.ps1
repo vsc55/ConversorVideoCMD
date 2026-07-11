@@ -26,7 +26,7 @@ try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 
 $Root = $PSScriptRoot
 $Lib  = Join-Path $Root 'lib'
-$modules = @('Log','Config','Context','Console','Exec','Job','Tools')   # setup no usa el pipeline completo (Job = patrones de limpieza de Proceso)
+$modules = @('Log','Config','Context','Console','Exec','Job','Tools','ConfigEditor')   # setup no usa el pipeline completo (Job = patrones de limpieza de Proceso; ConfigEditor = editor de config.json)
 foreach ($m in $modules) {
     Import-Module (Join-Path $Lib ("{0}.psm1" -f $m)) -Force
 }
@@ -35,6 +35,7 @@ foreach ($m in $modules) {
 $sess    = Start-CvSession -Root $Root -Config $Config -TitleSuffix ' - Setup' -Subtitle 'Setup' -LogPrefix 'setup'
 $ctx     = $sess.Context
 $CfgPath = $sess.ConfigPath
+$CfgName = Split-Path -Leaf $CfgPath   # nombre del fichero en uso (config.json o el alterno -Config); para los textos
 $logFile = $sess.LogFile
 
 function Wait-Setup {
@@ -43,183 +44,15 @@ function Wait-Setup {
     Read-Host 'ENTER para continuar' | Out-Null
 }
 
-# ===========================================================================
-#  Editor de valores
-# ===========================================================================
-function Edit-Scalar {
-    <#
-        Devuelve @{ changed=$bool; value=... } conservando el tipo. La marca `<= por defecto` senala
-        el valor POR DEFECTO DE FABRICA (-Default, de Get-CvConfigDefaults), NO el actual; el actual
-        se muestra en el titulo. La opcion 0 (cancelar) deja el valor actual sin cambios.
-    #>
-    param([string]$Key, $Current, [string]$Kind, $Default = $null)
-    $inv = [System.Globalization.CultureInfo]::InvariantCulture
-
-    if ($Kind -eq 'bool') {
-        $def = if ($Default) { 1 } else { 2 }   # marca el DEFAULT de fabrica (no el actual)
-        $p = Select-FromList -Title ("{0} (actual: {1})" -f $Key, "$Current".ToLower()) -Options @('true','false') -NoneLabel 'cancelar (dejar actual)' -DefaultIndex $def
-        if ($p -eq '') { return @{ changed = $false } }
-        return @{ changed = $true; value = ($p -eq 'true') }
-    }
-    # Selectores especiales por nombre de clave.
-    if ($Key -in @('background','foreground')) {
-        $colors = [enum]::GetNames([System.ConsoleColor])
-        $def = [array]::IndexOf($colors, "$Default") + 1
-        if ($def -lt 1) { $def = [array]::IndexOf($colors, "$Current") + 1 }
-        if ($def -lt 1) { $def = 1 }
-        $p = Select-FromList -Title ("{0} (actual: {1})" -f $Key, $Current) -Options $colors -NoneLabel 'cancelar (dejar actual)' -DefaultIndex $def
-        if ($p -eq '') { return @{ changed = $false } }
-        return @{ changed = $true; value = "$p" }
-    }
-    if ($Key -eq 'method') {
-        $opts = @(Get-CvVolumeMethods)
-        $def = [array]::IndexOf($opts, "$Default") + 1
-        if ($def -lt 1) { $def = [array]::IndexOf($opts, "$Current") + 1 }
-        if ($def -lt 1) { $def = 1 }
-        $p = Select-FromList -Title ("method (actual: {0})" -f $Current) -Options $opts -NoneLabel 'cancelar (dejar actual)' -DefaultIndex $def
-        if ($p -eq '') { return @{ changed = $false } }
-        return @{ changed = $true; value = "$p" }
-    }
-
-    # Numero / texto libre: sin menu; se muestra actual y default, ENTER = dejar actual.
-    $defTxt = if ($null -ne $Default) { ", por defecto: $Default" } else { '' }
-    $ans = (Read-Host ("   {0}  (actual: {1}{2})  nuevo valor [ENTER=cancelar]" -f $Key, $Current, $defTxt)).Trim()
-    if ($ans -eq '') { return @{ changed = $false } }
-    if ($Kind -eq 'number') {
-        if ($ans -match '^-?\d+$') { return @{ changed = $true; value = [long]$ans } }
-        $d = 0.0
-        if ([double]::TryParse($ans, [System.Globalization.NumberStyles]::Float, $inv, [ref]$d)) { return @{ changed = $true; value = $d } }
-        Write-Host '   Numero no valido.' -ForegroundColor Yellow
-        return @{ changed = $false }
-    }
-    return @{ changed = $true; value = $ans }
-}
-
-function Edit-Array {
-    <# Editor de listas de cadenas (idiomas, etc.). Devuelve @{ changed; value=@(...) }. #>
-    param([string]$Key, $Arr)
-    $items = @(@($Arr) | ForEach-Object { "$_" })
-    $changed = $false
-    while ($true) {
-        Clear-Host
-        $opts = @()
-        for ($i = 0; $i -lt $items.Count; $i++) { $opts += ("[{0}] {1}" -f $i, $items[$i]) }
-        $opts += '(+) Anadir elemento'
-        if ($items.Count -gt 0) { $opts += '(-) Eliminar elemento' }
-        $sel = Select-FromList -Title ("Lista '{0}'  ({1} elementos)" -f $Key, $items.Count) -Options $opts -NoneLabel 'volver' -DefaultIndex 0
-        if ($sel -eq '') { break }
-        if ($sel -eq '(+) Anadir elemento') {
-            $v = (Read-Host '   Nuevo valor').Trim()
-            if ($v -ne '') { $items = @($items) + $v; $changed = $true }
-        }
-        elseif ($sel -eq '(-) Eliminar elemento') {
-            $d = (Read-Host '   Indice a eliminar').Trim()
-            $n = 0
-            if ([int]::TryParse($d, [ref]$n) -and $n -ge 0 -and $n -lt $items.Count) {
-                $tmp = New-Object System.Collections.ArrayList
-                for ($i = 0; $i -lt $items.Count; $i++) { if ($i -ne $n) { [void]$tmp.Add($items[$i]) } }
-                $items = @($tmp.ToArray()); $changed = $true
-            } else { Write-Host '   Indice no valido.' -ForegroundColor Yellow }
-        }
-        elseif ($sel -match '^\[(\d+)\]') {
-            $i  = [int]$Matches[1]
-            $nv = (Read-Host ("   Nuevo valor para [{0}] (actual: {1}) [ENTER=cancelar]" -f $i, $items[$i])).Trim()
-            if ($nv -ne '') { $items[$i] = $nv; $changed = $true }
-        }
-    }
-    return @{ changed = $changed; value = @($items) }
-}
-
-function Edit-Node {
-    <# Navega un objeto de config: escalares se editan, objetos se recorren, arrays con su editor. #>
-    param($Node, [string]$Path)
-    while ($true) {
-        Clear-Host
-        $keys = @(Get-CvNodeKeys $Node)
-        $opts = @(); $descs = @()
-        foreach ($k in $keys) {
-            $v = Get-CvNodeVal $Node $k
-            $kind = Get-CvNodeKind $v
-            $preview = switch ($kind) {
-                'object' { '{...}' }
-                'array'  { '[' + ((@($v) | ForEach-Object { "$_" }) -join ', ') + ']' }
-                'bool'   { "$v".ToLower() }
-                'null'   { 'null' }
-                default  { "$v" }
-            }
-            if ($preview.Length -gt 42) { $preview = $preview.Substring(0, 39) + '...' }
-            $opts  += ("{0} = {1}" -f $k, $preview)
-            # Ayuda de la opcion (que hace) mostrada junto al valor; ruta con '/' como aqui.
-            $descs += (Get-CvHelpFor $(if ($Path) { "$Path/$k" } else { "$k" }))
-        }
-        $title = if ($Path) { "config > $Path" } else { 'config.json' }
-        $sel = Select-FromList -Title $title -Options $opts -Descriptions $descs -NoneLabel 'volver' -DefaultIndex 0
-        if ($sel -eq '') { break }
-        $key  = $keys[[array]::IndexOf($opts, $sel)]
-        $val  = Get-CvNodeVal $Node $key
-        $kind = Get-CvNodeKind $val
-        if ($Path -eq '' -and $key -eq 'profiles') {
-            # Perfiles propios: array de objetos; el editor de listas (escalares) los corromperia.
-            Clear-Host
-            Write-CvLog 'SETUP' 'Los perfiles propios se editan a mano en config.json (seccion "profiles").'
-            Write-CvLog 'SETUP' 'Se anaden al menu USAR PERFIL como 8, 9, ... (ver docs/ref-comandos.md).'
-            Wait-Setup
-            continue
-        }
-        if ($kind -eq 'object') {
-            $sub = if ($Path) { "$Path/$key" } else { "$key" }
-            Edit-Node -Node $val -Path $sub
-        }
-        elseif ($kind -eq 'array') {
-            $r = Edit-Array -Key $key -Arr $val
-            if ($r.changed) { Set-CvNodeVal $Node $key $r.value; $script:dirty = $true }
-        }
-        else {
-            # Default de fabrica de esta opcion (por su ruta), para marcarlo en el editor.
-            $defVal = Get-CvConfigDefaultValue $(if ($Path) { "$Path/$key" } else { "$key" })
-            $r = Edit-Scalar -Key $key -Current $val -Kind $kind -Default $defVal
-            if ($r.changed) { Set-CvNodeVal $Node $key $r.value; $script:dirty = $true }
-        }
-    }
-}
-
-function Edit-Config {
-    Clear-Host
-    Write-CvLog 'SETUP' 'Editor de config.json (0 = volver en cada nivel).'
-    # Se edita el config FUSIONADO (defaults + overrides), asi el editor muestra TODAS las
-    # opciones aunque config.json sea minimo. $before es una copia sin editar para saber
-    # exactamente que cambio.
-    $cfg    = Get-CvConfig -Root $Root -Path $CfgPath
-    $before = Get-CvConfig -Root $Root -Path $CfgPath
-    $script:dirty = $false
-    Edit-Node -Node $cfg -Path ''
-    if ($script:dirty) {
-        $a = (Read-Host 'Guardar cambios en config.json? (S/n)').Trim()
-        if ($a -eq '' -or $a -match '^[SsYy]') {
-            # Aplicar SOLO lo editado sobre el config.json ACTUAL (crudo): lo que difiere del
-            # default se guarda; lo que vuelve al default se elimina del fichero.
-            $raw = if (Test-Path -LiteralPath $CfgPath) { Read-CvConfigFile -Path $CfgPath } else { [pscustomobject]@{} }
-            Update-CvConfigEdits -Edited $cfg -Before $before -Default (Get-CvConfigDefaults) -Target $raw
-            Save-CvConfigFile -Path $CfgPath -Config $raw
-            Write-CvLog 'SETUP' '[OK] - config.json actualizado (solo los valores distintos del default).'
-        } else {
-            Write-CvLog 'SETUP' 'Cambios descartados.'
-        }
-    } else {
-        Write-CvLog 'SETUP' 'Sin cambios.'
-    }
-    Wait-Setup
-}
-
 function Reset-Config {
     # UI del reset; la logica vive en Reset-CvConfig (modulo Config).
     Clear-Host
-    Write-CvLog 'SETUP' 'Restablecer config.json a los valores por defecto.'
+    Write-CvLog 'SETUP' ("Restablecer {0} a los valores por defecto." -f $CfgName)
     Write-CvLog 'SETUP' 'Se CONSERVA el catalogo de herramientas (downloads). El resto vuelve al valor por defecto.'
     $a = (Read-Host 'Continuar? (s/N)').Trim()
     if ($a -notmatch '^[SsYy]') { Write-CvLog 'SETUP' 'Cancelado.'; Wait-Setup; return }
     [void](Reset-CvConfig -Path $CfgPath)
-    Write-CvLog 'SETUP' '[OK] - config.json restablecido (copia en config.json.bak; catalogo de herramientas conservado).'
+    Write-CvLog 'SETUP' ("[OK] - {0} restablecido (copia en {0}.bak; catalogo de herramientas conservado)." -f $CfgName)
     Wait-Setup
 }
 
@@ -239,6 +72,31 @@ function Clear-Logs {
     }
     Wait-Setup
 }
+
+# ===========================================================================
+#  Pruebas (baterias de test\)
+# ===========================================================================
+function Invoke-TestScript {
+    # Lanza un script de test (test\*.ps1) como PROCESO HIJO (no dot-source: termina con 'exit 0/1'
+    # y en el mismo proceso cerraria setup). El codigo de salida del hijo queda en $LASTEXITCODE.
+    param([Parameter(Mandatory)][string]$File, [Parameter(Mandatory)][string]$Label, [string]$Info = '')
+    Clear-Host
+    $script = Join-Path $Root $File
+    if (-not (Test-Path -LiteralPath $script)) {
+        Write-CvLog 'SETUP' ("No se encuentra {0} (no incluido en este paquete)." -f $File)
+        Wait-Setup; return
+    }
+    Write-CvLog 'SETUP' ("Ejecutando {0}{1}..." -f $Label, $(if ($Info) { " ($Info)" } else { '' }))
+    Write-Host ''
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $script
+    $code = $LASTEXITCODE
+    Write-Host ''
+    if ($code -eq 0) { Write-CvLog 'SETUP' ("[OK] - {0}: todo en verde." -f $Label) }
+    else             { Write-CvLog 'SETUP' ("[ERROR] - {0}: fallo algun caso (codigo {1})." -f $Label, $code) }
+    Wait-Setup
+}
+function Invoke-UnitTests    { Invoke-TestScript -File 'test\unit-tests.ps1'    -Label 'tests unitarios'    -Info 'funciones puras; sin GPU ni ffmpeg, < 1 s' }
+function Invoke-FeatureTests { Invoke-TestScript -File 'test\feature-tests.ps1' -Label 'bateria de features' -Info 'E2E; usa ffmpeg; los casos de GPU se saltan si no hay NVENC' }
 
 # ===========================================================================
 #  Gestion de herramientas (catalogo 'downloads')
@@ -319,13 +177,42 @@ function Invoke-InstallApp {
     }
     Write-CvLog 'SETUP' ("Reinstalando {0} {1} (se borra esa version y se descarga)..." -f $Name, $Version)
     Remove-AppVersion -Name $Name -Version $Version
-    $ok = Install-CvTool -Context $ctx -Name $Name -Version $Version
+    $nvOk = $true
+    $ok = Install-CvTool -Context $ctx -Name $Name -Version $Version -NvencOk ([ref]$nvOk)
     if (-not $ok) { Write-CvLog 'SETUP' ("[ERR] - Fallo la instalacion de {0} {1}" -f $Name, $Version); return $false }
+
+    # FALLBACK NVENC (solo ffmpeg): si la version instalada NO es compatible con NVENC en este equipo,
+    # se PRUEBAN las versiones ANTERIORES del catalogo (mas nueva -> mas antigua), instalando (descarga
+    # + verifica) y comprobando NVENC cada una, hasta dar con la primera compatible; esa se fija como
+    # predeterminada. Si ninguna es compatible, se avisa (perfil CPU o actualizar driver).
+    if ($Name -eq 'ffmpeg' -and -not $nvOk) {
+        $app = Get-App $Name
+        $catalog = @()
+        if ($app.versions -is [System.Collections.IDictionary]) { $catalog = @($app.versions.Keys) }
+        elseif ($app.versions) { $catalog = @($app.versions.PSObject.Properties.Name) }
+        $cands = @(Get-CvNvencFallbackCandidates -Failed $Version -Available $catalog)
+        $chosen = ''
+        foreach ($cv in $cands) {
+            Write-CvLog 'SETUP' ("[GPU] - {0} {1} no es compatible; probando la version anterior {2}..." -f $Name, $Version, $cv)
+            $cvOk = $false
+            if ((Install-CvTool -Context $ctx -Name $Name -Version $cv -NvencOk ([ref]$cvOk)) -and $cvOk) { $chosen = $cv; break }
+        }
+        if ($chosen) {
+            if (Set-AppSelected -Name $Name -Version $chosen) { Write-CvLog 'SETUP' ("[OK] - {0}: {1}.selected = {2} (compatible con NVENC)" -f $CfgName, $Name, $chosen) }
+            else { Write-CvLog 'SETUP' ("[AVISO] - No se pudo actualizar {0}." -f $CfgName) }
+        } else {
+            Write-CvLog 'SETUP' ("[AVISO] - Ninguna version anterior de {0} es compatible con NVENC en este equipo. Usa un perfil CPU (libx264/libx265) o actualiza el driver NVIDIA." -f $Name)
+        }
+        return $true
+    }
+
+    # -Ask: fijar como version por defecto (solo si es compatible; para ffmpeg incompatible ya se
+    # gestiono arriba con el fallback).
     if ($Ask -and "$((Get-App $Name).selected)" -ne $Version) {
-        $a = (Read-Host ("   Fijar {0} como version por defecto de {1} en config.json? (S/n)" -f $Version, $Name)).Trim()
+        $a = (Read-Host ("   Fijar {0} como version por defecto de {1} en {2}? (S/n)" -f $Version, $Name, $CfgName)).Trim()
         if ($a -eq '' -or $a -match '^[SsYy]') {
-            if (Set-AppSelected -Name $Name -Version $Version) { Write-CvLog 'SETUP' ("[OK] - config.json: {0}.selected = {1}" -f $Name, $Version) }
-            else { Write-CvLog 'SETUP' '[AVISO] - No se pudo actualizar config.json.' }
+            if (Set-AppSelected -Name $Name -Version $Version) { Write-CvLog 'SETUP' ("[OK] - {0}: {1}.selected = {2}" -f $CfgName, $Name, $Version) }
+            else { Write-CvLog 'SETUP' ("[AVISO] - No se pudo actualizar {0}." -f $CfgName) }
         }
     }
     return $true
@@ -403,13 +290,58 @@ function Show-CleanMenu {
 # ===========================================================================
 #  Estado general (directorios de trabajo + herramientas)
 # ===========================================================================
+function Show-Identity {
+    # Identidad del entorno: version del programa y config.json en uso (por defecto o alterno -Config).
+    Write-Host ''
+    Write-CvLog 'SETUP' ("{0} v{1}" -f $ctx.AppName, $ctx.Version)
+    $tag = if (-not [string]::IsNullOrWhiteSpace($Config)) { 'alterno (-Config)' } else { 'por defecto' }
+    $ex  = if (Test-Path -LiteralPath $CfgPath) { '' } else { '  (no existe -> se usan los valores por defecto)' }
+    Write-CvLog 'SETUP' ("  config: {0}  [{1}]{2}" -f $CfgPath, $tag, $ex)
+}
+
+function Show-ProcesoStatus {
+    # Estado de Proceso\: jobs pendientes, bloqueos (marcando caducados/huerfanos) y temporales.
+    Write-Host ''
+    Write-CvLog 'SETUP' 'Carpeta Proceso:'
+    $proc = $ctx.Proceso
+    if (-not (Test-Path -LiteralPath $proc)) { Write-CvLog 'SETUP' '  (no existe)'; return }
+    $njob  = @(Get-ChildItem -LiteralPath $proc -Filter '*.job.json' -File -ErrorAction SilentlyContinue).Count
+    $locks = @(Get-ChildItem -LiteralPath $proc -Filter '*.lock' -File -ErrorAction SilentlyContinue)
+    $nstale = @($locks | Where-Object { Test-CvLockStale $_.FullName }).Count
+    $ntemp = 0
+    foreach ($p in (Get-CvProcesoPatterns -What temps)) { $ntemp += @(Get-ChildItem -LiteralPath $proc -Filter $p -File -ErrorAction SilentlyContinue).Count }
+    $staleTxt = if ($nstale -gt 0) { "  ({0} caducado(s)/huerfano(s))" -f $nstale } else { '' }
+    Write-CvLog 'SETUP' ("  jobs pendientes : {0}" -f $njob)
+    Write-CvLog 'SETUP' ("  bloqueos        : {0}{1}" -f $locks.Count, $staleTxt)
+    Write-CvLog 'SETUP' ("  temporales      : {0}" -f $ntemp)
+}
+
+function Show-Pending {
+    # Trabajo pendiente: videos de entrada en Original\ vs convertidos (*_fix.<ext>) en Convertido\.
+    Write-Host ''
+    Write-CvLog 'SETUP' 'Trabajo:'
+    $nin = 0
+    if (Test-Path -LiteralPath $ctx.Original) {
+        foreach ($p in $ctx.Extensions) { $nin += @(Get-ChildItem -LiteralPath $ctx.Original -Filter $p -File -ErrorAction SilentlyContinue).Count }
+    }
+    $nout = 0
+    if (Test-Path -LiteralPath $ctx.Convertido) {
+        $nout = @(Get-ChildItem -LiteralPath $ctx.Convertido -Filter ("*_fix.{0}" -f $ctx.OutExt) -File -ErrorAction SilentlyContinue).Count
+    }
+    Write-CvLog 'SETUP' ("  en Original     : {0} video(s) de entrada" -f $nin)
+    Write-CvLog 'SETUP' ("  en Convertido   : {0} convertido(s)" -f $nout)
+}
+
 function Show-Estado {
     $sep = Get-CvSepLine
     Write-Host $sep
     Write-Host 'ESTADO'
     Write-Host $sep
+    Show-Identity
     Show-Dirs
     Show-Status
+    Show-ProcesoStatus
+    Show-Pending
     Write-Host $sep
 }
 
@@ -442,11 +374,10 @@ function Show-ToolsMenu {
 #  Menu principal
 # ===========================================================================
 $exit = $false
-$firstMenu = $true
 while (-not $exit) {
-    if (-not $firstMenu) { Clear-Host }   # la 1a vuelta no limpia: deja ver la cabecera
-    $firstMenu = $false
     $ctx = New-CvContext -Root $Root -ConfigPath $CfgPath   # recargar por si cambio config.json
+    Clear-Host
+    Show-CvHeader -Context $ctx -Subtitle 'Setup'          # re-dibujar la cabecera en cada vuelta al menu
 
     $opts    = @()
     $headers = @{}
@@ -460,15 +391,21 @@ while (-not $exit) {
     $headers[$opts.Count] = 'Compatibilidad'
     $opts += 'Comprobar compatibilidad GPU (NVENC de ffmpeg)'
 
+    $headers[$opts.Count] = 'Pruebas'
+    $opts += 'Ejecutar tests unitarios (funciones puras, sin GPU)'
+    $opts += 'Ejecutar bateria de features (E2E, usa ffmpeg)'
+
     $headers[$opts.Count] = 'Configuracion'
-    $opts += 'Editar configuracion (config.json)'
-    $opts += 'Restablecer config.json (valores por defecto)'
+    $optEditCfg  = ("Editar configuracion ({0})" -f $CfgName)
+    $optResetCfg = ("Restablecer {0} (valores por defecto)" -f $CfgName)
+    $opts += $optEditCfg
+    $opts += $optResetCfg
 
     $headers[$opts.Count] = 'Limpieza'
     $opts += 'Limpiar jobs / bloqueos (carpeta Proceso)'
     $opts += 'Limpiar logs (carpeta logs)'
 
-    $choice = Select-FromList -Title 'SETUP - Que quieres hacer?' -Options $opts -NoneLabel 'salir' -DefaultIndex 0 -NoneKey 'S' -Headers $headers
+    $choice = Select-FromList -Options $opts -NoneLabel 'salir' -DefaultIndex 0 -NoneKey 'S' -Headers $headers
     if ($choice -eq '') { $exit = $true; continue }
 
     if ($choice -eq 'Instalar / gestionar herramientas (ffmpeg, aacgain, mkvtoolnix...)') {
@@ -479,10 +416,12 @@ while (-not $exit) {
         Show-Estado
         Wait-Setup
     }
-    elseif ($choice -eq 'Editar configuracion (config.json)') {
-        Edit-Config                          # limpia y pausa por su cuenta
+    elseif ($choice -eq $optEditCfg) {
+        # Editor en lib\ConfigEditor.psm1. Sin pausa al salir: vuelve directo al menu principal
+        # (el guardado ya fue una accion explicita; el menu se redibuja limpio a continuacion).
+        Edit-CvConfigFile -Root $Root -CfgPath $CfgPath -CfgName $CfgName
     }
-    elseif ($choice -eq 'Restablecer config.json (valores por defecto)') {
+    elseif ($choice -eq $optResetCfg) {
         Reset-Config                         # limpia y pausa por su cuenta
     }
     elseif ($choice -eq 'Limpiar jobs / bloqueos (carpeta Proceso)') {
@@ -493,6 +432,12 @@ while (-not $exit) {
     }
     elseif ($choice -eq 'Comprobar compatibilidad GPU (NVENC de ffmpeg)') {
         Show-NvencCheck                      # limpia y pausa por su cuenta
+    }
+    elseif ($choice -eq 'Ejecutar tests unitarios (funciones puras, sin GPU)') {
+        Invoke-UnitTests                     # limpia y pausa por su cuenta
+    }
+    elseif ($choice -eq 'Ejecutar bateria de features (E2E, usa ffmpeg)') {
+        Invoke-FeatureTests                  # limpia y pausa por su cuenta
     }
 }
 

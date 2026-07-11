@@ -37,6 +37,43 @@ function Remove-CvJob {
     if (Test-Path -LiteralPath $f) { Remove-Item -Force -LiteralPath $f -ErrorAction SilentlyContinue }
 }
 
+function Get-CvJobAudioTracks {
+    <#
+        Lista NORMALIZADA de pistas de audio de un job, con compatibilidad hacia atras:
+        - Formato nuevo (multipista): job.audio.tracks = [ {index,is51,sync,lang,default} ].
+        - Formato antiguo (monopista): job.audio.index/is51/sync/lang -> lista de 1 (default=$true).
+        Devuelve @() si no hay pistas. Cada elemento: {Index,Is51,Sync,Lang,Default}. La DEFAULT
+        va primero (asi se congelo en PREPARAR); si ninguna lo es, se marca la primera.
+    #>
+    param($Audio)
+    if ($null -eq $Audio) { return @() }
+    $out = @()
+    if ($Audio.PSObject.Properties['tracks'] -and $null -ne $Audio.tracks) {
+        foreach ($t in @($Audio.tracks)) {
+            $out += [pscustomobject]@{
+                Index   = [int]$t.index
+                Is51    = [bool]$t.is51
+                Sync    = [double]$t.sync
+                Lang    = $(if ($t.lang) { "$($t.lang)" } else { 'und' })
+                Default = [bool]$t.default
+            }
+        }
+    }
+    elseif ($Audio.PSObject.Properties['index'] -and $null -ne $Audio.index) {
+        # Job antiguo monopista.
+        $out += [pscustomobject]@{
+            Index   = [int]$Audio.index
+            Is51    = [bool]$Audio.is51
+            Sync    = [double]$Audio.sync
+            Lang    = $(if ($Audio.lang) { "$($Audio.lang)" } else { 'und' })
+            Default = $true
+        }
+    }
+    $out = @($out)
+    if ($out.Count -gt 0 -and -not ($out | Where-Object { $_.Default })) { $out[0].Default = $true }
+    return $out
+}
+
 
 function Get-CvTempPaths {
     <#
@@ -50,6 +87,22 @@ function Get-CvTempPaths {
         AudioMka = Join-Path $Context.Proceso ("{0}.mka" -f $Name)           # audio recodificado temporal (no-AAC: ac3/eac3/mp3/flac/opus)
         SyncWav  = Join-Path $Context.Proceso ("{0}_concat.wav" -f $Name)    # wav de sincronizacion (silencio + audio)
         JobTmp   = Join-Path $Context.Proceso ("{0}.job.json.tmp" -f $Name)  # job a medio escribir (si quedo colgado)
+    }
+}
+
+
+function Get-CvAudioTempPath {
+    <#
+        Rutas del temporal de audio de la pista en POSICION $Pos (0-based) de un archivo: <name>_aN.m4a
+        (AAC) / <name>_aN.mka (resto de codecs) y su WAV de sincronia <name>_aN_concat.wav. FUENTE UNICA
+        de los nombres por-pista de la multipista de audio (los usa Invoke-AudioRun y los limpia
+        Remove-CvTemps). El sufijo _aN permite varias pistas sin pisarse (pos 0 = predeterminada).
+    #>
+    param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)][string]$Name, [int]$Pos = 0)
+    [pscustomobject]@{
+        M4a     = Join-Path $Context.Proceso ("{0}_a{1}.m4a" -f $Name, $Pos)
+        Mka     = Join-Path $Context.Proceso ("{0}_a{1}.mka" -f $Name, $Pos)
+        SyncWav = Join-Path $Context.Proceso ("{0}_a{1}_concat.wav" -f $Name, $Pos)
     }
 }
 
@@ -85,6 +138,15 @@ function Remove-CvTemps {
     $tmp = Get-CvTempPaths -Context $Context -Name $Name
     foreach ($p in @($tmp.Video, $tmp.Audio, $tmp.AudioMka, $tmp.SyncWav, $tmp.JobTmp)) {
         if (Test-Path -LiteralPath $p) { Remove-Item -Force -LiteralPath $p -ErrorAction SilentlyContinue }
+    }
+    # Temporales POR-PISTA de la multipista (<name>_aN.m4a/.mka/_aN_concat.wav). Regex ESTRICTA (solo
+    # digitos tras '_a') para no tocar temporales de otro archivo con prefijo parecido ("Peli" vs
+    # "Peli 2" o "Peli_a"). Enumeracion .NET con nombre exacto (los corchetes del nombre no son globs).
+    $rx = [regex]("^" + [regex]::Escape($Name) + "_a\d+(_concat\.wav|\.m4a|\.mka)$")
+    if (Test-Path -LiteralPath $Context.Proceso) {
+        foreach ($f in [System.IO.Directory]::GetFiles($Context.Proceso)) {
+            if ($rx.IsMatch([System.IO.Path]::GetFileName($f))) { try { [System.IO.File]::Delete($f) } catch {} }
+        }
     }
 }
 

@@ -79,7 +79,7 @@ o, si falla, con la(s) línea(s) de causa extraídas del propio ffmpeg (ignorand
 [GPU] -   Solucion: perfil CPU (libx264/libx265), otra version de ffmpeg o actualizar el driver NVIDIA.
 ```
 
-Detecta de antemano el caso típico de una versión de ffmpeg demasiado nueva para el driver (ffmpeg 8.x exige NVENC 13.1; si el equipo solo llega a 13.0, la GPU falla). Es solo un aviso: la instalación se completa igualmente.
+Detecta de antemano el caso típico de una versión de ffmpeg demasiado nueva para el driver (ffmpeg 8.x exige NVENC 13.1; si el equipo solo llega a 13.0, la GPU falla). La instalación se completa igualmente, pero desde `setup` la versión **no se deja como predeterminada** si es incompatible: se vuelve a la anterior (**fallback**, ver [ref-setup.md](ref-setup.md)).
 
 ## Versión por job y autoinstalación
 
@@ -91,35 +91,7 @@ Ver [ref-jobs.md](ref-jobs.md).
 
 ## `setup.ps1` / `setup.cmd`
 
-Utilidad de gestión. Se lanza con `setup.cmd` (o `powershell -ExecutionPolicy Bypass -File setup.ps1`). Su sesión también queda registrada en `logs\setup_<fecha>_<PID>.log` (mismo interruptor `behavior.log` / marcador `no_log`).
-
-El menú está **agrupado por bloques** (Herramientas / Estado / Compatibilidad / Configuración / Limpieza). La gestión de herramientas vive en un **submenú** para que el menú principal no crezca con el número de apps:
-
-| Bloque · Opción | Qué hace |
-|---|---|
-| **Herramientas** · Instalar / gestionar herramientas | Abre un **submenú** con una entrada por app (ffmpeg, aacgain, mkvtoolnix, sevenzip…) y "Reinstalar TODO". Por app: elige versión (selector ordenado de más nueva a más antigua), borra esa carpeta de versión y la (re)instala; ofrece fijarla como `selected`. Al instalar ffmpeg, valida NVENC (ver abajo). |
-| **Estado** · Ver estado | Muestra (bajo demanda) el checklist de directorios y las versiones instaladas por app/plataforma (o `[NO SOPORTADO]`). |
-| **Compatibilidad** · Comprobar compatibilidad GPU (NVENC) | Prueba NVENC en las versiones de ffmpeg instaladas, sin reinstalar. |
-| **Configuración** · Editar configuración | Editor navegable de todas las secciones de `config.json`. |
-| **Configuración** · Restablecer config.json | Vuelve a los valores por defecto (conserva el catálogo `downloads`; copia en `config.json.bak`). |
-| **Limpieza** · Limpiar jobs / bloqueos (Proceso) | Borra `*.job.json`, `*.lock` o temporales (con confirmación). |
-| **Limpieza** · Limpiar logs | Borra los `*.log` de `logs\` (excepto el de la sesión actual). |
-| Salir | — |
-
-> El estado ya no se imprime en cada vuelta al menú; se ve con la opción **Ver estado**.
-
-### Editor de configuración
-
-Recorre el árbol de `config.json`:
-- **Escalares**: edición por tipo, con selectores especiales para colores (`background`/`foreground`), método de volumen (`method`) y booleanos.
-- **Listas** (idiomas): añadir / eliminar / editar elementos.
-- **Objetos**: se navegan hacia dentro.
-
-El guardado usa un serializador propio que **conserva valores, tipos, arrays y formato** (4 espacios, CRLF), y normaliza a array los campos que deben serlo (PS 5.1 desenvuelve los arrays de 1 elemento al leer el JSON).
-
-### Navegación
-
-Al saltar de menú a menú se **limpia la pantalla**; tras cualquier acción que muestre información relevante (instalación, borrado, guardado) se hace una **pausa** antes de limpiar.
+La utilidad de gestión (menú de herramientas/estado/pruebas/limpieza, editor de configuración, config alterno `-Config` y lanzadores debug) tiene su propia referencia: **[ref-setup.md](ref-setup.md)**. Aquí queda solo el **sistema de herramientas** (instalación, plataforma, versión por job) que `setup` utiliza.
 
 ## Añadir una versión nueva
 

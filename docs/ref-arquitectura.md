@@ -12,6 +12,7 @@ ConvertVideo/
 ├── lib/
 │   ├── Log.psm1            Log de consola (Write-CvLog) y transcript a logs\
 │   ├── Config.psm1         Valores por defecto de config.json + carga/fusión/reset
+│   ├── ConfigEditor.psm1   Editor interactivo de config.json (solo lo usa setup.ps1)
 │   ├── Context.psm1        Contexto de ejecución ($ctx) + helpers (idiomas, números)
 │   ├── Console.psm1        Apariencia de consola, ventana nativa, menús y prompts
 │   ├── Exec.psm1           Ejecución de procesos externos (ffmpeg/ffprobe…)

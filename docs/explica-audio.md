@@ -43,6 +43,29 @@ flowchart TD
 
 Ejemplo (dos pistas 5.1 en español): `eac3 768k` gana a `ac3 640k` por códec (E-AC-3 > AC-3), aunque el bitrate sea parecido.
 
+### Multipista de audio (conservar varias) 🧪 BETA
+
+Por defecto se conserva **una** pista. Con la multipista activada se pueden conservar **varias** del idioma preferido (p. ej. principal + comentarios) y elegir la **predeterminada**. Es simétrico con los subtítulos.
+
+**Doble llave (mientras es beta):** `encode.multiAudio = true` (por defecto) habilita la función, pero **solo actúa si además `test.betaMultiAudio = true`**. Con el flag desactivado el audio es monopista (comportamiento clásico). Solo se dispara con **2+ pistas del idioma preferido**.
+
+```mermaid
+flowchart TD
+    A["2+ pistas del idioma preferido<br/>y multiAudio + betaMultiAudio"] --> B["Select-AudioMulti: lista SOLO las del idioma preferido<br/>+ preseleccion default (Select-CvDefaultAudio)"]
+    B --> C["Un prompt: indices a conservar; * marca la predeterminada<br/>(ENTER = solo la *, T = todas, P/A = reproducir)"]
+    C --> D["Sincronia preguntada POR pista conservada"]
+    D --> E["tracks[] en el job (predeterminada primero)"]
+    E --> F["WORKER: recodifica cada pista a &lt;nombre&gt;_aN.(m4a|mka)"]
+    F --> G["MULTIPLEX: mapea N audios, predeterminada 1a<br/>(-disposition:a:0 default), idioma + titulo por pista"]
+```
+
+- **Preselección de la predeterminada** (`Select-CvDefaultAudio`): la marcada `disposition.default` en el origen; si ninguna, la de mejor calidad (`Select-CvBestAudio`).
+- **Título**: por defecto se deja **en blanco** (como el resto de pistas recodificadas). Con `encode.audioKeepTitle = true` se **conserva el título del origen** en cada pista (útil para distinguir varias del mismo idioma: principal/comentarios/…); el multiplex lo lee del origen por el índice de la pista.
+- **Orden en el MKV**: la predeterminada **primero** y el resto después (orden de listado). Orden global de pistas: **vídeo → audio → subtítulos → capítulos**.
+- **Modo `copy`**: también conserva el conjunto elegido, copiando las pistas del original (`-c:a copy`, sin recodificar); sin la beta (o con 0-1 pistas) es el copy clásico de una pista.
+- **Temporales por pista**: `<nombre>_aN.(m4a|mka)` (pos 0 = predeterminada); los limpia `Remove-CvTemps`.
+- **Job**: `audio.tracks[]` (ver [ref-jobs.md](ref-jobs.md)); los jobs antiguos monopista (`audio.index`) se siguen leyendo.
+
 ## 2. Procesado de volumen: métodos y tiempo
 
 `volume.method` elige cómo se ajusta el volumen al recodificar el audio (`Invoke-AudioRun`):

@@ -37,6 +37,19 @@ function Get-CvVolumeMethods {
     @('peak','loudnorm','aacgain')
 }
 
+function Resolve-CvOneOf {
+    <#
+        Valida una opcion enum: devuelve $Value en minusculas si esta en $Valid (comparacion sin
+        distinguir mayusculas); si no, $Default. Se usa para las opciones de config con conjunto
+        cerrado de valores (p. ej. multipass, tonemapHdr, downmixMode), cayendo al default si el
+        valor de config.json no es valido.
+    #>
+    param([string]$Value, [string[]]$Valid, [string]$Default)
+    $v = "$Value".ToLower()
+    foreach ($x in $Valid) { if ($v -eq "$x".ToLower()) { return $v } }
+    return $Default
+}
+
 function Get-CvDefaultDownmixCoeffs {
     <#
         FUENTE UNICA de los coeficientes por defecto del downmix 'dialogue' (voz reforzada). La usan
@@ -140,7 +153,14 @@ function Get-CvConfigDefaults {
         #   center*central + front*frontal + surround*surround. Para que sea clip-safe (el pico no supere
         #   al del origen) deben sumar <= 1.0; por encima puede recortar. El filtro pan se construye de
         #   estos valores, asi que se pueden afinar sin tocar codigo. Solo se usan con downmixMode=dialogue.
-        encode    = [ordered]@{ outputExtension = 'mkv'; extensions = @('avi','flv','mp4','mov','mkv'); threads = 0; fps = '23.976'; forceFps = $true; multipass = 'off'; tonemapHdr = 'auto'; downmixMode = 'default'; downmixCoeffs = [ordered]@{ center = $dmc.Center; front = $dmc.Front; surround = $dmc.Surround }; audioHz = 44100; audioChannels = 2 }
+        # multiAudio (BETA): si $true, cuando hay 2+ pistas del idioma preferido se ofrece conservar
+        #   VARIAS (no solo la mejor) y elegir cual queda como predeterminada. Doble llave mientras sea
+        #   beta: SOLO se activa si ademas test.betaMultiAudio=$true; si no, se comporta como monopista
+        #   (elige una, como siempre). Con 0-1 pistas del idioma preferido no cambia nada.
+        # audioKeepTitle: si $true, la(s) pista(s) de audio de salida CONSERVAN el titulo del origen
+        #   (util para distinguir varias del mismo idioma: principal/comentarios/...). Por defecto
+        #   $false = titulo en blanco (como el resto de pistas recodificadas).
+        encode    = [ordered]@{ outputExtension = 'mkv'; extensions = @('avi','flv','mp4','mov','mkv'); threads = 0; fps = '23.976'; forceFps = $true; multipass = 'off'; tonemapHdr = 'auto'; downmixMode = 'default'; downmixCoeffs = [ordered]@{ center = $dmc.Center; front = $dmc.Front; surround = $dmc.Surround }; audioHz = 44100; audioChannels = 2; multiAudio = $true; audioKeepTitle = $false }
         # customProfile: valores por DEFECTO del constructor de perfil CUSTOM interactivo (opcion 0
         #   del menu USAR PERFIL). En cada menu, ENTER acepta el valor por defecto (o eliges otro).
         #   videoEncoder: libx264|h264_nvenc|libx265|hevc_nvenc|copy. videoProfile: main|main10|...
@@ -210,8 +230,12 @@ function Get-CvConfigDefaults {
         #   sea beta hay doble llave: encode.downmixMode='dialogue' fija el modo, pero SOLO refuerza la
         #   voz si betaDownmix=$true. Con $false (por defecto), aunque downmixMode sea 'dialogue' se usa
         #   el downmix estandar de ffmpeg. Al promocionar la mezcla se retira este flag.
-        test      = [ordered]@{ enabled = $false; minutes = 5; syncAdelay = $false; betaDownmix = $false }
-        console   = [ordered]@{ background = 'DarkBlue'; foreground = 'Yellow'; font = 'Cascadia Code'; fontSize = 18; windowWidth = 150; windowHeight = 40; sepWidth = 64 }
+        #   betaMultiAudio (BETA): activador de la multipista de audio (conservar varias pistas del
+        #   idioma preferido y elegir la predeterminada). Doble llave: encode.multiAudio=$true habilita
+        #   la funcion, pero SOLO actua si betaMultiAudio=$true. Con $false (por defecto) el audio es
+        #   monopista, identico al comportamiento clasico. Al promocionar se retira este flag.
+        test      = [ordered]@{ enabled = $false; minutes = 5; syncAdelay = $false; betaDownmix = $false; betaMultiAudio = $false }
+        console   = [ordered]@{ background = 'DarkBlue'; foreground = 'Yellow'; font = 'Cascadia Code'; fontSize = 18; windowWidth = 150; windowHeight = 40; sepWidth = 64; progressBarWidth = 20 }
         # Carpetas de trabajo: vacio = junto al programa; admite ruta absoluta o relativa.
         paths     = [ordered]@{ original = ''; proceso = ''; convertido = ''; logs = '' }
         # Perfiles de codificacion PROPIOS: se ANADEN a los 7 de serie en el menu USAR PERFIL
@@ -252,6 +276,8 @@ function Get-CvConfigHelp {
         'encode/downmixCoeffs/surround' = 'Peso de los surrounds en el downmix dialogue (el LFE se descarta)'
         'encode/audioHz'        = 'Frecuencia del audio recodificado (Hz); opus fuerza 48000'
         'encode/audioChannels'  = 'Canales de salida (MAXIMO, no hace upmix): 2 = estereo, 6 = 5.1, 8 = 7.1'
+        'encode/multiAudio'     = 'BETA: con 2+ pistas del idioma preferido, conservar varias y elegir la predeterminada (requiere test.betaMultiAudio)'
+        'encode/audioKeepTitle' = 'Conservar el titulo del audio de origen en la salida (false = titulo en blanco)'
 
         'customProfile'             = 'Valores por defecto del constructor de perfil CUSTOM (opcion 0 de USAR PERFIL)'
         'customProfile/videoEncoder'= 'Codec de video: libx264|h264_nvenc|libx265|hevc_nvenc|copy'
@@ -320,6 +346,7 @@ function Get-CvConfigHelp {
         'test/minutes'    = 'Minutos que se codifican por archivo en modo pruebas (>=1)'
         'test/syncAdelay' = 'BETA: silencio de sincronia con adelay en una sola pasada (sin WAV)'
         'test/betaDownmix'= 'BETA: activa el downmix dialogue (voz reforzada); sin el, dialogue = downmix estandar'
+        'test/betaMultiAudio' = 'BETA: activa la multipista de audio (encode.multiAudio); sin el, el audio es monopista'
 
         'console'             = 'Apariencia de la ventana de consola'
         'console/background'  = 'Color de fondo de la consola'
@@ -329,6 +356,7 @@ function Get-CvConfigHelp {
         'console/windowWidth' = 'Ancho de la ventana en columnas (0 = no cambiar)'
         'console/windowHeight'= 'Alto de la ventana en lineas (0 = no cambiar)'
         'console/sepWidth'    = 'Ancho (caracteres) de los separadores de seccion === / --- de la UI'
+        'console/progressBarWidth' = 'Ancho (caracteres) de la barra visual de progreso del worker; 0 = sin barra'
 
         'paths'            = 'Carpetas de trabajo (vacio = junto al programa)'
         'paths/original'   = 'Carpeta de entrada (videos a convertir)'
@@ -336,7 +364,7 @@ function Get-CvConfigHelp {
         'paths/convertido' = 'Carpeta de salida (videos ya convertidos)'
         'paths/logs'       = 'Carpeta de logs de sesion'
 
-        'profiles' = 'Perfiles propios (se anaden a los de serie); se editan a mano en config.json'
+        'profiles' = 'Perfiles propios (se anaden a los de serie); se editan a mano en el fichero de config'
     }
 }
 

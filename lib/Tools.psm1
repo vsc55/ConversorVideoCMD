@@ -158,6 +158,27 @@ function Get-CvToolInstalledVersion {
     return ''
 }
 
+function Get-CvNvencFallbackCandidates {
+    <#
+        Versiones a PROBAR como fallback cuando $Failed no soporta NVENC: de $Available (el catalogo
+        de versiones), las MENORES que $Failed por numero de version, ordenadas de MAS NUEVA a mas
+        antigua (se prueban una tras otra hasta dar con una compatible). Excluye $Failed, las mas
+        nuevas (no ayudarian: el fallo es "driver demasiado antiguo para este ffmpeg") y las no
+        comparables. Si $Failed no es numerica, devuelve todas las numericas (desc). Funcion pura.
+    #>
+    param([string]$Failed, [string[]]$Available)
+    $fv = $null
+    [void][version]::TryParse(("$Failed" -replace '[^\d\.]', ''), [ref]$fv)
+    $cands = @()
+    foreach ($a in @($Available)) {
+        if ("$a" -eq "$Failed") { continue }
+        $av = $null
+        if (-not [version]::TryParse(("$a" -replace '[^\d\.]', ''), [ref]$av)) { continue }
+        if ($null -eq $fv -or $av -lt $fv) { $cands += [pscustomobject]@{ Name = "$a"; Ver = $av } }
+    }
+    @($cands | Sort-Object -Property Ver -Descending | ForEach-Object { $_.Name })
+}
+
 function Select-CvToolVersion {
     <#
         Muestra el catalogo de versiones de una app (seccion 'downloads') y devuelve la
@@ -189,9 +210,11 @@ function Install-CvTool {
         Descarga e instala una app del catalogo 'downloads' del config: descarga el zip de
         la version seleccionada, verifica el SHA256 (si hay), extrae y copia los ficheros
         indicados a su carpeta destino. Generico: sirve para ffmpeg u otras apps.
-        Devuelve $true si quedan todos los ficheros instalados.
+        Devuelve $true si quedan todos los ficheros instalados. -NvencOk (opcional): si se pasa un
+        [ref], recibe el resultado de la comprobacion NVENC de ffmpeg ($true si compatible o si no
+        aplica); lo usa setup para volver a la version anterior si la nueva no soporta NVENC.
     #>
-    param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)][string]$Name, [string]$Version = '')
+    param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)][string]$Name, [string]$Version = '', [ref]$NvencOk = $null)
     $tag  = "[{0}]" -f $Name.ToUpper()
     $app  = Get-CvAppDescriptor -Context $Context -Name $Name
     if ($null -eq $app) { Write-CvLog 'GLOBAL' ("{0} - [ERR] - No hay descriptor de descarga para '{1}'" -f $tag, $Name); return $false }
@@ -323,8 +346,12 @@ function Install-CvTool {
         if ($iv) { Write-CvLog 'GLOBAL' ("{0} - [OK] - {1} instalado en {2} (version detectada: {3})" -f $tag, $Name, $destDir, $iv) }
         else     { Write-CvLog 'GLOBAL' ("{0} - [OK] - {1} {2} instalado en {3}" -f $tag, $Name, $ver, $destDir) }
         # Validacion de compatibilidad: para ffmpeg, comprobar que la codificacion por GPU
-        # (NVENC) funciona con esta version y el driver NVIDIA de este equipo.
-        if ($Name -eq 'ffmpeg') { Write-CvNvencReport -Context $Context -Version $ver -Tag $tag }
+        # (NVENC) funciona con esta version y el driver NVIDIA de este equipo. El resultado se
+        # expone por -NvencOk (si se paso) para que setup pueda volver a la version anterior.
+        if ($Name -eq 'ffmpeg') {
+            $nvOk = Write-CvNvencReport -Context $Context -Version $ver -Tag $tag
+            if ($null -ne $NvencOk) { $NvencOk.Value = [bool]$nvOk }
+        } elseif ($null -ne $NvencOk) { $NvencOk.Value = $true }
     }
     return $ok
 }

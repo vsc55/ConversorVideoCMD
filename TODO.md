@@ -55,29 +55,18 @@ flag de `test`). Si discrepa → se queda en beta y se anota qué falla.
 
 ---
 
-## Audio multipista (mantener varias pistas por idioma)
+## Audio multipista (conservar varias pistas del idioma preferido) — 🧪 beta → estable
 
-**Estado:** pendiente.
+**Estado:** 🧪 IMPLEMENTADO en **v4.4.0 como BETA** (doble llave `encode.multiAudio` + `test.betaMultiAudio`). Con 2+ pistas del idioma preferido se conservan varias y se elige la predeterminada; menú `Select-AudioMulti` (prompt único, `*`=default, preview), un temporal por pista `<name>_aN.*`, multiplex con la predeterminada primero (`-disposition:a:0 default`), idioma + título por pista (para distinguir mismas-idioma); modo `copy` también conserva el set. Job `audio.tracks[]` (compat con `audio.index` antiguo). Verificado E2E sobre fixture 2 pistas spa + tests unitarios + batería 15/15.
 
-**Qué:** que `audioLanguages` del `config.json` signifique "mantener TODAS las pistas de
-audio de estos idiomas" (p. ej. `["es","eng"]` → 2 pistas en el MKV final), en vez de
-elegir una sola. Sería simétrico con cómo se tratan hoy los subtítulos.
+**Qué falta para promocionar:**
+1. **Validar con archivos reales** variados (varias pistas del mismo idioma: principal + comentarios; mezclas de canales distintos 5.1/2.0) que la selección/orden/default y los títulos salen correctos en reproductores reales (VLC, Plex, TV).
+2. Revisar la **sincronía por pista** con material que tenga desfases distintos por pista.
+3. Confirmar el comportamiento en **copy** (varias pistas copiadas) en un contenedor real grande.
 
-**Situación actual:** el audio selecciona **una única** pista (la mejor según el orden de
-`audioLanguages`, y dentro del idioma prefiere 5.1). El pipeline asume una sola pista
-(un `.m4a`, un `-map`).
+**Decisión:** si convence → promocionar (quitar `test.betaMultiAudio` y las marcas `[beta]`; dejar `encode.multiAudio` como toggle). Posible mejora futura: extender a **varios idiomas** (hoy solo lista las del idioma preferido).
 
-**Trabajo estimado (medio):**
-- Selección: quedarse con todas las pistas cuyo idioma esté en la lista.
-- Codificación: un temporal por pista (`<name>_aN.m4a`), cada una con su sincronía y volumen.
-- Multiplex: mapear todas con su metadato de idioma y marcar una como `default`.
-
-**Decisiones a confirmar cuando se retome:**
-1. ¿Multipista (todas las de la lista) o mantener el modo "una sola por preferencia"?
-2. Si hay 2+ pistas del MISMO idioma: ¿preguntar cuál (menú), mantener todas, o la mejor de cada idioma?
-
-**Archivos que tocaría:** `lib/MediaInfo.psm1` (selección), `lib/Audio.psm1` (ASK/RUN),
-`lib/Multiplex.psm1` (mapeo), `Convert.ps1` (job con lista de pistas de audio).
+**Archivos:** `lib/MediaInfo.psm1` (`Select-CvDefaultAudio`), `lib/Audio.psm1` (`Select-AudioMulti`, `Invoke-AudioAsk`/`Invoke-AudioRun -Pos`), `lib/Job.psm1` (`Get-CvJobAudioTracks`/`Get-CvAudioTempPath`), `lib/Multiplex.psm1` (mapeo N pistas), `Convert.ps1` (worker), `docs/explica-audio.md`.
 
 ---
 

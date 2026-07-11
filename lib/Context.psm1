@@ -5,7 +5,7 @@
 
 function Get-CvVersion {
     <# Version del proyecto (fuente unica; la usan Convert.ps1 y setup.ps1). #>
-    '4.3.0'
+    '4.4.0'
 }
 
 function Get-CvAppName {
@@ -35,6 +35,7 @@ function Start-CvSession {
     $ctx = New-CvContext -Root $Root -ConfigPath $cfgPath
     Set-CvMarkStyle -Ascii $ctx.AsciiMarks     # [OK]/[ERROR] en vez de simbolos si behavior.asciiMarks
     Set-CvSepWidth -Width $ctx.SepWidth         # ancho de los separadores de seccion (config console.sepWidth)
+    Set-CvProgressBarWidth -Width $ctx.ProgressBarWidth   # ancho de la barra de progreso (config console.progressBarWidth)
     $log = Start-CvLog -Context $ctx -Prefix $LogPrefix   # transcript a logs\ (antes de pintar, para capturarlo)
     Set-CvAppearance -Context $ctx -Title ("{0} {1}{2}" -f $ctx.AppName, $ctx.Version, $TitleSuffix)
     Show-CvHeader -Context $ctx -Subtitle $Subtitle
@@ -113,11 +114,11 @@ function New-CvContext {
         # Forzar el fps de salida (-r). $true = como hasta ahora; $false = conserva el fps de origen.
         ForceFps       = [bool]$cfg.encode.forceFps
         # 2-pass de NVENC (-multipass): 'off'|'qres'|'fullres'. Solo lo usan los encoders NVENC.
-        Multipass      = $(if ("$($cfg.encode.multipass)".ToLower() -in @('qres','fullres')) { "$($cfg.encode.multipass)".ToLower() } else { "$($def.encode.multipass)" })
+        Multipass      = (Resolve-CvOneOf "$($cfg.encode.multipass)" @('off','qres','fullres') "$($def.encode.multipass)")
         # Tone-mapping HDR->SDR (BT.709): 'auto' = solo si el origen es HDR; 'off' = nunca.
-        TonemapHdr     = $(if ("$($cfg.encode.tonemapHdr)".ToLower() -eq 'off') { 'off' } else { "$($def.encode.tonemapHdr)" })
+        TonemapHdr     = (Resolve-CvOneOf "$($cfg.encode.tonemapHdr)" @('auto','off') "$($def.encode.tonemapHdr)")
         # Downmix 5.1->estereo: 'dialogue' = voz reforzada (pan); 'default' = downmix estandar.
-        DownmixMode    = $(if ("$($cfg.encode.downmixMode)".ToLower() -eq 'dialogue') { 'dialogue' } else { "$($def.encode.downmixMode)" })
+        DownmixMode    = (Resolve-CvOneOf "$($cfg.encode.downmixMode)" @('default','dialogue') "$($def.encode.downmixMode)")
         # Pesos del downmix 'dialogue' (center/front/surround); el pan se construye de estos valores.
         # Del JSON llegan como numero; el cast [double] de PowerShell es invariante de locale. Con la
         # clave ausente (null) se usa el default de Get-CvDefaultDownmixCoeffs (fuente unica de los
@@ -182,6 +183,16 @@ function New-CvContext {
         # fija el modo, pero solo refuerza la voz si BetaDownmix. Config test.betaDownmix; lo usa
         # Invoke-AudioRun junto con DownmixMode.
         BetaDownmix    = [bool]$cfg.test.betaDownmix
+        # BETA: multipista de audio (conservar varias pistas del idioma preferido + elegir la default).
+        # Doble llave: MultiAudio (encode.multiAudio) habilita la funcion, pero solo actua si
+        # BetaMultiAudio (test.betaMultiAudio). Effectivo = MultiAudio -and BetaMultiAudio. Lo consumen
+        # Invoke-AudioAsk (seleccion) y el worker/Multiplex (varias pistas). Al promocionar: quitar
+        # BetaMultiAudio y dejar MultiAudio como toggle.
+        MultiAudio     = [bool]$cfg.encode.multiAudio
+        BetaMultiAudio = [bool]$cfg.test.betaMultiAudio
+        # Conservar el titulo del audio de origen en la salida (false = titulo en blanco). Lo aplica
+        # Invoke-Multiplex leyendo el titulo del origen por el indice de cada pista.
+        AudioKeepTitle = [bool]$cfg.encode.audioKeepTitle
         # log: transcript de la ejecucion a logs\; el marcador 'no_log' lo desactiva.
         Log            = ([bool]$cfg.behavior.log -and -not (Test-Path (Join-Path $Root 'no_log')))
         # Postproceso: limpiar las etiquetas DURATION del MKV con mkvpropedit.
@@ -204,6 +215,8 @@ function New-CvContext {
         WindowHeight      = [int]$cfg.console.windowHeight
         # Ancho de los separadores de seccion (=== / ---) de la UI; lo aplica Set-CvSepWidth al arrancar.
         SepWidth          = [Math]::Max(1, [int]$cfg.console.sepWidth)
+        # Ancho de la barra visual de progreso del worker (0 = sin barra); lo aplica Set-CvProgressBarWidth.
+        ProgressBarWidth  = [Math]::Max(0, [int]$cfg.console.progressBarWidth)
         # Extensiones de ENTRADA (config encode.extensions): se normalizan a patron glob '*.ext'
         # (tolera que el usuario las escriba con o sin '*.'/'.').
         Extensions     = @(@($cfg.encode.extensions) | Where-Object { "$_" -ne '' } | ForEach-Object { '*.' + ("$_".TrimStart('*').TrimStart('.')) })
@@ -220,7 +233,7 @@ function New-CvContext {
         CustomQmin         = $(if ([int]$cfg.customProfile.qmin -lt 0) { $null } else { [Math]::Min(51, [int]$cfg.customProfile.qmin) })
         CustomQmax         = $(if ([int]$cfg.customProfile.qmax -lt 0) { $null } else { [Math]::Min(51, [int]$cfg.customProfile.qmax) })
         CustomCrf          = $(if ([int]$cfg.customProfile.crf  -lt 0) { $null } else { [Math]::Min(51, [int]$cfg.customProfile.crf) })
-        CustomMultipass    = $(if ("$($cfg.customProfile.multipass)".ToLower() -in @('qres','fullres')) { "$($cfg.customProfile.multipass)".ToLower() } else { "$($def.customProfile.multipass)" })
+        CustomMultipass    = (Resolve-CvOneOf "$($cfg.customProfile.multipass)" @('off','qres','fullres') "$($def.customProfile.multipass)")
         CustomAudioBitrate = "$($cfg.customProfile.audioBitrate)"
         CustomAudioCodec   = "$($cfg.customProfile.audioCodec)"
     }

@@ -88,6 +88,47 @@ Devuelve código de salida `0` si todo pasa, `1` si alguna verificación falla. 
 
 > El perfil test se congela en los jobs; `Convert.ps1` no distingue entre este y un perfil normal. La detección de bordes queda desactivada para que la batería sea determinista y desatendida.
 
+## Tests unitarios (`unit-tests.ps1`)
+
+Complementa a la batería del pipeline: comprueba en **aislado** **todas las funciones puras/deterministas** de `lib\` (las que no dependen de ffmpeg, ficheros, consola nativa ni menús interactivos). **No** necesita GPU ni ffmpeg ni ficheros, y corre en **< 1 s** — red de seguridad barata frente a regresiones al refactorizar. Actualmente **~240 casos**. Incluye los helpers `Resolve-*`/`Get-*` extraídos de los `Invoke-*` (canales no-upmix, método de volumen, cadena de filtros de vídeo, `pan` del downmix, validación de enums, índices del multiplex…).
+
+```powershell
+powershell -ExecutionPolicy Bypass -File test\unit-tests.ps1
+```
+
+Sale con código `0` si todo pasa, `1` si falla algún caso (apto para CI). Usa un mini-harness propio (`Assert-Eq`/`Assert-True`), sin dependencia de Pester. Cobertura por áreas:
+
+- **Utilidades**: `Format-CvEta`, `Format-CvNumber`, `ConvertTo-InvDouble` (locale), `ConvertTo-ArgString`, `Get-CvMark`, barra/separadores (`Get-CvProgressBar`, `Get-CvSepLine`/`Dash`/`Star`/`Line`, `Resolve-*Width`).
+- **Idioma/rutas/tiempo**: `Get-CvLangCanon`, `Test-CvLanguage`, `Get-CvSafeStart`, `Resolve-CvPath`, `Get-DurationText` (regresión del bug < 1h), `Get-MediaDuration`, `Get-VideoSize`, `Get-Tag`.
+- **Audio**: `Get-CvChannelLayout`, `Get-CvAudioBitrate`, `Get-CvAudioCodecRank`, `Select-CvBestAudio`, `Select-AudioStream`, `Select-CvDefaultAudio`, `ConvertTo-AudioSel`, `Format-CvAudioLine`, `ConvertFrom-CvPlayCommand`, `Get-CvJobAudioTracks`, `Get-CvAudioTempPath`, `Resolve-CvAudioTitle`.
+- **Subtítulos**: `Test-SubForced`/`Test-SubDefault`, `ConvertTo-SubSel`, `Split-CvSubtitlesByRole`, `Get-SubtitleStreamPos`.
+- **Perfiles**: `New-CvProfile`, `ConvertTo-CvProfile`, `Get-CvProfileProp`, `Format-CvProfileLabel`, catálogos (`Get-CvVideoEncoders`/`Get-CvAudioCodecs`/`Get-CvCodecOptions`/`Get-CvAudioBitrates`/`Get-CvProfiles`).
+- **Vídeo/Config**: `Get-VideoArgs` (NVENC/CPU, constqp, forceFps, tune), `Merge-CvConfig`, `ConvertTo-CvJson`, `Get-CvHelpFor`, `Get-CvConfigDefaultValue`, `ConvertTo-CvPromptTimeouts`/`Get-CvPromptTimeout`, `Get-CvVolumeMethods`, coeficientes de downmix.
+- **Job/Tools/Attachment**: `Get-CvJobPath`, `Get-CvTempPaths`, `Get-OutputPath`, `Get-CvProcesoPatterns`, `ConvertTo-CvPlatform`/`Get-CvPlatform`, `Get-AttachmentKind`, `Get-CvNvencCause`, `Get-CvAppName`/`Get-CvVersion`.
+
+Lo que **no** cubren (por diseño): funciones con ffmpeg/ffprobe (`Invoke-*`, `Get-MediaInfo`, `Find-CropDetect*`…), consola nativa (`Set-Cv*`), menús interactivos (`Select-*Interactive`/`Fallback`/`Multi`, `Read-*`) y ficheros/red (`*-CvTool*`) — esos se validan con la **batería E2E** y las pruebas funcionales.
+
+También se pueden lanzar desde `setup` (bloque **Pruebas** · *Ejecutar tests unitarios*), que ejecuta el script como proceso hijo y muestra si todo pasó — cómodo para comprobar tras editar la configuración sin salir a la terminal. Ver [ref-herramientas.md](ref-herramientas.md).
+
+## Batería de features (`feature-tests.ps1`)
+
+Complementa a las otras dos: mientras `run-tests.ps1` prueba selección de pistas/decodificación y `unit-tests.ps1` la lógica pura, esta batería ejercita **las rutas de feature que aquellas no cubren**, llamando directamente a las etapas (`Invoke-VideoRun`/`Invoke-AudioRun`/`Invoke-Multiplex`) con perfiles/contexto a medida sobre **entradas sintéticas efímeras** (lavfi; no se commitea ninguna fixture nueva) y verificando la salida con ffprobe.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File test\feature-tests.ps1
+```
+
+Cubre (~50 comprobaciones):
+
+- **Vídeo**: tone-mapping HDR→SDR (BT.709), resize, `tune animation`, multipass NVENC, `forceFps=false` (conserva fps de origen), **detección de bordes** (`cropdetect` sobre un vídeo con barras negras → recorte esperado).
+- **Audio**: `loudnorm`, `aacgain`, códecs no-AAC (ac3/eac3/flac/opus/mp3), downmix 5.1→estéreo estándar y `dialogue` (beta), sincronía `adelay` (beta) y **WAV clásico**, no-upmix.
+- **Multiplex**: multipista (predeterminada primero + disposition), capítulos conservados, adjuntos (fuentes) conservados, `copy` de vídeo/audio.
+- **Modo pruebas** (`-t`/`TestLimit`).
+
+Los casos que dependen de **GPU** (tone-mapping con libplacebo, multipass NVENC) se **saltan** (`[SKIP]`, no fallo) si `Test-CvNvenc` falla, así la batería vale también en equipos sin GPU. Igual con `aacgain` si no está instalado. Sale con `0` si nada falla (los SKIP no cuentan), `1` si algo falla. Esta batería detectó, entre otros, el bug de locale del silencio de sincronía clásico (`aevalsrc d=0,5` → coma), ya corregido.
+
+También se lanza desde `setup` (bloque **Pruebas** · *Ejecutar batería de features*), igual que los tests unitarios (proceso hijo). Tarda más que los unitarios porque codifica; los unitarios siguen siendo la comprobación rápida. Ver [ref-setup.md](ref-setup.md).
+
 ## Fuentes y licencias de las muestras base
 
 Documentado para evitar problemas legales. Verificar siempre las condiciones en la web de origen antes de redistribuir.

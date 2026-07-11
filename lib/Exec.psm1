@@ -286,7 +286,11 @@ function Invoke-ToolProgress {
                 $pct = if ($TotalSeconds -gt 0) { [int][math]::Min(100, [math]::Max(0, $curPct)) } else { -1 }
                 $spd = 0.0; $hasSpd = [double]::TryParse(($speed -replace '[^0-9.]', ''), [System.Globalization.NumberStyles]::Float, $inv, [ref]$spd)
                 $parts = " - $Label"
-                if ($pct -ge 0) { $parts += ('  {0,3}%' -f $pct) }
+                if ($pct -ge 0) {
+                    $bar = Get-CvProgressBar -Percent $pct   # '' si console.progressBarWidth = 0
+                    if ($bar) { $parts += "  $bar" }
+                    $parts += ('  {0,3}%' -f $pct)
+                }
                 if ($pct -ge 0 -and $hasSpd -and $spd -gt 0) { $parts += ('  ETA {0}' -f (Format-CvEta (($TotalSeconds - $outSec) / $spd))) }
                 if ($hasSpd -and $spd -gt 0) { $parts += ('  {0}x' -f $spd.ToString($inv)) }
                 elseif ($pct -lt 0)          { $parts += ('  {0}' -f (Format-CvEta $outSec)) }   # sin total: tiempo transcurrido

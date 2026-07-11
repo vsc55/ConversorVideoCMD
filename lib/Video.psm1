@@ -457,6 +457,34 @@ function Get-VideoArgs {
     return ,$a
 }
 
+function Get-CvTonemapFormat {
+    <#
+        Pixel format del tone-mapping HDR->SDR: 'p010le' (10 bits) si el perfil es main10 en HEVC
+        (hevc_nvenc/libx265); 'yuv420p' (8 bits) en el resto.
+    #>
+    param([string]$VideoProfile, [string]$VideoEncoder)
+    if ("$VideoProfile" -eq 'main10' -and $VideoEncoder -in @('hevc_nvenc','libx265')) { return 'p010le' }
+    return 'yuv420p'
+}
+
+function Get-CvVideoFilterChain {
+    <#
+        Cadena de filtros de video (-vf) en ORDEN: crop -> scale -> (tonemap libplacebo + format).
+        El tonemap va DESPUES del reescalado. Devuelve un array de filtros (vacio si no hay ninguno);
+        el llamador lo une con ','. Funcion PURA (sin logging): los avisos de reescalado/tonemap los
+        emite el llamador. -Fmt = pixel format del tonemap (Get-CvTonemapFormat).
+    #>
+    param([string]$Crop = '', [string]$Resize = '', [bool]$Tonemap = $false, [string]$Fmt = 'yuv420p')
+    $vf = @()
+    if ($Crop)   { $vf += "crop=$Crop" }
+    if ($Resize) { $vf += "scale=$Resize" }
+    if ($Tonemap) {
+        $vf += 'libplacebo=tonemapping=bt.2390:colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv'
+        $vf += "format=$Fmt"
+    }
+    return ,$vf
+}
+
 function Invoke-VideoRun {
     <# Codifica el video usando la config del job. Devuelve $true si crea la salida temporal. #>
     param(
@@ -476,22 +504,16 @@ function Invoke-VideoRun {
     $tonemap = $Hdr -and ("$($Context.TonemapHdr)".ToLower() -ne 'off')
 
     # filtro de video: crop -> scale -> (tonemap). El tonemap va DESPUES del reescalado.
-    $vf = @()
-    if ($Crop)   { $vf += "crop=$Crop" }
+    # La cadena la construye Get-CvVideoFilterChain (pura); aqui solo se emiten los avisos del worker.
+    $fmt = Get-CvTonemapFormat -VideoProfile $Prof.VideoProfile -VideoEncoder $Prof.VideoEncoder
+    $vf  = Get-CvVideoFilterChain -Crop $Crop -Resize $Resize -Tonemap $tonemap -Fmt $fmt
     if ($Resize) {
-        $vf += "scale=$Resize"
         # Indicador en el worker de que se esta reescalando (y a que tamano).
         $rzTxt = "a $Resize"
         if ($Resize -match '^(\d+):(-?\d+)$') { $rzTxt = if ([int]$Matches[2] -lt 0) { "a {0}px de ancho" -f $Matches[1] } else { "a {0}x{1}" -f $Matches[1], $Matches[2] } }
         Write-CvInfoStep $Context 'VIDEO' ("Reescalando $rzTxt")
     }
-    if ($tonemap) {
-        # 10 bits (p010le) si el perfil es main10 en HEVC; 8 bits (yuv420p) en el resto.
-        $fmt = if ("$($Prof.VideoProfile)" -eq 'main10' -and $Prof.VideoEncoder -in @('hevc_nvenc','libx265')) { 'p010le' } else { 'yuv420p' }
-        $vf += 'libplacebo=tonemapping=bt.2390:colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv'
-        $vf += "format=$fmt"
-        Write-CvInfoStep $Context 'VIDEO' 'Tone-mapping HDR -> SDR (BT.709)'
-    }
+    if ($tonemap) { Write-CvInfoStep $Context 'VIDEO' 'Tone-mapping HDR -> SDR (BT.709)' }
 
     $ffArgs = @('-hide_banner','-y')
     if ($tonemap) { $ffArgs += @('-init_hw_device','vulkan') }   # necesario para el filtro libplacebo

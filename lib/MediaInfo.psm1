@@ -112,6 +112,20 @@ function Select-CvBestAudio {
         Select-Object -First 1
 }
 
+function Select-CvDefaultAudio {
+    <#
+        De un conjunto de pistas de audio, la que se PRESELECCIONA como predeterminada: la marcada
+        con disposition.default; si ninguna lo esta, la de mejor calidad (Select-CvBestAudio). La usa
+        el menu multipista para sugerir la default (* ) por defecto. Devuelve el stream (o $null).
+    #>
+    param([Parameter(Mandatory)]$Streams)
+    $s = @($Streams)
+    if ($s.Count -eq 0) { return $null }
+    $def = @($s | Where-Object { $_.disposition -and $_.disposition.default -eq 1 })
+    if ($def.Count -gt 0) { return $def[0] }
+    return (Select-CvBestAudio $s)
+}
+
 function Select-AudioStream {
     <#
         Selecciona la pista de audio: (idioma preferido) > (default) > 5.1 > primera pista.
@@ -153,6 +167,18 @@ function Get-AudioStreams {
     <# Devuelve todas las pistas de audio del contenedor. #>
     param([Parameter(Mandatory)]$Info)
     @($Info.streams | Where-Object { $_.codec_type -eq 'audio' })
+}
+
+function Resolve-CvAudioTitle {
+    <#
+        Titulo de SALIDA de una pista de audio segun encode.audioKeepTitle: si -Keep es $false ->
+        cadena vacia (titulo en blanco); si $true -> el titulo del ORIGEN (la pista con ese indice
+        absoluto en $Info), o '' si no lo tiene / no existe. Lo usa Invoke-Multiplex por cada pista.
+    #>
+    param([bool]$Keep, [Parameter(Mandatory)]$Info, [int]$Index)
+    if (-not $Keep) { return '' }
+    $s = @($Info.streams | Where-Object { [int]$_.index -eq $Index })[0]
+    if ($s) { "$(Get-Tag $s 'title')" } else { '' }
 }
 
 function Get-VideoSize {
@@ -342,10 +368,11 @@ function Write-ConversionSummary {
     $origAbr = if ($origAbrBps) { " {0}k" -f [math]::Round(([double]$origAbrBps) / 1000) } else { '' }
 
     $oInfo = Get-MediaInfo -Context $Context -File $Output
-    $ov = $null; $oa = $null
+    $ov = $null; $oa = $null; $oaAll = @()
     if ($oInfo) {
         $ov = Get-VideoStream -Info $oInfo
-        $oa = @($oInfo.streams | Where-Object { $_.codec_type -eq 'audio' })[0]
+        $oaAll = @($oInfo.streams | Where-Object { $_.codec_type -eq 'audio' })
+        $oa = $oaAll[0]
     }
     $outRes = if ($ov) { Get-VideoSize -VideoStream $ov } else { '?' }
     $outVc  = if ($ov) { $ov.codec_name } else { '?' }
@@ -378,6 +405,28 @@ function Write-ConversionSummary {
     $outDur = if ($oInfo) { Get-DurationText $oInfo } else { Get-DurationText $Info }
     $durTxt = if ($Context.TestLimit -gt 0) { "{0} (origen {1})" -f $outDur, (Get-DurationText $Info) } else { $outDur }
 
+    # Audio de la salida: con UNA pista, origen -> destino (como siempre); con VARIAS (multipista),
+    # una linea por pista (idioma, codec, canales, bitrate, titulo y * = predeterminada).
+    $audioSection = @()
+    if ($oaAll.Count -le 1) {
+        $audioSection = @(("Audio   : {0}" -f $(if ("$($Prof.AudioEncoder)" -eq 'copy') {
+            "{0} {1}{2}" -f $outAc, $outAch, $outAbr
+        } else {
+            "{0} {1}{2}  ->  {3} {4}{5}" -f $origAc, $origAch, $origAbr, $outAc, $outAch, $outAbr
+        })))
+    } else {
+        $audioSection = @("Audio   : {0} pistas" -f $oaAll.Count)
+        foreach ($s in $oaAll) {
+            $l = "$(Get-Tag $s 'language')"; if ($l -eq '') { $l = 'und' }
+            $br = Get-CvAudioBitrate -Stream $s; $brTxt = if ($br) { ' {0}k' -f [math]::Round(([double]$br) / 1000) } else { '' }
+            $t = "$(Get-Tag $s 'title')"; $tt = if ($t) { " '$t'" } else { '' }
+            $def = if ($s.disposition -and $s.disposition.default -eq 1) { '  * (predeterminada)' } else { '' }
+            $audioSection += ("          - [{0}] {1} {2}ch{3}{4}{5}" -f $l, $s.codec_name, $s.channels, $brTxt, $tt, $def)
+        }
+    }
+
+    # Nota: se usa '+=' para incorporar $audioSection (un array de 1..N lineas); dentro de un literal
+    # @(...) una variable-array NO se aplana (quedaria anidada y se imprimiria en una sola linea).
     $lines = @(
         ("Archivo : {0}" -f $name),
         ("Duracion: {0}     Tiempo de proceso: {1:hh\:mm\:ss}" -f $durTxt, $Elapsed),
@@ -389,16 +438,11 @@ function Write-ConversionSummary {
             "{0} -> {1}  {2}" -f $origVc, $outVc, $outRes
         } else {
             "{0} {1}  ->  {2} {3}" -f $origVc, $origRes, $outVc, $outRes
-        })),
-        # Audio: origen -> destino (coherente con Video/Tamano). En modo copy no cambia -> una sola vez.
-        ("Audio   : {0}" -f $(if ("$($Prof.AudioEncoder)" -eq 'copy') {
-            "{0} {1}{2}" -f $outAc, $outAch, $outAbr
-        } else {
-            "{0} {1}{2}  ->  {3} {4}{5}" -f $origAc, $origAch, $origAbr, $outAc, $outAch, $outAbr
-        })),
-        ("Subs    : {0}" -f $subTxt),
-        ("Caps    : {0}" -f $nChap)
+        }))
     )
+    $lines += $audioSection
+    $lines += ("Subs    : {0}" -f $subTxt)
+    $lines += ("Caps    : {0}" -f $nChap)
     # En modo pruebas la salida es un RECORTE (la 'Duracion' de arriba ya lo refleja: salida +
     # origen): se avisa explicitamente para que no se confunda con una conversion completa.
     if ($Context.TestLimit -gt 0) {

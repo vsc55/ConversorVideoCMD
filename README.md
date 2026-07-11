@@ -31,7 +31,7 @@ Recodifica a **MKV** (vídeo H.265/H.264 por GPU NVIDIA o CPU; audio AAC, AC-3, 
 
 `Convert.cmd` solo lanza `Convert.ps1` con `-ExecutionPolicy Bypass` (no cambia la política del sistema) y pone la consola en UTF-8.
 
-Para gestionar las herramientas (FFmpeg, aacgain, MKVToolNix, 7zr) o editar la configuración cómodamente: **`setup.cmd`**. Ambos lanzadores admiten `-Config <ruta>` para usar un fichero de configuración alterno.
+Para gestionar las herramientas (FFmpeg, aacgain, MKVToolNix, 7zr) o editar la configuración cómodamente: **`setup.cmd`**. Ambos lanzadores admiten `-Config <ruta>` para usar un fichero de configuración alterno (se **reenvía** a las ventanas worker que se abran en paralelo). Para depurar hay **`Convert-Debug.cmd`**, que usa `config.debug.json` (`behavior.debug = true`) y muestra el log detallado sin tocar tu `config.json`; y **`setup-Debug.cmd`** para editar/gestionar ese `config.debug.json` con el editor de setup.
 
 ## En qué consiste
 
@@ -52,6 +52,7 @@ Modelo **preparar → procesar**:
 | Carpeta / fichero | Uso |
 |---|---|
 | `Convert.cmd` / `setup.cmd` | Lanzadores del conversor / de la utilidad de gestión. |
+| `Convert-Debug.cmd` / `setup-Debug.cmd` / `config.debug.json` | Conversor / editor de setup en modo debug (log detallado), sobre `config.debug.json`. |
 | `Convert.ps1` | Orquestador (clasificar / preparar / worker). |
 | `setup.ps1` | Herramientas + editor de `config.json` + limpieza. |
 | `config.json` | Toda la configuración. |
@@ -69,9 +70,10 @@ La documentación técnica y detallada (cómo trabaja, flujos, diagramas y **los
 - [Arquitectura](docs/ref-arquitectura.md) — módulos, contexto, fuentes de verdad.
 - [Flujo de trabajo](docs/ref-flujo.md) — clasificar → preparar → worker, con diagramas.
 - [Comandos de las herramientas](docs/ref-comandos.md) — ffmpeg/ffprobe/ffplay/aacgain por fase.
-- [Perfiles](docs/ref-perfiles.md) — perfiles 1–7, propios de `config.json` y custom.
+- [Perfiles](docs/ref-perfiles.md) — perfiles 1–11, propios de `config.json` y custom.
 - [Configuración](docs/ref-configuracion.md) — referencia de `config.json`.
-- [Herramientas](docs/ref-herramientas.md) — versiones, plataforma, descargas y `setup`.
+- [Herramientas](docs/ref-herramientas.md) — versiones, plataforma, descargas y versión por job.
+- [Setup](docs/ref-setup.md) — utilidad `setup` (menú, editor de config, `-Config`, debug, fallback NVENC).
 - [Jobs](docs/ref-jobs.md) — formato del job, lock y temporales.
 - [Pruebas](docs/ref-pruebas.md) — muestras de test, batería del pipeline y fuentes/licencias.
 

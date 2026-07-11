@@ -271,7 +271,7 @@ if ($needPrepare) {
             ffmpegVersion  = $ctx.FFmpegVersion
             aacgainVersion = $ctx.AacGainVersion
             video          = @{ skip = $vAsk.Skip; index = $vAsk.Index; crop = $vAsk.Crop; resize = $vAsk.Resize; anim = $vAsk.Anim; hdr = [bool](Test-CvHdr -Info $info -Index $(if ($null -ne $vAsk.Index) { [int]$vAsk.Index } else { -1 })) }
-            audio          = @{ skip = $aAsk.Skip; index = $aAsk.Index; is51 = $aAsk.Is51; sync = $aAsk.Sync; lang = $aAsk.Lang }
+            audio          = @{ skip = $aAsk.Skip; tracks = @($aAsk.Tracks | ForEach-Object { @{ index = $_.Index; is51 = $_.Is51; sync = $_.Sync; lang = $_.Lang; default = $_.Default } }) }
             subtitles      = @($subSel)
         }
         Write-CvJob -Context $ctx -Name $name -Job $job
@@ -409,12 +409,29 @@ while ($didAny) {
             # ---------- AUDIO ----------
             if ($jctx.Debug) { Write-Host '' }
             $audioOk = $true
-            if ($job.audio.skip) { if ($jctx.Debug) { Write-CvLog 'AUDIO' '[SKIP] - se omite (copy/omitido)' } else { Write-Host ' - Audio (copy)' } }
+            $audioTracks = @()   # pistas para el multiplex: {Source='temp'|'copy'; File; Index; Lang; Default}
+            $aTracks = @(Get-CvJobAudioTracks -Audio $job.audio)   # normaliza multipista o job antiguo monopista
+            if ($job.audio.skip) {
+                # copy: no se recodifica. Con pistas elegidas (multipista beta en copy) se copian esas del
+                # original; sin pistas (copy clasico) el multiplex cae a 0:a:0.
+                if ($jctx.Debug) { Write-CvLog 'AUDIO' '[SKIP] - se omite recodificar (copy)' } else { Write-Host ' - Audio (copy)' }
+                foreach ($t in $aTracks) {
+                    $audioTracks += [pscustomobject]@{ Source = 'copy'; File = ''; Index = [int]$t.Index; Lang = "$($t.Lang)"; Default = [bool]$t.Default }
+                }
+            }
             else {
-                # Canales de la pista de audio elegida (para que audioChannels no haga upmix: es un maximo).
-                $aStream = @($info.streams | Where-Object { [int]$_.index -eq [int]$job.audio.index })[0]
-                $srcCh = if ($aStream -and $aStream.channels) { [int]$aStream.channels } else { 0 }
-                $audioOk = Invoke-AudioRun -Context $jctx -Prof $prof -File $f.FullName -Sync ([double]$job.audio.sync) -Index ([int]$job.audio.index) -Is51 ([bool]$job.audio.is51) -Duration (Get-MediaDuration $info) -SourceChannels $srcCh
+                # Recodificar CADA pista a su temporal (<name>_aN.*). pos 0 = predeterminada (va 1a).
+                $adur = Get-MediaDuration $info
+                for ($ti = 0; $ti -lt $aTracks.Count; $ti++) {
+                    $t = $aTracks[$ti]
+                    if ($aTracks.Count -gt 1) { Write-CvInfoStep $jctx 'AUDIO' ("Pista {0}/{1} (idioma={2}{3})" -f ($ti + 1), $aTracks.Count, $t.Lang, $(if ($t.Default) { ', predeterminada' } else { '' })) }
+                    # Canales de origen (para que audioChannels no haga upmix: es un maximo).
+                    $aStream = @($info.streams | Where-Object { [int]$_.index -eq [int]$t.Index })[0]
+                    $srcCh = if ($aStream -and $aStream.channels) { [int]$aStream.channels } else { 0 }
+                    $outA = Invoke-AudioRun -Context $jctx -Prof $prof -File $f.FullName -Sync ([double]$t.Sync) -Index ([int]$t.Index) -Is51 ([bool]$t.Is51) -Duration $adur -SourceChannels $srcCh -Pos $ti
+                    if (-not $outA) { $audioOk = $false; break }
+                    $audioTracks += [pscustomobject]@{ Source = 'temp'; File = "$outA"; Index = [int]$t.Index; Lang = "$($t.Lang)"; Default = [bool]$t.Default }
+                }
             }
 
             # ---------- VIDEO ----------
@@ -434,7 +451,7 @@ while ($didAny) {
                 $ok = $false
             } else {
                 if ($jctx.Debug) { Write-Host '' }
-                $ok = Invoke-Multiplex -Context $jctx -File $f.FullName -Info $info -VideoSkipped ([bool]$job.video.skip) -AudioSkipped ([bool]$job.audio.skip) -Subtitles $job.subtitles -AudioLang "$($job.audio.lang)" -VideoIndex $vIdx
+                $ok = Invoke-Multiplex -Context $jctx -File $f.FullName -Info $info -VideoSkipped ([bool]$job.video.skip) -AudioSkipped ([bool]$job.audio.skip) -AudioTracks $audioTracks -Subtitles $job.subtitles -VideoIndex $vIdx
                 if (-not $ok) { $failReason = 'fallo en el multiplexado' }
             }
 
@@ -451,7 +468,10 @@ while ($didAny) {
                     Write-Host ''
                     Write-CvLog 'WORKER' ("[OK] - Finalizado: {0}" -f $name)
                 }
-                Write-ConversionSummary -Context $jctx -File $f.FullName -Info $info -Output $out -Elapsed $sw.Elapsed -Prof $prof -AudioIndex $(if ($null -ne $job.audio.index) { [int]$job.audio.index } else { -1 })
+                # Indice de audio de origen para el resumen: la pista predeterminada (1a de la lista);
+                # con varias pistas el resumen las enumera todas de la salida (no usa este indice).
+                $sumAIdx = if ($aTracks.Count -gt 0) { [int]$aTracks[0].Index } else { -1 }
+                Write-ConversionSummary -Context $jctx -File $f.FullName -Info $info -Output $out -Elapsed $sw.Elapsed -Prof $prof -AudioIndex $sumAIdx
                 $results[$name] = @{ Status = 'OK'; Reason = ''; Attempts = ([int]$fail[$name] + 1); Elapsed = $sw.Elapsed }
             } else {
                 if (-not $failReason) { $failReason = 'no se genero la salida' }

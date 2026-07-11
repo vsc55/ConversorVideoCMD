@@ -3,6 +3,18 @@
     Espejo de process_multiplex.cmd. Mejora: copia los subtitulos del original si existen.
 #>
 
+function Resolve-CvMuxInputIndex {
+    <#
+        Indices de input del multiplex. El input 0 es el video; los N audios recodificados van como
+        inputs 1..N; el ORIGINAL (subs/adjuntos/capitulos/audio copy) va al final. Devuelve {Orig;Chap}:
+        Orig = indice del original (1 + N audios temporales); Chap = fuente de capitulos (el original si
+        el video se recodifico, o el input 0 en modo copy, donde el propio video ya es el original).
+    #>
+    param([int]$TempAudioCount, [bool]$IsEncode)
+    $orig = 1 + $TempAudioCount
+    [pscustomobject]@{ Orig = $orig; Chap = $(if ($IsEncode) { $orig } else { 0 }) }
+}
+
 function Invoke-Multiplex {
     <#
         Une video (temporal recodificado o el original si es copy) + audio (m4a) en Convertido\<name>_fix.mkv.
@@ -15,21 +27,25 @@ function Invoke-Multiplex {
         [bool]$VideoSkipped = $false,
         [bool]$AudioSkipped = $false,
         $Subtitles = @(),
-        [string]$AudioLang = '',
+        # Pistas de audio a incluir (multipista): [{Source='temp'|'copy'; File; Index; Lang; Title; Default}].
+        # La DEFAULT va PRIMERO (asi las ordena el worker). Vacio + AudioSkipped -> copy clasico de 0:a:0.
+        $AudioTracks = @(),
         [int]$VideoIndex = -1
     )
-    if ([string]::IsNullOrWhiteSpace($AudioLang)) { $AudioLang = 'und' }
     $name  = [System.IO.Path]::GetFileNameWithoutExtension($File)
     $out   = Get-OutputPath $Context $name
     $tmp   = Get-CvTempPaths -Context $Context -Name $name
     $vTmp  = $tmp.Video
-    # Audio recodificado: .m4a (AAC) o .mka (resto de codecs); el que exista.
-    $aTmp  = if (Test-Path -LiteralPath $tmp.Audio) { $tmp.Audio } elseif (Test-Path -LiteralPath $tmp.AudioMka) { $tmp.AudioMka } else { $tmp.Audio }
 
     # Fuente de video: recodificado si existe, si no el original (caso copy).
     $videoSrc = if (Test-Path -LiteralPath $vTmp) { $vTmp } else { $File }
-    # Fuente de audio: temporal recodificado si existe, si no el original (caso copy).
-    $useAudioFile = (Test-Path -LiteralPath $aTmp)
+
+    # Pistas de audio: recodificadas (temporal por pista) vs copia (indice del original).
+    $audioT    = @($AudioTracks | Where-Object { $_ })
+    $tempAudio = @($audioT | Where-Object { "$($_.Source)" -eq 'temp' -and (Test-Path -LiteralPath "$($_.File)") })
+    $copyAudio = @($audioT | Where-Object { "$($_.Source)" -eq 'copy' })
+    # copy CLASICO (sin lista de pistas): AudioSkipped y ninguna pista -> se copia 0:a:0 del original.
+    $legacyCopy = (($audioT.Count -eq 0) -and $AudioSkipped)
 
     # Subtitulos seleccionados en la fase preparar (filtramos posibles nulos del JSON).
     $subs    = @($Subtitles | Where-Object { $_ })
@@ -37,19 +53,22 @@ function Invoke-Multiplex {
     # Adjuntos del original a conservar (fuentes/caratulas segun config; por defecto ninguno).
     $keepAtt = @(Select-Attachments -Context $Context -Info $Info)
 
-    # El original ($File) hace falta como input si aporta subtitulos/adjuntos, o si el video se
-    # recodifico (el intermedio se creo con -map_chapters -1, asi que los CAPITULOS hay que
-    # tomarlos del original). En modo copy el video ya es el original (input 0).
+    # El original ($File) hace falta como input si aporta subtitulos/adjuntos, si el video se recodifico
+    # (el intermedio se creo con -map_chapters -1, asi que los CAPITULOS se toman del original), o si hay
+    # audio en modo COPIA (se toma del original) o el copy clasico 0:a:0. En copy el video ya es el
+    # original (input 0). Los audios recodificados van como inputs 1..M (uno por pista).
     $isEncode = (Test-Path -LiteralPath $vTmp)
-    $needOrig = $hasSubs -or ($keepAtt.Count -gt 0) -or $isEncode
+    $needCopyAudio = ($copyAudio.Count -gt 0) -or $legacyCopy
+    $needOrig = $hasSubs -or ($keepAtt.Count -gt 0) -or $isEncode -or $needCopyAudio
 
     $ffArgs = @('-hide_banner','-y','-threads',"$($Context.Threads)")
-    $ffArgs += @('-i',$videoSrc)                      # input 0 = video
-    if ($useAudioFile) { $ffArgs += @('-i',$aTmp) }   # input 1 = audio (m4a)
-    if ($needOrig)     { $ffArgs += @('-i',$File) }   # input N = original (subtitulos/adjuntos/capitulos)
-    $origInput = if ($useAudioFile) { 2 } else { 1 }
-    # Fuente de los capitulos: el original. En encode es el input $origInput; en copy es input 0.
-    $chapInput = if ($isEncode) { $origInput } else { 0 }
+    $ffArgs += @('-i',$videoSrc)                                    # input 0 = video
+    foreach ($a in $tempAudio) { $ffArgs += @('-i', "$($a.File)") } # inputs 1..M = audios recodificados
+    if ($needOrig) { $ffArgs += @('-i',$File) }                     # input N = original (subs/adjuntos/capitulos/audio copy)
+    # Indices de input (original / fuente de capitulos): Resolve-CvMuxInputIndex.
+    $mi = Resolve-CvMuxInputIndex -TempAudioCount $tempAudio.Count -IsEncode $isEncode
+    $origInput = $mi.Orig
+    $chapInput = $mi.Chap
 
     # Limpiar TODOS los metadatos heredados de una sola vez: '-map_metadata -1' global tambien
     # vacia los tags de cada pista (ENCODER/_STATISTICS obsoletos que se copian al recodificar el
@@ -66,11 +85,35 @@ function Invoke-Multiplex {
     #            ('0:<VideoIndex>'), no '0:v:0' (que podria ser una caratula o la pista equivocada).
     $vmap = if ((Test-Path -LiteralPath $vTmp) -or ($VideoIndex -lt 0)) { '0:v:0' } else { "0:$VideoIndex" }
     $ffArgs += @('-map',$vmap,'-metadata:s:v','title=','-metadata:s:v','language=und')
-    if ($useAudioFile) {
-        # audio recodificado (m4a): titulo en blanco, idioma de la pista elegida (congelado en el job)
-        $ffArgs += @('-map','1:a:0','-metadata:s:a','title=','-metadata:s:a',("language={0}" -f $AudioLang))
-    } else {
-        # audio copy: conservar los metadatos originales de la pista (idioma, titulo, stats)
+
+    # ----- AUDIO (multipista) -----
+    # La lista ya viene con la DEFAULT primero (la ordena el worker). Se mapea cada pista, se fija el
+    # idioma y la disposition (default segun el flag). El TITULO lo resuelve Resolve-CvAudioTitle:
+    # por defecto en BLANCO; si encode.audioKeepTitle=$true, el del ORIGEN (por indice de la pista;
+    # util para distinguir varias del mismo idioma).
+    $ao = 0
+    if ($tempAudio.Count -gt 0) {
+        # Audios recodificados: cada uno es el input ($ao+1), pista a:0 de ese input.
+        foreach ($a in $tempAudio) {
+            $ffArgs += @('-map', ("{0}:a:0" -f ($ao + 1)))
+            $ffArgs += @(('-metadata:s:a:{0}' -f $ao), ("language={0}" -f $(if ($a.Lang) { $a.Lang } else { 'und' })))
+            $ffArgs += @(('-metadata:s:a:{0}' -f $ao), ("title={0}" -f (Resolve-CvAudioTitle -Keep $Context.AudioKeepTitle -Info $Info -Index ([int]$a.Index))))
+            $ffArgs += @(('-disposition:a:{0}' -f $ao), $(if ($a.Default) { 'default' } else { '0' }))
+            $ao++
+        }
+    }
+    elseif ($copyAudio.Count -gt 0) {
+        # Audios en COPIA: por indice absoluto del original (input $origInput), sin recodificar.
+        foreach ($a in $copyAudio) {
+            $ffArgs += @('-map', ("{0}:{1}?" -f $origInput, [int]$a.Index))
+            $ffArgs += @(('-metadata:s:a:{0}' -f $ao), ("language={0}" -f $(if ($a.Lang) { $a.Lang } else { 'und' })))
+            $ffArgs += @(('-metadata:s:a:{0}' -f $ao), ("title={0}" -f (Resolve-CvAudioTitle -Keep $Context.AudioKeepTitle -Info $Info -Index ([int]$a.Index))))
+            $ffArgs += @(('-disposition:a:{0}' -f $ao), $(if ($a.Default) { 'default' } else { '0' }))
+            $ao++
+        }
+    }
+    else {
+        # copy CLASICO (monopista): primera pista de audio del original, conservando sus metadatos.
         $ffArgs += @('-map','0:a:0','-map_metadata:s:a:0','0:s:a:0')
     }
 

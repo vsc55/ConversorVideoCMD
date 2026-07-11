@@ -1,0 +1,15 @@
+{
+    "behavior": {
+        "debug": true
+    },
+    "test": {
+        "syncAdelay": true,
+        "betaDownmix": true,
+        "betaMultiAudio": true
+    },
+    "downloads": {
+        "ffmpeg": {
+            "selected": "7.1.1"
+        }
+    }
+}

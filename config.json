@@ -9,6 +9,7 @@
     },
     "test": {
         "syncAdelay": true,
-        "betaDownmix": true
+        "betaDownmix": true,
+        "betaMultiAudio": true
     }
 }
