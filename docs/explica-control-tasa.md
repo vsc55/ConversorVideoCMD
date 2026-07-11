@@ -49,7 +49,7 @@ Si defines **QMIN igual a QMAX**, no hay rango que ajustar: es **calidad fija** 
 
 ### "Q auto" (sin QMIN/QMAX)
 
-Si **no** defines QMIN/QMAX (vacío en el builder, o negativo = "desactivar"), NVENC usa su propio control de tasa según el `-preset` (aquí `slow`), sin cotas manuales. Es lo que hacen los perfiles de serie **4** y **5** ("Q auto").
+Si **no** defines QMIN/QMAX (vacío en el builder, o negativo = "desactivar"), NVENC usa su propio control de tasa según el `-preset` (aquí `slow`), sin cotas manuales. Es lo que hacen los perfiles de serie **9** y **10** ("Q auto").
 
 ## Cómo se traduce a ffmpeg (resumen)
 
@@ -71,7 +71,7 @@ Si **no** defines QMIN/QMAX (vacío en el builder, o negativo = "desactivar"), N
 
 ## Dónde se define
 
-- **Perfiles de serie** (1–7): valores fijos (ver [ref-perfiles.md](ref-perfiles.md)).
+- **Perfiles de serie** (1–11): valores fijos (ver [ref-perfiles.md](ref-perfiles.md)).
 - **Perfiles propios** de `config.json` (sección `profiles`): campos `crf`, `qmin`, `qmax` por perfil.
 - **Perfil custom interactivo:** se pregunta en el menú "Control de tasa"; el **valor por defecto** de cada pregunta sale de la sección **`customProfile`** de `config.json` (`crf`, `qmin`, `qmax`) — ENTER acepta el default. Ver [ref-configuracion.md](ref-configuracion.md).
 

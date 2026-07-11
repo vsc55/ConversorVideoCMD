@@ -29,13 +29,14 @@ function Get-AudioInitDelay {
 
 function Show-AudioPreview {
     <#
-        Reproduce un tramo de una pista de audio concreta con FFplay para revisarla.
+        Reproduce una pista de audio concreta con FFplay para revisarla (por defecto desde el
+        principio y sin limite; inicio/duracion configurables en preview.start/seconds).
         -AudioPos: posicion 0-based entre las pistas de AUDIO (se selecciona con '-ast a:N').
         -AudioOnly: sin ventana de video ('-nodisp'); si no, muestra el video con esa pista.
     #>
     param(
         [Parameter(Mandatory)]$Context, [Parameter(Mandatory)][string]$File,
-        [int]$AudioPos, [string]$Label = 'AUDIO', [switch]$AudioOnly, [int]$Seconds = -1, [int]$Start = -1, [double]$Duration = 0
+        [int]$AudioPos, [string]$Label = 'AUDIO', [switch]$AudioOnly, [int]$Start = -1, [int]$Seconds = -1, [double]$Duration = 0
     )
     $extra = @('-ast', ("a:{0}" -f $AudioPos))
     if ($AudioOnly) { $extra += '-nodisp' }
@@ -73,6 +74,7 @@ function Select-AudioInteractive {
     # Posicion 0-based de cada pista de audio (para '-ast a:N' en la reproduccion).
     $posByIndex = @{}
     for ($i = 0; $i -lt $streams.Count; $i++) { $posByIndex[[int]$streams[$i].index] = $i }
+    $to = Get-CvPromptTimeout $Context 'audio'   # auto-aceptar por inactividad (0 = off)
 
     $lines = @()
     foreach ($s in $streams) {
@@ -81,7 +83,7 @@ function Select-AudioInteractive {
     }
     Show-Menu -Title 'SELECCIONAR PISTA DE AUDIO (mismo idioma) [* = por defecto = mejor calidad]:' -Lines $lines -Indent 3
     while ($true) {
-        $a = (Read-Host ("   [AUDIO] - Indice / 'P N'=video+audio / 'A N'=solo audio (opc. seg inicio: 'P N 300') [{0}]" -f $DefaultIndex)).Trim()
+        $a = (Read-CvMenuLine ("   [AUDIO] - Indice / 'P N'=video+audio / 'A N'=solo audio (opc. seg inicio: 'P N 300') [{0}]" -f $DefaultIndex) $to).Trim()
         if ($a -eq '') { $a = "$DefaultIndex" }
 
         # Reproducir para revisar: 'P N' (video+audio) o 'A N' (solo audio); 3er numero opcional.
@@ -117,6 +119,7 @@ function Select-AudioFallback {
     # Posicion 0-based de cada pista de audio (para '-ast a:N' en la reproduccion).
     $posByIndex = @{}
     for ($i = 0; $i -lt $streams.Count; $i++) { $posByIndex[[int]$streams[$i].index] = $i }
+    $to = Get-CvPromptTimeout $Context 'audio'   # auto-aceptar por inactividad (0 = off)
 
     # ---- 1) Elegir pista (con opcion de reproducir para confirmar) ----
     $chosen = $null
@@ -127,7 +130,7 @@ function Select-AudioFallback {
             $lines += (Format-CvAudioLine -Stream $s -Mark $mark)
         }
         Show-Menu -Title 'SELECCIONAR PISTA DE AUDIO (ningun idioma preferido) [* = descarte]:' -Lines $lines -Indent 3
-        $a = (Read-Host ("   [AUDIO] - Indice / 'P N'=video+audio / 'A N'=solo audio (opc. seg inicio: 'P N 300') [{0}]" -f $DefaultIndex)).Trim()
+        $a = (Read-CvMenuLine ("   [AUDIO] - Indice / 'P N'=video+audio / 'A N'=solo audio (opc. seg inicio: 'P N 300') [{0}]" -f $DefaultIndex) $to).Trim()
         if ($a -eq '') { $a = "$DefaultIndex" }
 
         # Reproducir para revisar: 'P N' (video+audio) o 'A N' (solo audio); 3er numero = segundo
@@ -142,7 +145,7 @@ function Select-AudioFallback {
 
         $n = 0
         if ([int]::TryParse($a, [ref]$n) -and $posByIndex.ContainsKey($n)) {
-            $ok = (Read-Host ("   Usar la pista {0}? (ENTER=si / N=volver a la lista)" -f $n)).Trim()
+            $ok = (Read-CvMenuLine ("   Usar la pista {0}? (ENTER=si / N=volver a la lista)" -f $n) $to).Trim()
             if ($ok -match '^[Nn]$') { continue }
             $chosen = $streams | Where-Object { [int]$_.index -eq $n } | Select-Object -First 1
             continue
@@ -156,9 +159,9 @@ function Select-AudioFallback {
     $lang = 'und'
     while ($true) {
         if ($trackLang) {
-            $r = (Read-Host ("   [AUDIO] - Idioma a asignar: [ENTER]='{0}' / [O]tro codigo / [U]nd" -f $trackLang)).Trim()
+            $r = (Read-CvMenuLine ("   [AUDIO] - Idioma a asignar: [ENTER]='{0}' / [O]tro codigo / [U]nd" -f $trackLang) $to).Trim()
         } else {
-            $r = (Read-Host '   [AUDIO] - La pista no trae idioma: [O]tro codigo / [ENTER]=und').Trim()
+            $r = (Read-CvMenuLine '   [AUDIO] - La pista no trae idioma: [O]tro codigo / [ENTER]=und' $to).Trim()
         }
         if ($r -eq '')            { $lang = if ($trackLang) { $trackLang } else { 'und' }; break }
         if ($r -match '^[Uu]$')   { $lang = 'und'; break }
@@ -223,7 +226,7 @@ function Invoke-AudioAsk {
         # Indentado bajo la linea del archivo (y linea en blanco despues) para agrupar la
         # pregunta interactiva con su archivo en el listado compacto de PREPARAR.
         Write-CvLog 'AUDIO' ("[SYNC] - El audio empieza {0}s mas tarde que el video" -f $delay) -Indent 3
-        $ans = (Read-Host ("   [AUDIO] - [SYNC] - Silencio a anadir al inicio en seg [{0}] (ENTER=usar / 0=ninguno)" -f $delay)).Trim()
+        $ans = (Read-CvLine -Prompt ("   [AUDIO] - [SYNC] - Silencio a anadir al inicio en seg [{0}] (ENTER=usar / 0=ninguno)" -f $delay) -TimeoutSec (Get-CvPromptTimeout $Context 'sync')).Trim()
         $res.Manual = $true   # se pregunto por el silencio de sincronia (intervencion manual)
         if ($ans -eq '') { $res.Sync = $delay }
         else {
@@ -251,7 +254,11 @@ function Invoke-AudioRun {
     <# Extrae/recodifica el audio a m4a (AAC), con sincronia y normalizacion de volumen. #>
     param(
         [Parameter(Mandatory)]$Context, [Parameter(Mandatory)]$Prof,
-        [Parameter(Mandatory)][string]$File, [double]$Sync = 0, [int]$Index = 0
+        [Parameter(Mandatory)][string]$File, [double]$Sync = 0, [int]$Index = 0, [bool]$Is51 = $false,
+        # Duracion del audio en segundos (para el % y ETA del progreso). 0 = desconocida (sin %/ETA).
+        [double]$Duration = 0,
+        # Canales de la pista de ORIGEN (para no hacer upmix: audioChannels es un MAXIMO). 0 = desconocido.
+        [int]$SourceChannels = 0
     )
     $name   = [System.IO.Path]::GetFileNameWithoutExtension($File)
     $tmp    = Get-CvTempPaths -Context $Context -Name $name
@@ -265,9 +272,51 @@ function Invoke-AudioRun {
     }
 
     $hz = if ($Prof.AudioHz) { $Prof.AudioHz } else { $Context.DefaultAudioHz }
-    # Canales de salida del audio recodificado (config encode.audioChannels; 2 = estereo).
-    $ch     = [int]$Context.AudioChannels; if ($ch -lt 1) { $ch = 2 }
+    # Canales de salida: el perfil manda si los fija (AudioChannels); si no, el global encode.audioChannels.
+    $ch     = if ($null -ne $Prof.AudioChannels -and [int]$Prof.AudioChannels -ge 1) { [int]$Prof.AudioChannels } else { [int]$Context.AudioChannels }
+    if ($ch -lt 1) { $ch = 2 }
+    # audioChannels es un MAXIMO: nunca se fabrican canales (upmix). Si el origen tiene MENOS canales
+    # que el objetivo, se conservan los del origen. Bajar canales (downmix, p. ej. 5.1->estereo) si se
+    # permite. SourceChannels = 0 (desconocido) -> no se limita.
+    if ($SourceChannels -ge 1 -and $ch -gt $SourceChannels) {
+        Write-CvInfoStep $Context 'AUDIO' ("El origen tiene {0} canales; no se hace upmix a {1} (se conservan {0})" -f $SourceChannels, $ch)
+        $ch = $SourceChannels
+    }
     $layout = Get-CvChannelLayout $ch
+    # Modo de downmix y coeficientes: el perfil manda si los fija; si no, el global (encode.downmixMode /
+    # encode.downmixCoeffs). El activador beta (BetaDownmix) es SIEMPRE global (test.betaDownmix).
+    $dmMode = if ("$($Prof.DownmixMode)" -ne '') { "$($Prof.DownmixMode)".ToLower() } else { "$($Context.DownmixMode)".ToLower() }
+    $coeffs = if ($null -ne $Prof.DownmixCoeffs) { $Prof.DownmixCoeffs } else { $Context.DownmixCoeffs }
+
+    # Downmix con VOZ REFORZADA (BETA): solo al bajar 5.1 -> estereo (ch=2) con downmix 'dialogue'.
+    # pan por INDICES (vale para 5.1 y 5.1(side)): sube el central (c2 = dialogos) y baja los
+    # surrounds (c4/c5); descarta el LFE (c3). Coeficientes clip-safe (suman 1.0), asi el pico del
+    # downmix nunca supera el de origen y la normalizacion 'peak' (medida en el origen) sigue valida.
+    # BETA: los coeficientes son provisionales, a la espera de validarlos/ajustarlos con mas material.
+    # Doble llave mientras sea beta: el modo 'dialogue' solo refuerza la voz si test.betaDownmix ($true).
+    $wantDialogue = ($ch -eq 2) -and $Is51 -and ($dmMode -eq 'dialogue')
+    $downmix = $wantDialogue -and $Context.BetaDownmix
+    $panDown = ''
+    if ($downmix) {
+        # Coeficientes (perfil o global encode.downmixCoeffs). $coeffs SIEMPRE viene completo: lo
+        # rellena la capa de carga (Context.DownmixCoeffs / ConvertTo-CvDownmixCoeffs del perfil, con
+        # sus defaults desde Get-CvDefaultDownmixCoeffs), asi que aqui NO se re-aplican defaults.
+        # Formato con '.' (InvariantCulture) para ffmpeg. c2=central, c0/c1=frontales, c4/c5=surrounds
+        # (indices validos para 5.1 y 5.1(side)); c3 (LFE) se descarta.
+        $inv = [System.Globalization.CultureInfo]::InvariantCulture
+        $cc  = ([double]$coeffs.Center).ToString($inv)
+        $cf  = ([double]$coeffs.Front).ToString($inv)
+        $cs  = ([double]$coeffs.Surround).ToString($inv)
+        $panDown = 'pan=stereo|c0={0}*c2+{1}*c0+{2}*c4|c1={0}*c2+{1}*c1+{2}*c5' -f $cc, $cf, $cs
+    }
+    # Indicar SIEMPRE el downmix 5.1 -> estereo y con que modo: voz reforzada (beta activo), o estandar
+    # de ffmpeg (aformat, que atenua el central). Si se pidio 'dialogue' pero el beta esta desactivado,
+    # avisar de que sigue en estandar hasta activar test.betaDownmix. Asi se ve en el worker que se hizo.
+    if ($ch -eq 2 -and $Is51) {
+        if ($downmix)          { Write-CvInfoStep $Context 'AUDIO' 'Downmix 5.1 -> estereo [beta] con voz reforzada (central +, surrounds -)' }
+        elseif ($wantDialogue) { Write-CvInfoStep $Context 'AUDIO' 'Downmix 5.1 -> estereo (estandar; activa test.betaDownmix para la voz reforzada [beta])' }
+        else                   { Write-CvInfoStep $Context 'AUDIO' 'Downmix 5.1 -> estereo (estandar de ffmpeg; downmixMode=dialogue + test.betaDownmix para reforzar la voz)' }
+    }
 
     # Fuente + sincronia:
     #  - CLASICO (por defecto): se genera un WAV (silencio + pista) y luego se codifica ese WAV.
@@ -292,7 +341,11 @@ function Invoke-AudioRun {
         # no 0:a (que seria la PRIMERA pista y podria no ser la seleccionada).
         $wav = $tmp.SyncWav
         if (Test-Path -LiteralPath $wav) { Remove-Item -Force -LiteralPath $wav -ErrorAction SilentlyContinue }
-        $fc = ("[0:{0}]aformat=channel_layouts={3}[a2];aevalsrc=0:d={1}:sample_rate={2}:channel_layout={3}[sil];[sil][a2]concat=n=2:v=0:a=1[out]" -f $Index, $Sync, $hz, $layout)
+        # La pista (a2) se lleva al layout de salida con aformat; si hay downmix con voz reforzada,
+        # el propio pan hace el downmix a estereo (sustituye al aformat). El silencio se genera ya en
+        # el layout de salida y se concatena delante.
+        $a2f = if ($downmix) { $panDown } else { "aformat=channel_layouts=$layout" }
+        $fc = ("[0:{0}]{1}[a2];aevalsrc=0:d={2}:sample_rate={3}:channel_layout={4}[sil];[sil][a2]concat=n=2:v=0:a=1[out]" -f $Index, $a2f, $Sync, $hz, $layout)
         Start-CvStep $Context 'AUDIO' ("Generando silencio de {0}s + pista..." -f $Sync)
         $wavArgs = @('-hide_banner','-y','-i',$File,'-filter_complex',$fc,'-map','[out]')
         if ($Context.TestLimit -gt 0) { $wavArgs += @('-t',"$($Context.TestLimit)") }  # modo pruebas
@@ -313,7 +366,7 @@ function Invoke-AudioRun {
     }
 
     $method = "$($Context.VolumeMethod)".ToLower()
-    if ($method -notin @('peak','loudnorm','aacgain')) { $method = 'peak' }
+    if ($method -notin (Get-CvVolumeMethods)) { $method = "$((Get-CvConfigDefaults).volume.method)" }   # invalido -> default de config
     # aacgain aplica ReplayGain sobre el .m4a ya codificado; solo funciona con AAC (MP4). Si el codec
     # de salida no es AAC, se usa 'peak' (filtro, valido para cualquier codec) en su lugar.
     if ($method -eq 'aacgain' -and $codec -ne 'aac') {
@@ -363,9 +416,12 @@ function Invoke-AudioRun {
         if ($Context.Debug) { Write-CvLog 'AUDIO' '[VOL] - [AACGAIN] - La ganancia se aplicara al m4a despues de codificar' }
     }
 
-    # Cadena de filtros = sincronia (adelay, beta) + volumen; si no hay ninguno, mapeo directo.
+    # Cadena de filtros = sincronia (adelay, beta) + downmix voz + volumen; si no hay ninguno, mapeo
+    # directo. El downmix pan va DESPUES de la sincronia y ANTES del volumen. Si la fuente es el WAV
+    # clasico, el downmix ya se hizo al generarlo, asi que aqui no se repite.
     $chainParts = @()
     if ($syncFilter) { $chainParts += $syncFilter }
+    if ($downmix -and -not $fromWav) { $chainParts += $panDown }
     if ($mainFilter) { $chainParts += $mainFilter }
     if ($chainParts.Count -gt 0) {
         $ffArgs += @('-filter_complex', ("[{0}]{1}[a]" -f $aLabel, ($chainParts -join ',')), '-map','[a]')
@@ -385,10 +441,21 @@ function Invoke-AudioRun {
     if ($Context.TestLimit -gt 0 -and -not $fromWav) { $ffArgs += @('-t',"$($Context.TestLimit)") }
     $ffArgs += $outM4a
 
-    Start-CvStep $Context 'AUDIO' 'Recodificando audio...'
-    $code = Invoke-ToolShow -Exe $Context.FFmpeg -Arguments $ffArgs -Context $Context
+    # Progreso inline (% + ETA) si esta activo y sabemos la duracion; si no, ventana aparte + ✓.
+    # Total aprox. = duracion (+ el silencio de sincronia, que alarga la salida), acotado a TestLimit.
+    $progTotal = [double]$Duration
+    if ($Sync -gt 0) { $progTotal += [double]$Sync }
+    if ($Context.TestLimit -gt 0) { $progTotal = [math]::Min($progTotal, [double]$Context.TestLimit) }
+    $global:CvLastToolError = $null   # el modo progreso lo rellena; se vuelca al log si ffmpeg falla
+    if ($Context.Progress -and -not $Context.Debug -and $progTotal -gt 0) {
+        $code = Invoke-ToolProgress -Exe $Context.FFmpeg -Arguments $ffArgs -Context $Context -Label 'Recodificando audio...' -TotalSeconds $progTotal
+    } else {
+        Start-CvStep $Context 'AUDIO' 'Recodificando audio...'
+        $code = Invoke-ToolShow -Exe $Context.FFmpeg -Arguments $ffArgs -Context $Context
+    }
     if ($code -ne 0) {
         Stop-CvStep $Context 'AUDIO' $false -FailMsg ("[ERR] - ffmpeg devolvio codigo {0}" -f $code)
+        Show-CvToolError -Context $Context -Category 'AUDIO' -Name $name -Tool 'ffmpeg-audio'
         if (Test-Path -LiteralPath $outM4a)      { Remove-Item -Force -LiteralPath $outM4a -ErrorAction SilentlyContinue }
         if (Test-Path -LiteralPath $tmp.SyncWav) { Remove-Item -Force -LiteralPath $tmp.SyncWav -ErrorAction SilentlyContinue }
         return $false

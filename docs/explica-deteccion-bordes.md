@@ -8,6 +8,8 @@ La detección de bordes se ejecuta en PREPARAR según el campo **`detectBorder`*
 
 - **`false`** — nunca; se codifica sin recorte.
 - **`true`** — **siempre, interactivo**: escaneo completo (`border.samples` puntos × `border.duration` s), con preview y confirmación. **Antes de escanear pregunta el nº de muestras** (por defecto `border.samples`, editable); útil para hacerlo más rápido o más fiable puntualmente. Al reescanear (`R`) se puede volver a cambiar.
+
+> **Auto-aceptar por inactividad:** todas las preguntas del modo interactivo (nº de muestras, inicio/duración del scan, reintentar/continuar y la confirmación del recorte) admiten el **timeout** de `behavior.promptTimeout.border` (por defecto 10 s): si no tocas el teclado en ese tiempo, se acepta el valor por defecto (para dejar PREPARAR desatendido). Ver [ref-configuracion.md](ref-configuracion.md#behaviorprompttimeout--timeout-granular-por-pregunta).
 - **`'auto'`** — **decide solo** con un pre-escaneo rápido (ver abajo).
 
 ## Modo `auto` (decidir si recortar sin preguntar)

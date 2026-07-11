@@ -32,9 +32,25 @@ function Merge-CvConfig {
     }
 }
 
+function Get-CvVolumeMethods {
+    <# FUENTE UNICA de los metodos de normalizacion de volumen validos (el 1o es el fallback). #>
+    @('peak','loudnorm','aacgain')
+}
+
+function Get-CvDefaultDownmixCoeffs {
+    <#
+        FUENTE UNICA de los coeficientes por defecto del downmix 'dialogue' (voz reforzada). La usan
+        el default de config (encode.downmixCoeffs) y los fallbacks de Context/Profile cuando la
+        config/perfil omite alguna subclave, para no repetir los numeros en varios sitios.
+        center = canal central (dialogos), front = frontales, surround = surrounds (el LFE se descarta).
+    #>
+    [ordered]@{ Center = 0.5; Front = 0.35; Surround = 0.15 }
+}
+
 function Get-CvConfigDefaults {
     <# Valores por defecto de config.json (fuente unica: los usa Get-CvConfig y el reset). #>
     $langs = @('spa','es','esp','es-es','es_es','castellano','spanish')
+    $dmc   = Get-CvDefaultDownmixCoeffs   # coeficientes por defecto del downmix dialogue (fuente unica)
     [ordered]@{
         downloads = [ordered]@{
             ffmpeg = [ordered]@{
@@ -101,7 +117,8 @@ function Get-CvConfigDefaults {
         }
         languages = [ordered]@{ audio = $langs; subtitle = $langs }
         # encode: outputExtension = contenedor de salida; extensions = extensiones de ENTRADA que
-        # se procesan de Original\ (sin punto); audioChannels = canales del audio recodificado (2
+        # se procesan de Original\ (sin punto); audioChannels = canales del audio recodificado, tratado
+        # como MAXIMO (no hace upmix: si el origen tiene menos canales, se conservan los del origen; 2
         # = estereo; 6 = 5.1; 8 = 7.1); fps/audioHz para ffmpeg. threads = -threads de ffmpeg:
         # 0 = auto (usa TODOS los nucleos de CPU); N para limitar (util con encoders CPU + varios
         # workers, que si no se pisan). Con NVENC casi no influye (trabaja la GPU).
@@ -113,7 +130,17 @@ function Get-CvConfigDefaults {
         # tonemapHdr: convierte el HDR (BT.2020/PQ o HLG) a SDR BT.709 al recodificar, para que no se
         #   vea "lavado" al reproducir en SDR. 'auto' (por defecto) = solo actua si el origen es HDR;
         #   'off' = nunca (deja el video como esta). Usa el filtro libplacebo en la GPU (Vulkan).
-        encode    = [ordered]@{ outputExtension = 'mkv'; extensions = @('avi','flv','mp4','mov','mkv'); threads = 0; fps = '23.976'; forceFps = $true; multipass = 'off'; tonemapHdr = 'auto'; audioHz = 44100; audioChannels = 2 }
+        # downmixMode: SOLO al bajar 5.1 -> estereo (audioChannels=2). 'default' (por defecto) = downmix
+        #   estandar de ffmpeg. 'dialogue' (BETA) = downmix con VOZ REFORZADA (filtro pan que sube el
+        #   canal central —dialogos— y baja los surrounds), para que los dialogos no queden bajos frente
+        #   al ambiente/efectos. No aplica si la salida no es estereo o el origen no es 5.1. BETA: los
+        #   coeficientes del pan son provisionales, pendientes de validar/afinar con mas material.
+        # downmixCoeffs: pesos del downmix 'dialogue' (voz reforzada). center = canal central (dialogos),
+        #   front = frontales L/R, surround = surrounds; el LFE siempre se descarta. Cada salida =
+        #   center*central + front*frontal + surround*surround. Para que sea clip-safe (el pico no supere
+        #   al del origen) deben sumar <= 1.0; por encima puede recortar. El filtro pan se construye de
+        #   estos valores, asi que se pueden afinar sin tocar codigo. Solo se usan con downmixMode=dialogue.
+        encode    = [ordered]@{ outputExtension = 'mkv'; extensions = @('avi','flv','mp4','mov','mkv'); threads = 0; fps = '23.976'; forceFps = $true; multipass = 'off'; tonemapHdr = 'auto'; downmixMode = 'default'; downmixCoeffs = [ordered]@{ center = $dmc.Center; front = $dmc.Front; surround = $dmc.Surround }; audioHz = 44100; audioChannels = 2 }
         # customProfile: valores por DEFECTO del constructor de perfil CUSTOM interactivo (opcion 0
         #   del menu USAR PERFIL). En cada menu, ENTER acepta el valor por defecto (o eliges otro).
         #   videoEncoder: libx264|h264_nvenc|libx265|hevc_nvenc|copy. videoProfile: main|main10|...
@@ -138,9 +165,11 @@ function Get-CvConfigDefaults {
         #    hay barras de verdad (por debajo = ruido de borde -> no recorta). El modo 'auto' reusa
         #    autoAcceptPct/autoAcceptMinMargin para el voto de mayoria.
         border    = [ordered]@{ start = 120; duration = 120; samples = 9; autoAcceptPct = 60; autoAcceptMinMargin = 2; autoSamples = 3; autoDuration = 5; minCropPct = 2 }
-        # Previsualizacion con ffplay (audio/video/bordes en PREPARAR): desde que segundo empieza
-        # y cuantos dura la muestra. Util para buscar dialogo y saber el idioma de una pista.
-        preview   = [ordered]@{ start = 120; seconds = 30 }
+        # preview: previsualizacion con ffplay en PREPARAR (pista audio/video, comparacion de bordes).
+        #   start = segundo donde empieza (0 = desde el principio). seconds = duracion de la muestra
+        #   (0 = SIN limite: reproduce hasta el final o hasta que el usuario cierre con q/ESC). El
+        #   comando 'P N <seg>' de los menus fuerza el inicio en ese segundo puntual.
+        preview   = [ordered]@{ start = 0; seconds = 0 }
         # volume: metodo de normalizacion. peakTarget = pico objetivo en dBFS del metodo 'peak'
         # (0 = maximo sin recorte; -1 deja margen/headroom contra el clipping inter-sample del AAC).
         volume    = [ordered]@{ method = 'peak'; peakTarget = 0; loudnorm = [ordered]@{ I = -16; TP = -1.5; LRA = 11 } }
@@ -155,14 +184,34 @@ function Get-CvConfigDefaults {
             mkvpropedit = ''
             attachments = [ordered]@{ keep = $false; fonts = $true; covers = $false; other = $false }
         }
-        behavior  = [ordered]@{ cleanTemps = $true; separateWindow = $true; lockCloseButton = $true; debug = $false; log = $true; workers = 2; retries = 2; asciiMarks = $false }
+        # promptTimeout: auto-aceptar el valor por defecto en las preguntas simples de PREPARAR si no
+        #   se teclea nada durante N segundos (contador de inactividad; cualquier tecla lo reinicia).
+        #   'default' = timeout GENERICO en segundos (0 = desactivado). El resto son overrides por tipo
+        #   de pregunta: -1 = usar el generico; >=0 = valor propio (0 = desactivado solo para esa).
+        #   'sync' (silencio de sincronia), 'border' (deteccion de bordes), 'animation' (video de
+        #   animacion), y los menus de seleccion 'video'/'audio'/'subtitle' (al expirar toman la opcion
+        #   por defecto: la pista preseleccionada, o 'ninguno' en subtitulos). Los menus vienen a -1
+        #   (heredan del generico, que por defecto es 0 = off) para no auto-elegir pista sin querer;
+        #   sube 'default' o cada menu para dejar PREPARAR desatendido. Para una pregunta/menu nuevo
+        #   basta anadir su clave aqui (sin tocar codigo salvo pasar su nombre a Get-CvPromptTimeout).
+        # progress: en los pasos largos (recodificar video/audio) muestra una linea VIVA con % y ETA
+        #   ( - Procesando Video...  42%  ETA 03:12  1.8x) leyendo el '-progress' de ffmpeg, en vez de
+        #   lanzarlo en una ventana aparte y esperar al ✓. $true (por defecto) = progreso inline; $false
+        #   = comportamiento clasico (ventana aparte / ✓ al final). En modo debug no aplica (se ve el
+        #   log de ffmpeg). Convive con separateWindow: si progress esta activo, esos pasos van inline.
+        behavior  = [ordered]@{ cleanTemps = $true; separateWindow = $true; lockCloseButton = $true; debug = $false; log = $true; workers = 2; retries = 2; asciiMarks = $false; progress = $true
+                                promptTimeout = [ordered]@{ default = 0; sync = 5; border = 10; animation = 10; video = -1; audio = -1; subtitle = -1 } }
         # Modo pruebas: si 'enabled', cada archivo se codifica solo hasta 'minutes' minutos (el resto
         #   se descarta). Sirve para validar perfiles/ajustes rapido. Tambien se activa con 'test_on'.
         #   syncAdelay (BETA): si $true, el silencio de sincronia se aplica con el filtro 'adelay' en
         #   UNA sola pasada (combinado con la normalizacion de volumen), sin el WAV intermedio. Por
         #   defecto $false = metodo clasico (genera WAV silencio+pista y luego lo codifica).
-        test      = [ordered]@{ enabled = $false; minutes = 5; syncAdelay = $false }
-        console   = [ordered]@{ background = 'DarkBlue'; foreground = 'Yellow'; font = 'Cascadia Code'; fontSize = 18; windowWidth = 100; windowHeight = 50 }
+        #   betaDownmix (BETA): activador del downmix 'dialogue' (voz reforzada). Mientras esa mezcla
+        #   sea beta hay doble llave: encode.downmixMode='dialogue' fija el modo, pero SOLO refuerza la
+        #   voz si betaDownmix=$true. Con $false (por defecto), aunque downmixMode sea 'dialogue' se usa
+        #   el downmix estandar de ffmpeg. Al promocionar la mezcla se retira este flag.
+        test      = [ordered]@{ enabled = $false; minutes = 5; syncAdelay = $false; betaDownmix = $false }
+        console   = [ordered]@{ background = 'DarkBlue'; foreground = 'Yellow'; font = 'Cascadia Code'; fontSize = 18; windowWidth = 150; windowHeight = 40; sepWidth = 64 }
         # Carpetas de trabajo: vacio = junto al programa; admite ruta absoluta o relativa.
         paths     = [ordered]@{ original = ''; proceso = ''; convertido = ''; logs = '' }
         # Perfiles de codificacion PROPIOS: se ANADEN a los 7 de serie en el menu USAR PERFIL
@@ -171,6 +220,172 @@ function Get-CvConfigDefaults {
         # Ejemplo: { "label":"Anime 1080p", "videoEncoder":"libx265", "crf":18, "changeSize":"1920:-2" }
         profiles  = @()
     }
+}
+
+function Get-CvConfigHelp {
+    <#
+        Catalogo de AYUDA de las opciones de config.json: { 'ruta/clave' -> descripcion corta }.
+        La ruta usa '/' igual que el navegador del editor (setup.ps1 Edit-Node): claves de raiz
+        'seccion'; anidadas 'seccion/clave'; profundas 'seccion/sub/clave'. Lo consume setup.ps1
+        para mostrar, junto a cada opcion, que hace. Fuente unica de los textos (los comentarios
+        de Get-CvConfigDefaults son la version larga).
+    #>
+    @{
+        'downloads' = 'Catalogo de herramientas descargables (ffmpeg, aacgain, 7zr, mkvpropedit); se gestiona desde el menu Herramientas'
+
+        'languages'          = "Idiomas preferidos (etiquetas que cuentan como 'espanol')"
+        'languages/audio'    = 'Etiquetas de idioma preferidas al elegir la pista de audio'
+        'languages/subtitle' = 'Etiquetas de idioma preferidas al elegir/conservar subtitulos'
+
+        'encode'                = 'Ajustes de codificacion (contenedor, fps, audio, HDR...)'
+        'encode/outputExtension'= 'Contenedor de salida (mkv recomendado; mp4/mov admiten +faststart)'
+        'encode/extensions'     = 'Extensiones de entrada que se procesan de Original\ (sin punto)'
+        'encode/threads'        = '-threads de ffmpeg: 0 = todos los nucleos; N para limitar'
+        'encode/fps'            = "Fps de salida cuando forceFps=true (ej 23.976)"
+        'encode/forceFps'       = "true = fuerza la salida a 'fps' (-r); false = conserva el fps de origen"
+        'encode/multipass'      = '2-pass NVENC: off | qres (1/4 res) | fullres. Mas calidad, mas GPU'
+        'encode/tonemapHdr'     = 'HDR->SDR BT.709 al recodificar: auto (solo si origen HDR) | off'
+        'encode/downmixMode'    = 'Al bajar 5.1->estereo: default | dialogue (refuerza la voz)'
+        'encode/downmixCoeffs'        = 'Pesos del downmix dialogue (voz reforzada); solo con downmixMode=dialogue'
+        'encode/downmixCoeffs/center' = 'Peso del canal central (dialogos) en el downmix dialogue'
+        'encode/downmixCoeffs/front'  = 'Peso de los frontales L/R en el downmix dialogue'
+        'encode/downmixCoeffs/surround' = 'Peso de los surrounds en el downmix dialogue (el LFE se descarta)'
+        'encode/audioHz'        = 'Frecuencia del audio recodificado (Hz); opus fuerza 48000'
+        'encode/audioChannels'  = 'Canales de salida (MAXIMO, no hace upmix): 2 = estereo, 6 = 5.1, 8 = 7.1'
+
+        'customProfile'             = 'Valores por defecto del constructor de perfil CUSTOM (opcion 0 de USAR PERFIL)'
+        'customProfile/videoEncoder'= 'Codec de video: libx264|h264_nvenc|libx265|hevc_nvenc|copy'
+        'customProfile/videoProfile'= 'Perfil del codec (main|main10|...); se ignora si no aplica'
+        'customProfile/videoLevel'  = 'Nivel del codec (4.0|4.1|5.0|...); se ignora si no aplica'
+        'customProfile/qmin'        = 'Q minimo del control de tasa en NVENC (0-51)'
+        'customProfile/qmax'        = 'Q maximo del control de tasa en NVENC (0-51)'
+        'customProfile/crf'         = 'CRF por defecto en encoders de CPU (0-51); -1 = auto'
+        'customProfile/multipass'   = '2-pass NVENC del perfil custom: off | qres | fullres'
+        'customProfile/audioCodec'  = 'Codec de audio: aac|ac3|eac3|libmp3lame|flac|libopus'
+        'customProfile/audioBitrate'= "Bitrate de audio ('copy' = copiar sin recodificar)"
+
+        'border'                    = 'Deteccion de bordes negros con cropdetect'
+        'border/start'              = 'Segundo del primer punto de escaneo'
+        'border/duration'           = 'Segundos que escanea CADA punto'
+        'border/samples'            = 'En cuantos puntos repartidos se escanea (1 = solo al inicio)'
+        'border/autoAcceptPct'      = '% de puntos que deben coincidir para auto-aceptar el recorte'
+        'border/autoAcceptMinMargin'= 'Votos de ventaja sobre el 2o para auto-aceptar (0 = sin margen)'
+        'border/autoSamples'        = "Puntos del pre-escaneo del modo 'auto' del perfil"
+        'border/autoDuration'       = "Segundos por punto del pre-escaneo 'auto' (minimo real 5 s)"
+        'border/minCropPct'         = 'Reduccion minima (%) para considerar barras (menos = no recorta)'
+
+
+        'preview'         = 'Previsualizacion con ffplay en PREPARAR'
+        'preview/start'   = 'Segundo en que empieza la muestra (0 = desde el principio)'
+        'preview/seconds' = 'Duracion de la muestra en seg (0 = sin limite, todo el video)'
+
+        'volume'             = 'Normalizacion de volumen del audio'
+        'volume/method'      = ('Metodo: {0}' -f ((Get-CvVolumeMethods) -join ' | '))
+        'volume/peakTarget'  = "Pico objetivo dBFS de 'peak' (0 = maximo; -1 deja headroom)"
+        'volume/loudnorm'    = 'Parametros EBU R128 del metodo loudnorm'
+        'volume/loudnorm/I'  = 'Loudness integrada objetivo (LUFS), ej -16'
+        'volume/loudnorm/TP' = 'True Peak maximo (dBTP), ej -1.5'
+        'volume/loudnorm/LRA'= 'Rango de loudness objetivo (LU), ej 11'
+
+        'postprocess'                    = 'Postproceso del MKV final'
+        'postprocess/stripTags'          = 'Limpiar con mkvpropedit las etiquetas DURATION que anade ffmpeg'
+        'postprocess/mkvpropedit'        = 'Ruta a mkvpropedit (vacio = usar la de tools\)'
+        'postprocess/attachments'        = 'Conservar adjuntos del original (fuentes, caratulas...)'
+        'postprocess/attachments/keep'   = 'Interruptor maestro: conservar adjuntos del original'
+        'postprocess/attachments/fonts'  = 'Conservar fuentes (p. ej. para subtitulos ASS)'
+        'postprocess/attachments/covers' = 'Conservar caratulas/imagenes'
+        'postprocess/attachments/other'  = 'Conservar el resto de adjuntos'
+
+        'behavior'                          = 'Comportamiento general del conversor'
+        'behavior/cleanTemps'               = 'Borrar los temporales de Proceso\ al terminar cada archivo'
+        'behavior/separateWindow'           = 'Lanzar cada codificacion en su propia ventana'
+        'behavior/lockCloseButton'          = 'Desactivar el boton X mientras hay conversiones en marcha'
+        'behavior/debug'                    = 'Mensajes de depuracion detallados'
+        'behavior/log'                      = 'Guardar log (transcript) de la sesion en logs\'
+        'behavior/workers'                  = 'Codificaciones en paralelo al terminar PREPARAR (esta + N-1)'
+        'behavior/retries'                  = 'Reintentos por archivo cuando la codificacion falla'
+        'behavior/asciiMarks'               = 'Marcas en ASCII puro ([OK]/[ERROR]) en vez de simbolos'
+        'behavior/progress'                 = 'Linea viva con % y ETA al recodificar (inline); false = ventana aparte + solo ✓'
+        'behavior/promptTimeout'            = 'Auto-aceptar el valor por defecto en preguntas de PREPARAR tras N s de inactividad'
+        'behavior/promptTimeout/default'    = 'Timeout generico en segundos (0 = desactivado)'
+        'behavior/promptTimeout/sync'       = 'Timeout de la pregunta de sincronia (-1 = usar el generico)'
+        'behavior/promptTimeout/border'     = 'Timeout de la pregunta de bordes (-1 = usar el generico)'
+        'behavior/promptTimeout/animation'  = 'Timeout de la pregunta de animacion (-1 = usar el generico)'
+        'behavior/promptTimeout/video'      = 'Timeout del menu de seleccion de pista de video (-1 = generico; toma la preseleccionada)'
+        'behavior/promptTimeout/audio'      = 'Timeout del menu de seleccion de pista de audio (-1 = generico; toma la preseleccionada)'
+        'behavior/promptTimeout/subtitle'   = 'Timeout del menu de subtitulos fallback (-1 = generico; al expirar no conserva ninguno)'
+
+        'test'            = 'Modo pruebas (codificacion parcial para validar ajustes)'
+        'test/enabled'    = "Activar modo pruebas: cada archivo solo se codifica hasta 'minutes' min"
+        'test/minutes'    = 'Minutos que se codifican por archivo en modo pruebas (>=1)'
+        'test/syncAdelay' = 'BETA: silencio de sincronia con adelay en una sola pasada (sin WAV)'
+        'test/betaDownmix'= 'BETA: activa el downmix dialogue (voz reforzada); sin el, dialogue = downmix estandar'
+
+        'console'             = 'Apariencia de la ventana de consola'
+        'console/background'  = 'Color de fondo de la consola'
+        'console/foreground'  = 'Color de texto de la consola'
+        'console/font'        = 'Fuente de la consola (ej Cascadia Code / Consolas)'
+        'console/fontSize'    = 'Tamano de la fuente'
+        'console/windowWidth' = 'Ancho de la ventana en columnas (0 = no cambiar)'
+        'console/windowHeight'= 'Alto de la ventana en lineas (0 = no cambiar)'
+        'console/sepWidth'    = 'Ancho (caracteres) de los separadores de seccion === / --- de la UI'
+
+        'paths'            = 'Carpetas de trabajo (vacio = junto al programa)'
+        'paths/original'   = 'Carpeta de entrada (videos a convertir)'
+        'paths/proceso'    = 'Carpeta de temporales durante la conversion'
+        'paths/convertido' = 'Carpeta de salida (videos ya convertidos)'
+        'paths/logs'       = 'Carpeta de logs de sesion'
+
+        'profiles' = 'Perfiles propios (se anaden a los de serie); se editan a mano en config.json'
+    }
+}
+
+function Get-CvHelpFor {
+    <# Ayuda de una opcion por su ruta ('seccion/clave'); '' si no hay entrada. #>
+    param([string]$Path)
+    $h = Get-CvConfigHelp
+    if ($h.ContainsKey($Path)) { return $h[$Path] }
+    return ''
+}
+
+function Get-CvConfigDefaultValue {
+    <#
+        Valor POR DEFECTO (de Get-CvConfigDefaults) de una opcion, por su ruta con '/' ('seccion/clave',
+        'seccion/sub/clave'). Devuelve $null si la ruta no existe. Lo usa el editor de setup para marcar
+        el default real (no el valor actual). Los defaults son todo [ordered]@{}, asi que se navega por
+        clave nivel a nivel.
+    #>
+    param([string]$Path)
+    $node = Get-CvConfigDefaults
+    foreach ($seg in ($Path -split '/')) {
+        if ($node -isnot [System.Collections.IDictionary] -or -not $node.Contains($seg)) { return $null }
+        $node = $node[$seg]
+    }
+    return $node
+}
+
+function ConvertTo-CvPromptTimeouts {
+    <#
+        Normaliza behavior.promptTimeout a un [ordered]@{ tipo = segundos(int) } con 'default'
+        garantizado. Acepta un objeto (ordered/PSCustomObject) o el formato antiguo escalar (que se
+        interpreta como el generico 'default'). Los tipos ausentes o -1 heredan de 'default' en
+        tiempo de resolucion (Get-CvPromptTimeout), aqui solo se convierte a enteros.
+    #>
+    param($Node)
+    $map = [ordered]@{ default = 0 }
+    if ($null -eq $Node) { return $map }
+    if ($Node -is [System.Collections.IDictionary]) {
+        foreach ($k in @($Node.Keys)) { $map["$k"] = [int]$Node[$k] }
+    }
+    elseif ($Node -is [System.Management.Automation.PSCustomObject]) {
+        foreach ($p in $Node.PSObject.Properties) { $map["$($p.Name)"] = [int]$p.Value }
+    }
+    else {
+        # formato antiguo: un solo numero = timeout generico
+        $n = 0; if ([int]::TryParse("$Node", [ref]$n)) { $map['default'] = $n }
+    }
+    if (-not $map.Contains('default')) { $map['default'] = 0 }
+    return $map
 }
 
 function Resolve-CvConfigPathArg {

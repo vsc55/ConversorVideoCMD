@@ -3,6 +3,31 @@
     (Show-Menu / Select-FromList) y prompts (Read-*).
 #>
 
+# Ancho de los separadores de seccion (=== / ---). Lo fija Set-CvSepWidth desde config
+# (console.sepWidth) al arrancar; 0 = aun no fijado -> se toma el default de config. Asi el numero
+# no se hardcodea aqui: la fuente unica es Get-CvConfigDefaults (console.sepWidth).
+$script:CvSepWidth = 0
+function Set-CvSepWidth { param([int]$Width) $script:CvSepWidth = [Math]::Max(1, $Width) }
+function Resolve-CvSepWidth {
+    <# Ancho a usar: -Width explicito (>0) | el fijado por Set-CvSepWidth | el default de config. #>
+    param([int]$Width = 0)
+    if ($Width -gt 0)             { return $Width }
+    if ($script:CvSepWidth -gt 0) { return $script:CvSepWidth }
+    return [Math]::Max(1, [int](Get-CvConfigDefaults).console.sepWidth)
+}
+function Get-CvLine {
+    <#
+        Linea de separacion de un caracter arbitrario, del ancho de la UI (o el -Width que se pase).
+        Base de Get-CvSepLine/Get-CvDashLine/Get-CvStarLine. Se stringifica el char antes de repetir
+        (`[char] * [int]` haria aritmetica de enteros, no repeticion de texto).
+    #>
+    param([Parameter(Mandatory)][char]$Char, [int]$Width = 0)
+    ([string]$Char) * (Resolve-CvSepWidth $Width)
+}
+function Get-CvSepLine  { param([int]$Width = 0) Get-CvLine -Char '=' -Width $Width }   # separador grueso ===
+function Get-CvDashLine { param([int]$Width = 0) Get-CvLine -Char '-' -Width $Width }   # separador fino ---
+function Get-CvStarLine { param([int]$Width = 0) Get-CvLine -Char '*' -Width $Width }   # separador de asteriscos ***
+
 function Set-CvWindowSize {
     <#
         Ajusta el tamano de la ventana de consola (columnas x lineas) desde config.json.
@@ -33,7 +58,7 @@ function Set-CvAppearance {
         Aplica fuente, tamano de ventana, colores y titulo de la consola (config.json).
         Equivale al 'color 1e' + 'title' + 'mode con' del script batch antiguo.
     #>
-    param([Parameter(Mandatory)]$Context, [string]$Title = 'ConversorVideoCMD')
+    param([Parameter(Mandatory)]$Context, [string]$Title = (Get-CvAppName))
     try { $Host.UI.RawUI.WindowTitle = $Title } catch {}
 
     # Fuente de la consola (Consolas por defecto; nombre vacio = no cambiar).
@@ -154,14 +179,33 @@ function Read-CvLine {
         -AllowCancel, pulsar ESC lanza CV_CANCEL. Maneja Enter y Retroceso. Si la entrada
         esta redirigida (sin consola interactiva), cae a Read-Host (sin ESC).
     #>
-    param([string]$Prompt = '', [switch]$AllowCancel)
+    param([string]$Prompt = '', [switch]$AllowCancel, [int]$TimeoutSec = 0, [string]$TimeoutDefault = '')
     $interactive = $true
     try { $null = [Console]::KeyAvailable } catch { $interactive = $false }
-    if (-not $interactive) { return (Read-Host $Prompt) }
+    if (-not $interactive) { return (Read-Host $Prompt) }   # stdin redirigido (tests): sin timeout
 
-    Write-Host ("{0}: " -f $Prompt) -NoNewline
+    # Con timeout, se avisa en el prompt ("[auto Ns]") y se espera SIN teclear; cada tecla reinicia
+    # el contador de inactividad. Al expirar, si no se ha tecleado nada se devuelve -TimeoutDefault
+    # ('' = como pulsar ENTER = valor por defecto; se puede fijar otra respuesta, p. ej. 'n'/'0');
+    # si se tecleo algo, se respeta lo tecleado. Sin timeout (0), lectura bloqueante clasica.
+    $timed = ($TimeoutSec -gt 0)
+    $dhint = if ($timed -and $TimeoutDefault -ne '') { "->{0}" -f $TimeoutDefault } else { '' }
+    $ptxt  = if ($timed) { "{0} [auto {1}s{2}]: " -f $Prompt, $TimeoutSec, $dhint } else { "{0}: " -f $Prompt }
+    Write-Host $ptxt -NoNewline
     $sb = New-Object System.Text.StringBuilder
+    $sw = if ($timed) { [System.Diagnostics.Stopwatch]::StartNew() } else { $null }
     while ($true) {
+        if ($timed) {
+            while (-not [Console]::KeyAvailable) {
+                if ($sw.Elapsed.TotalSeconds -ge $TimeoutSec) {                       # inactividad -> default
+                    Write-Host ''
+                    if ($sb.Length -gt 0) { return $sb.ToString() }                   # algo tecleado: se respeta
+                    return $TimeoutDefault                                             # nada tecleado: respuesta por defecto
+                }
+                Start-Sleep -Milliseconds 100
+            }
+            $sw.Restart()   # se pulso una tecla: reinicia el contador de inactividad
+        }
         $key = [Console]::ReadKey($true)   # $true = no eco automatico
         if ($key.Key -eq 'Enter')     { Write-Host ''; return $sb.ToString() }
         if ($key.Key -eq 'Escape')    { if ($AllowCancel) { Write-Host ''; throw 'CV_CANCEL' } ; continue }
@@ -172,10 +216,40 @@ function Read-CvLine {
 }
 
 
+function Read-CvMenuLine {
+    <#
+        Lectura de una linea de menu con timeout OPCIONAL de inactividad. Si TimeoutSec > 0 usa
+        Read-CvLine (que al expirar devuelve '' = como ENTER = opcion por defecto del menu); si es 0
+        cae a Read-Host (comportamiento clasico, sin timeout). Pensada para los menus de PREPARAR con
+        bucle propio (seleccion de pista/subtitulos, que aceptan 'P N' para reproducir).
+    #>
+    param([string]$Prompt, [int]$TimeoutSec = 0)
+    if ($TimeoutSec -gt 0) { return (Read-CvLine -Prompt $Prompt -TimeoutSec $TimeoutSec) }
+    return (Read-Host $Prompt)
+}
+
+function Get-CvPromptTimeout {
+    <#
+        Resuelve el timeout (segundos, entero >=0) de una pregunta a partir del mapa
+        $Context.PromptTimeouts: usa el valor del tipo pedido; si es negativo o no existe, cae al
+        generico 'default'. 0 = desactivado. Uso: Read-CvLine ... -TimeoutSec (Get-CvPromptTimeout $Context 'sync').
+    #>
+    param($Context, [string]$Kind)
+    $map = $Context.PromptTimeouts
+    if ($null -eq $map) { return 0 }
+    $v = if ($map.Contains($Kind)) { [int]$map[$Kind] } else { -1 }
+    if ($v -lt 0) { $v = if ($map.Contains('default')) { [int]$map['default'] } else { 0 } }
+    return [Math]::Max(0, $v)
+}
+
 function Read-IntOrDefault {
-    <# Lee un entero por teclado; si se deja vacio o no es valido, devuelve el valor por defecto. #>
-    param([string]$Prompt, [int]$Default)
-    $v = (Read-Host ("{0} [{1}]" -f $Prompt, $Default)).Trim()
+    <#
+        Lee un entero por teclado; si se deja vacio o no es valido, devuelve el valor por defecto.
+        Con -TimeoutSec > 0 usa el lector con timeout de inactividad (al expirar = vacio = el default).
+    #>
+    param([string]$Prompt, [int]$Default, [int]$TimeoutSec = 0)
+    $pr = "{0} [{1}]" -f $Prompt, $Default
+    $v  = (& { if ($TimeoutSec -gt 0) { Read-CvLine -Prompt $pr -TimeoutSec $TimeoutSec } else { Read-Host $pr } }).Trim()
     if ($v -eq '') { return $Default }
     $n = 0
     if ([int]::TryParse($v, [ref]$n)) { return $n }
@@ -224,9 +298,9 @@ function Read-YesNo {
 function Show-CvHeader {
     <# Cabecera al arrancar: nombre de la app + version (y subtitulo opcional). #>
     param([Parameter(Mandatory)]$Context, [string]$Subtitle = '')
-    $name = 'ConversorVideoCMD {0}' -f $Context.Version
+    $name = '{0} {1}' -f $Context.AppName, $Context.Version
     if ($Subtitle) { $name = "$name - $Subtitle" }
-    $sep = '=' * 64
+    $sep = Get-CvSepLine
     Write-Host ''
     Write-Host $sep  -ForegroundColor Cyan
     Write-Host ("  {0}" -f $name) -ForegroundColor Cyan
@@ -241,7 +315,7 @@ function Show-Menu {
     #>
     param([string]$Title, [string[]]$Lines = @(), [int]$Indent = 0)
     $pad = ' ' * $Indent
-    $sep = $pad + ('-' * 64)
+    $sep = $pad + (Get-CvDashLine)
     Write-Host ''
     Write-Host $sep
     if ($Title) {

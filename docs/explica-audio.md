@@ -193,8 +193,33 @@ Cuando se recodifica (la mayoría de perfiles), el códec de salida lo fija `aud
 ### Parámetros comunes al recodificar
 
 - **Bitrate**: `-b:a`, el `audioBitrate` del perfil (p. ej. `192k`). **No** se pasa para FLAC (sin pérdida) ni si el perfil no lo define.
-- **Canales**: `-ac`, de `encode.audioChannels` (**config global**, no del perfil): `2` = estéreo (por defecto), `6` = 5.1, `8` = 7.1. `-ac` **fuerza** ese nº de canales: **downmix** si la fuente tiene más, **upmix** si tiene menos.
+- **Canales**: `-ac`, del **perfil** (`audioChannels`) si lo fija, o del global `encode.audioChannels`: `2` = estéreo (por defecto), `6` = 5.1, `8` = 7.1. Es un **MÁXIMO**: hace **downmix** si la fuente tiene más canales, pero **NO hace upmix** si tiene menos (se conservan los del origen; ver más abajo).
 - **Samplerate**: `-ar`, el `audioHz` del **perfil** (`44100` por defecto); `encode.audioHz` es el valor de reserva si el perfil no lo trae. Excepción: **Opus** se codifica siempre a `48000`.
+
+### Downmix 5.1 → estéreo con voz reforzada (`encode.downmixMode`) 🧪 BETA
+
+> 🧪 **El modo `dialogue` está en BETA.** Los coeficientes del filtro `pan` son **provisionales**, a la espera de validarlos y afinarlos con más material y distintos tipos de mezcla. El worker lo señala con `[beta]` en la línea del paso. El modo `default` (estándar de ffmpeg) no es beta.
+>
+> **Doble llave mientras sea beta:** `encode.downmixMode = "dialogue"` fija el modo, pero solo refuerza la voz si además `test.betaDownmix = true`. Con `betaDownmix = false` (por defecto), aunque `downmixMode` sea `"dialogue"` se usa el downmix **estándar** (y el worker avisa: `… activa test.betaDownmix para la voz reforzada [beta]`). Al promocionar la mezcla se retirará este flag.
+
+Al bajar un audio **5.1 a estéreo** (`audioChannels = 2`), el downmix estándar de ffmpeg mezcla el canal **central** (FC, donde van casi todos los **diálogos**) atenuado junto con los frontales y los surrounds (ambiente/efectos/música). Con la normalización ajustando el nivel a los picos de acción, los diálogos quedan **por debajo** y hay que subir/bajar el volumen constantemente.
+
+`encode.downmixMode` controla cómo se hace ese downmix:
+
+| Valor | Downmix |
+|---|---|
+| `default` (por defecto) | Downmix estándar de ffmpeg (`-ac 2`). |
+| `dialogue` | **Voz reforzada**: filtro `pan` que **sube el central** y **baja los surrounds** (descarta el LFE), para que los diálogos destaquen sobre el ambiente. |
+
+Detalles del modo `dialogue`:
+
+- Filtro: `pan=stereo|c0=<center>*c2+<front>*c0+<surround>*c4|c1=<center>*c2+<front>*c1+<surround>*c5` — usa **índices de canal** (`c0..c5`), así vale para `5.1` y `5.1(side)` (SL/SR vs BL/BR). `c2` = central; `c0`/`c1` = frontales; `c4`/`c5` = surrounds; `c3` (LFE) se descarta.
+- **Coeficientes configurables** en `encode.downmixCoeffs` (`center`/`front`/`surround`; por defecto `0.5`/`0.35`/`0.15`), así se pueden afinar sin tocar código. El LFE se descarta siempre.
+- **`audioChannels` es un MÁXIMO — no hace upmix:** si el origen tiene menos canales que el objetivo (p. ej. estéreo con `6`), se conservan los del origen; bajar sí (5.1→estéreo). Nunca se fabrican canales de surround que no existen.
+- **Por perfil (override del global):** cada perfil puede fijar su propia salida de audio — `audioChannels` (canales, máximo), `downmixMode` (`default`/`dialogue`) y `downmixCoeffs` — que manda sobre `encode.*`; si el perfil no los define, se usa el global. El builder de perfil **custom** pregunta canales y, si sale estéreo, el modo de downmix (los coeficientes se dejan al global). El activador beta `test.betaDownmix` es siempre global.
+- **Clip-safe** si los coeficientes suman ≤ 1,0 (los de serie suman 1,0): el pico del downmix **no supera** el del origen, así que la normalización de volumen (medida sobre el origen) sigue siendo correcta y no hay recorte, sea cual sea el método (`peak`/`loudnorm`/`aacgain`). Si subes los pesos por encima de 1,0 en total, puede recortar.
+- **Solo actúa** al bajar 5.1 → estéreo: si la salida no es estéreo o el origen no es 5.1, no hace nada (downmix estándar / sin cambios). Se aplica en las tres rutas de audio (sin sincronía, `adelay` beta y WAV clásico).
+- Es un **ajuste de mezcla**, no de volumen: sube los diálogos *relativos* al resto; el nivel global lo sigue fijando la normalización.
 
 ### Contenedor intermedio (`.m4a` / `.mka`)
 

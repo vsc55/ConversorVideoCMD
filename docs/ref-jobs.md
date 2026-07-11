@@ -11,7 +11,7 @@ Ejemplo:
 ```json
 {
   "file": "D:\\...\\Original\\Video [01].mkv",
-  "profile": { "VideoEncoder": "hevc_nvenc", "VideoProfile": "main10", "VideoLevel": "5", "Qmin": 1, "Qmax": 23, "DetectBorder": true, "ChangeSize": "", "Multipass": "", "AudioEncoder": "aac_coder", "AudioCodec": "aac", "AudioBitrate": "192k", "AudioHz": 44100 },
+  "profile": { "VideoEncoder": "hevc_nvenc", "VideoProfile": "main10", "VideoLevel": "5", "Qmin": 1, "Qmax": 23, "Crf": null, "DetectBorder": true, "ChangeSize": "", "MaxWidth": null, "Multipass": "", "AudioEncoder": "aac_coder", "AudioCodec": "aac", "AudioBitrate": "192k", "AudioHz": 44100, "AudioChannels": null, "DownmixMode": null, "DownmixCoeffs": null },
   "ffmpegVersion": "7.1.1",
   "aacgainVersion": "2.0.0",
   "video": { "skip": false, "index": 0, "crop": "1920:800:0:140", "resize": "", "anim": false, "hdr": false },

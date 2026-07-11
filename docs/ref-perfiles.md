@@ -8,7 +8,7 @@ Flujo de selección (`Select-Profile`):
 flowchart TD
     M["Menú USAR PERFIL"] --> S{"opción"}
     S -- "de serie" --> B["Perfil de serie"]
-    S -- "8, 9, … (si hay)" --> C["Perfil propio de config.json (profiles)"]
+    S -- "12, 13, … (si hay)" --> C["Perfil propio de config.json (profiles)"]
     S -- "0" --> CU["Custom interactivo (New-CustomProfile)"]
     S -- "X" --> Q["Salir (cierre limpio)"]
     CU -- "C / ESC" --> M
@@ -56,7 +56,7 @@ La sección `profiles` de `config.json` permite definir perfiles **adicionales**
 ```
 
 - `label` (opcional): texto que se muestra en el menú. Si se omite, se genera un resumen automático a partir de sus valores (p. ej. `A: 192K, V: h265[NV]/M10/L5/Q(1-20)/DETECT BORDE`). Es la **misma** función (`Format-CvProfileLabel`) que genera las etiquetas de los perfiles de serie en el menú, así que no hay una lista de texto duplicada que mantener.
-- El resto de campos son los de la tabla de abajo pero en `camelCase`: `videoEncoder`, `videoProfile`, `videoLevel`, `qmin`, `qmax`, `crf`, `detectBorder`, `changeSize`, `maxWidth`, `multipass`, `audioEncoder`, `audioCodec`, `audioBitrate`, `audioHz`.
+- El resto de campos son los de la tabla de abajo pero en `camelCase`: `videoEncoder`, `videoProfile`, `videoLevel`, `qmin`, `qmax`, `crf`, `detectBorder`, `changeSize`, `maxWidth`, `multipass`, `audioEncoder`, `audioCodec`, `audioBitrate`, `audioHz`, `audioChannels`, `downmixMode`, `downmixCoeffs`.
 - Se editan **a mano** en el JSON (el editor navegable de `setup` los muestra pero remite aquí, para no corromper el array de objetos). Se cargan al arrancar (`$ctx.Profiles`) y se pasan a `Select-Profile -Extra`.
 
 ## Campos de un perfil
@@ -78,6 +78,9 @@ La sección `profiles` de `config.json` permite definir perfiles **adicionales**
 | `AudioCodec` | `aac` / `ac3` / `eac3` / `libmp3lame` / `flac` / `libopus` | Codec de salida al recodificar (`-c:a`). Por defecto `aac` (comportamiento previo). AAC va en un intermedio `.m4a`; el resto en `.mka`. FLAC ignora el bitrate (sin pérdida); Opus fuerza 48 kHz. Detalle en [explica-audio.md](explica-audio.md). |
 | `AudioBitrate` | ej. `192k` | `-b:a` (no aplica a FLAC). |
 | `AudioHz` | ej. `44100` | `-ar` (Opus se fuerza a `48000`). |
+| `AudioChannels` | `null` / `2` / `6` / `8` | Canales de salida del audio recodificado, tratado como **máximo**: **no hace upmix** — si el origen tiene menos canales que el objetivo (p. ej. estéreo con `6`), se conservan los del origen; bajar sí (5.1→estéreo). `null` = usa el global `encode.audioChannels`; `2`/`6`/`8` lo fijan para este perfil. `2` = estéreo, `6` = 5.1, `8` = 7.1. |
+| `DownmixMode` | `null` / `default` / `dialogue` | **Solo al bajar 5.1 → estéreo.** `null` = usa el global `encode.downmixMode`; `default`/`dialogue` lo fijan para este perfil. `dialogue` 🧪 (BETA, requiere `test.betaDownmix`) = voz reforzada. Ver [explica-audio.md](explica-audio.md). |
+| `DownmixCoeffs` | `null` / `{center,front,surround}` | Pesos del downmix `dialogue` para este perfil (override del global `encode.downmixCoeffs`). `null` = global. Clip-safe si suman ≤ 1,0. |
 
 Cómo se traducen estos campos a argumentos de ffmpeg: ver "Vídeo: codificación" en [ref-comandos.md](ref-comandos.md).
 
@@ -94,8 +97,9 @@ Construcción interactiva:
    - **Perfil** y **Level** del codec (selectores; opciones distintas para H.264 vs H.265).
    - **Control de tasa**: CRF (CPU) o QMIN/QMAX (NVENC).
    - **2-pass NVENC (multipass)**: solo si el encoder es NVENC — `off` / `qres` / `fullres`.
-3. **Bitrate de audio**: copy / 128k / 160k / 192k / 256k / 320k / custom.
-4. **Resumen** + confirmación: `[ENTER]` usar / `[R]` rehacer.
+3. **Salida de audio**: `copy` (no recodificar) o códec (`aac`/`ac3`/`eac3`/`libmp3lame`/`flac`/`libopus`); si recodifica, **bitrate** apropiado al códec.
+4. Si recodifica: **canales de salida** (`estéreo`/`5.1`/`7.1`) y, si sale **estéreo**, **downmix 5.1→estéreo** (`default` / `dialogue` beta). Por defecto = los globales (`encode.audioChannels`/`downmixMode`). Los **coeficientes** del downmix no se preguntan aquí (usan el global; para afinarlos por perfil, edita `downmixCoeffs` en `config.json`).
+5. **Resumen** + confirmación: `[ENTER]` usar / `[R]` rehacer.
 
 En cada uno de esos menús, **`[ENTER]` acepta el valor por defecto** (marcado con `<= por defecto` / mostrado entre corchetes en el prompt), o se teclea otra opción. Los valores por defecto son **configurables** en la sección [`customProfile`](ref-configuracion.md) de `config.json` (encoder, perfil, level, qmin/qmax, crf y bitrate de audio); de fábrica: `hevc_nvenc` / `main10` / `5.0` / `1`–`23` / `192k`.
 

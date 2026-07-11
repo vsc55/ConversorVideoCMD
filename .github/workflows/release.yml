@@ -18,7 +18,7 @@ jobs:
 
       - name: Empaquetar (zip de los ficheros versionados)
         run: |
-          NAME="ConversorVideoCMD-${GITHUB_REF_NAME}"
+          NAME="ConvertVideo-${GITHUB_REF_NAME}"
           # git archive respeta .gitignore/.gitattributes: no incluye tools\ ni las
           # carpetas de trabajo, ni docs/README/TODO ni CI (export-ignore).
           git archive --format=zip --prefix="${NAME}/" -o "${NAME}.zip" HEAD
@@ -38,7 +38,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TITLE="ConversorVideoCMD ${GITHUB_REF_NAME}"
+          TITLE="ConvertVideo ${GITHUB_REF_NAME}"
           if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
             # La release ya existe: actualizar notas (si hay) y reemplazar el asset.
             if [ "${HAVE_NOTES}" = "1" ]; then

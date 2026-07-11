@@ -54,6 +54,27 @@ function Get-CvTempPaths {
 }
 
 
+function Get-CvProcesoPatterns {
+    <#
+        Patrones GLOB de los ficheros que el pipeline deja en Proceso\, por categoria. FUENTE UNICA de
+        esas convenciones (derivadas de Get-CvJobPath = *.job.json, Get-CvTempPaths = *.mkv/*.m4a/*.mka/
+        *_concat.wav/*.job.json.tmp, y el *.lock de Enter/Exit-Lock). La consume setup.ps1 para limpiar
+        la carpeta sin re-teclear las extensiones: si aqui cambia una convencion, la limpieza sigue
+        sincronizada. -What: jobs | locks | temps | all.
+    #>
+    param([ValidateSet('jobs','locks','temps','all')][string]$What = 'all')
+    $jobs  = @('*.job.json','*.job.json.tmp')
+    $locks = @('*.lock')
+    $temps = @('*.mkv','*.m4a','*.mka','*_concat.wav','*.job.json.tmp')
+    switch ($What) {
+        'jobs'  { $jobs }
+        'locks' { $locks }
+        'temps' { $temps }
+        default { @($jobs + $locks + $temps | Select-Object -Unique) }
+    }
+}
+
+
 function Remove-CvTemps {
     <#
         Borra los ficheros temporales de un archivo en Proceso.

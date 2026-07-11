@@ -32,14 +32,15 @@ Esquema completo (tras la fusión con los defaults):
 {
   "downloads":   { "ffmpeg": {...}, "aacgain": {...}, "sevenzip": {...}, "mkvtoolnix": {...} },
   "languages":   { "audio": [...], "subtitle": [...] },
-  "encode":      { "outputExtension": "mkv", "extensions": ["avi","flv","mp4","mov","mkv"], "threads": 0, "fps": "23.976", "forceFps": true, "multipass": "off", "tonemapHdr": "auto", "audioHz": 44100, "audioChannels": 2 },
-  "customProfile": { "videoEncoder": "hevc_nvenc", "videoProfile": "main10", "videoLevel": "5.0", "qmin": 1, "qmax": 23, "crf": 21, "audioCodec": "aac", "audioBitrate": "192k" },
+  "encode":      { "outputExtension": "mkv", "extensions": ["avi","flv","mp4","mov","mkv"], "threads": 0, "fps": "23.976", "forceFps": true, "multipass": "off", "tonemapHdr": "auto", "downmixMode": "default", "downmixCoeffs": { "center": 0.5, "front": 0.35, "surround": 0.15 }, "audioHz": 44100, "audioChannels": 2 },
+  "customProfile": { "videoEncoder": "hevc_nvenc", "videoProfile": "main10", "videoLevel": "5.0", "qmin": 1, "qmax": 23, "crf": 21, "multipass": "off", "audioCodec": "aac", "audioBitrate": "192k" },
   "border":      { "start": 120, "duration": 120, "samples": 9, "autoAcceptPct": 60, "autoAcceptMinMargin": 2, "autoSamples": 3, "autoDuration": 5, "minCropPct": 2 },
-  "preview":     { "start": 120, "seconds": 30 },
   "volume":      { "method": "peak", "peakTarget": 0, "loudnorm": { "I": -16, "TP": -1.5, "LRA": 11 } },
+  "preview":     { "start": 0, "seconds": 0 },
   "postprocess": { "stripTags": true, "mkvpropedit": "", "attachments": { "keep": false, "fonts": true, "covers": false, "other": false } },
-  "behavior":    { "cleanTemps": true, "separateWindow": true, "lockCloseButton": true, "debug": false, "log": true, "workers": 2, "retries": 2 },
-  "console":     { "background": "DarkBlue", "foreground": "Yellow", "font": "Cascadia Code", "fontSize": 18, "windowWidth": 150, "windowHeight": 40 },
+  "behavior":    { "cleanTemps": true, "separateWindow": true, "lockCloseButton": true, "debug": false, "log": true, "workers": 2, "retries": 2, "asciiMarks": false, "progress": true, "promptTimeout": { "default": 0, "sync": 5, "border": 10, "animation": 10, "video": -1, "audio": -1, "subtitle": -1 } },
+  "test":        { "enabled": false, "minutes": 5, "syncAdelay": false, "betaDownmix": false },
+  "console":     { "background": "DarkBlue", "foreground": "Yellow", "font": "Cascadia Code", "fontSize": 18, "windowWidth": 150, "windowHeight": 40, "sepWidth": 64 },
   "paths":       { "original": "", "proceso": "", "convertido": "", "logs": "" },
   "profiles":    [ { "label": "...", "videoEncoder": "...", "crf": 18, ... } ]
 }
@@ -51,7 +52,7 @@ Una entrada por app. Ver el sistema completo en [ref-herramientas.md](ref-herram
 
 | Clave | Ejemplo | Significado |
 |---|---|---|
-| `selected` | `"7.1.1"` | Versión por defecto (la que usa PREPARAR y se congela en el job). |
+| `selected` | `"8.1.2"` | Versión por defecto (la que usa PREPARAR y se congela en el job). |
 | `type` | `"zip"` / `"7z"` / `"file"` | Paquete zip (se extrae), `.7z` (se extrae con `7zr`) o ejecutable directo. |
 | `url` | `".../{version}/..."` | URL de descarga; `{version}` se sustituye. |
 | `binPath` | `"ffmpeg-{version}-full_build/bin"` | Carpeta dentro del zip donde están los exe. |
@@ -82,7 +83,9 @@ Se **canonicalizan** las variantes (`Get-CvLangCanon`): `es`, `es-ES`, `es_es`, 
 | `multipass` | `"off"` | **2-pass de NVENC** (`-multipass`), solo `hevc_nvenc`/`h264_nvenc`: `"off"` (por defecto) · `"qres"` (1ª pasada a ¼ de resolución) · `"fullres"` (a resolución completa). Más calidad a costa de más tiempo de GPU. **No** afecta a los encoders de CPU (libx264/libx265 lo ignoran). Comprobado que `qres`/`fullres` funcionan en NVENC; `off` = comportamiento actual. Es el valor **global**; un perfil (custom o de `config.json`) puede **sobreescribirlo** con su propio `multipass`. |
 | `tonemapHdr` | `"auto"` | **Tone-mapping HDR→SDR.** `"auto"` (por defecto) = si el origen es HDR (BT.2020 con PQ/HLG) lo convierte a **SDR BT.709** con `libplacebo` (GPU/Vulkan) para que no se vea lavado en SDR; `"off"` = nunca (deja el color como está). El material SDR no se toca. Detalle en [explica-tonemap-hdr.md](explica-tonemap-hdr.md). |
 | `audioHz` | `44100` | Samplerate de audio por defecto. |
-| `audioChannels` | `2` | Canales del audio **recodificado** (`-ac`): `2` = estéreo, `6` = 5.1, `8` = 7.1; si la fuente tiene más, se hace downmix. (No afecta a `audioEncoder: copy`, que conserva la pista original.) Detalle en [explica-audio.md](explica-audio.md). |
+| `audioChannels` | `2` | Canales del audio **recodificado** (`-ac`), tratado como **máximo**: `2` = estéreo, `6` = 5.1, `8` = 7.1. Si la fuente tiene **más**, se hace **downmix**; si tiene **menos**, **no** se hace upmix (se conservan los del origen — p. ej. una fuente estéreo con `6` sale estéreo). (No afecta a `audioEncoder: copy`, que conserva la pista original.) Detalle en [explica-audio.md](explica-audio.md). |
+| `downmixMode` | `"default"` | **Solo al bajar 5.1 → estéreo.** `"default"` = downmix estándar de ffmpeg. `"dialogue"` 🧪 **(BETA)** = downmix con **voz reforzada** (`pan` que sube el canal central —diálogos— y baja los surrounds), para que los diálogos no queden bajos frente al ambiente; coeficientes provisionales, el worker lo marca con `[beta]`. Detalle en [explica-audio.md](explica-audio.md). |
+| `downmixCoeffs` | `{ center: 0.5, front: 0.35, surround: 0.15 }` | Pesos del downmix `dialogue` (voz reforzada): `center` = canal central (diálogos), `front` = frontales L/R, `surround` = surrounds (el LFE se descarta). Cada salida = `center·central + front·frontal + surround·surround`. **Clip-safe si suman ≤ 1,0** (los de serie suman 1,0); por encima puede recortar. Solo se usan con `downmixMode = "dialogue"`. |
 
 Sobre `threads` (uso de CPU):
 
@@ -127,10 +130,10 @@ Reproducción con ffplay en PREPARAR (previews de **pista de audio**, **pista de
 
 | Clave | Def. | Uso |
 |---|---|---|
-| `start` | `120` | Segundo donde **empieza** la muestra (para saltar intros/negros). Si el vídeo es **más corto**, el inicio se ajusta solo a ~10% de su duración (no se queda fuera). |
-| `seconds` | `30` | **Duración** (s) de la muestra; luego se cierra sola (o antes con ESC/Q). |
+| `start` | `0` | Segundo donde **empieza** la muestra. `0` = **desde el principio**. Si el vídeo es **más corto** que el valor, el inicio se ajusta solo a ~10% de su duración (no se queda fuera). |
+| `seconds` | `0` | **Duración** (s) de la muestra. `0` = **sin límite**: reproduce hasta el final (o hasta que cierres con `q`/ESC). `> 0` = una muestra de esos segundos. |
 
-> En los menús de selección de pista (audio/vídeo) se puede indicar un **segundo de inicio puntual** sin tocar el config: `P N <seg>` (p. ej. `A 2 300` reproduce la pista 2 solo-audio desde el segundo 300) — útil para buscar diálogo cuando en el punto por defecto no hay voces.
+> Por defecto (`0`/`0`) la preview reproduce **todo el vídeo desde el principio** y la cierra el usuario. Sube `seconds` si prefieres una muestra corta. En los menús de selección de pista se puede indicar un **segundo de inicio puntual**: `P N <seg>` (p. ej. `A 2 300` reproduce la pista 2 solo-audio desde el segundo 300).
 
 ## `volume`
 
@@ -167,8 +170,28 @@ Limpieza del MKV final tras multiplexar (ver "Tag DURATION y limpieza con mkvpro
 | `workers` | `2` | Nº de workers en paralelo propuesto al terminar PREPARAR (esta ventana + N−1 nuevas). Es el valor por defecto del prompt; se puede cambiar en el momento (**0** = solo preparar y salir, sin codificar). | — |
 | `retries` | `2` | Reintentos por archivo si su codificación falla, antes de abandonarlo. (Distinto de `workers`.) | — |
 | `asciiMarks` | `false` | Usa marcas ASCII (`[OK]`/`[ERROR]`) y corchetes `[ ]` en los avisos, en vez de los símbolos `✓`/`✗` y el badge `▐ … ▌`. Útil si la consola/fuente no tiene esos glifos (se verían como cuadros). | — |
+| `progress` | `true` | En los pasos largos (recodificar **vídeo**/**audio**) muestra una **línea viva con % y ETA** (`- Procesando Video...  42%  ETA 03:12  1.8x`) ejecutando ffmpeg **inline** (lee su `-progress`). `false` = clásico: ffmpeg en **ventana aparte** y solo `✓` al terminar. En modo debug no aplica. Convive con `separateWindow` (si `progress` está activo, esos pasos van inline; el multiplexado y las previews no cambian). | — |
+| `promptTimeout` | *(objeto)* | **Auto-aceptar** el valor por defecto en las preguntas de PREPARAR (las simples —sync/bordes/animación— y los menús de selección de pista de vídeo/audio/subtítulos) si no tocas el teclado durante *N* segundos, para dejar la preparación desatendida. Contador de **inactividad**: cualquier tecla lo reinicia; si empiezas a escribir, no salta. Es un objeto (ver abajo). | — |
+
+### `behavior.promptTimeout` — timeout granular por pregunta
+
+El timeout es configurable **por tipo de pregunta**, con un genérico de reserva:
+
+| Clave | Def. | Uso |
+|---|---|---|
+| `default` | `0` | Timeout **genérico** en segundos. `0` = desactivado. |
+| `sync` | `5` | Pregunta de silencio de sincronía audio/vídeo. `-1` = hereda de `default`; `≥0` = valor propio (`0` = desactivado solo para esta). |
+| `border` | `10` | Preguntas de detección de bordes: reintentar/confirmar recorte **y** las de nº de muestras / inicio / duración del escaneo. `-1` = hereda de `default`. |
+| `animation` | `10` | Pregunta «¿es un vídeo de animación?». `-1` = hereda de `default`. |
+| `video` | `-1` | Menú de selección de **pista de vídeo** (2+ pistas). Al expirar toma la preseleccionada (`*`). `-1` = hereda de `default` (por defecto `0` = off, para no auto-elegir pista sin querer). |
+| `audio` | `-1` | Menús de selección de **pista de audio** (varias del idioma preferido, o fallback sin idioma). Al expirar toma la preseleccionada. `-1` = hereda de `default`. |
+| `subtitle` | `-1` | Menú de **subtítulos fallback** (ninguno del idioma preferido). Al expirar **no conserva ninguno**. `-1` = hereda de `default`. |
+
+Al expirar, si **no** has tecleado nada se aplica la respuesta por defecto (equivale a pulsar ENTER; se puede fijar otra en código con `-TimeoutDefault`); si tecleaste algo pero te quedaste parado, se respeta lo tecleado. El prompt avisa del timeout mostrando `[auto Ns]`. Para una pregunta/menú nuevo basta añadir su clave aquí y pasar su nombre a `Read-CvLine`/`Read-CvMenuLine` (vía `Get-CvPromptTimeout`). Solo actúa en consola interactiva real (en modo desatendido/tests con la entrada redirigida no aplica). Ejemplo: `"promptTimeout": { "default": 15, "sync": 5, "animation": 0 }` → 15 s general, 5 s en sync, animación sin timeout, bordes hereda 15 s.
 
 Los marcadores son ficheros vacíos en la raíz del proyecto que fuerzan el comportamiento sin editar el JSON.
+
+> **Editor de `setup.ps1`:** cada opción del editor de configuración (menú **Editar config.json**) muestra, junto a su valor actual, una **descripción de qué hace** (catálogo `Get-CvConfigHelp`), para no tener que consultar esta referencia mientras se edita.
 
 ## `test` — modo pruebas
 
@@ -179,6 +202,7 @@ Codifica solo un tramo del principio de cada archivo, para validar un perfil/aju
 | `enabled` | `false` | Activa el modo pruebas: codifica solo los **primeros `minutes` minutos** de cada archivo (el resto se descarta). Se avisa al arrancar y en el resumen (la salida es un **recorte**, no el archivo completo). Funciona con todos los perfiles, incluido `copy` (recorta también el vídeo copiado del original y los subtítulos/capítulos al mismo tramo). | `test_on` |
 | `minutes` | `5` | Minutos que se codifican por archivo cuando `enabled` está activo (mínimo 1). | — |
 | `syncAdelay` | `false` | **🧪 BETA.** Si `true`, el silencio de sincronía se aplica con el filtro `adelay` en **una sola pasada** (encadenado con la normalización de volumen), sin el WAV intermedio. `false` = método clásico (WAV `silencio + pista` y luego codificar). Ver [explica-audio.md](explica-audio.md). | — |
+| `betaDownmix` | `false` | **🧪 BETA.** Activador del downmix `dialogue` (voz reforzada). **Doble llave**: `encode.downmixMode = "dialogue"` fija el modo, pero solo refuerza la voz si además `betaDownmix = true`. Con `false`, `dialogue` cae al downmix **estándar** de ffmpeg (el worker lo avisa). Ver [explica-audio.md](explica-audio.md). | — |
 
 Se aplica con `-t` en la codificación de vídeo, en la de audio (incluidos el wav de sincronía y la medición de pico) y en el multiplex final. `TestLimit` (segundos) en el contexto.
 
@@ -198,6 +222,7 @@ En el **resumen de conversión** (al terminar), la duración es la del fichero *
 | `font` | `"Cascadia Code"` | Fuente de la consola (`SetCurrentConsoleFontEx`). Por defecto `Cascadia Code`; si el equipo no la tiene, conhost hace fallback a su fuente (puedes poner `Consolas`, que viene en todo Windows). |
 | `fontSize` | `18` | Tamaño de fuente. |
 | `windowWidth` / `windowHeight` | `150` / `40` | Tamaño de la ventana (con buffer alto para scroll). |
+| `sepWidth` | `64` | Ancho (caracteres) de los separadores de sección `===` / `---` de la UI (cabecera, menús, resúmenes). Fuente única del ancho; los helpers `Get-CvSepLine`/`Get-CvDashLine` lo usan (o un ancho explícito por-llamada). |
 
 ## `paths` — carpetas de trabajo
 

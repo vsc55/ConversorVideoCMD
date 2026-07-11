@@ -12,12 +12,16 @@ function Set-CvMarkStyle { param([bool]$Ascii) $script:CvAsciiMarks = [bool]$Asc
 function Get-CvMark {
     <#
         Marca de estado (check/cruz). Con behavior.asciiMarks -> texto ASCII ([OK]/[ERROR]); si no,
-        simbolos U+2713/U+2717 (ConvertFromUtf32 para no depender de la codificacion del fichero).
+        simbolos U+2713 (check) y U+00D7 (cruz x) via ConvertFromUtf32 (no depende de la codificacion
+        del fichero ni de que la fuente tenga la cruz Dingbats U+2717).
     #>
     param([bool]$Ok)
     if ($script:CvAsciiMarks) { if ($Ok) { return '[OK]' } else { return '[ERROR]' } }
+    # Check U+2713 (Dingbats) y cruz U+00D7 (signo de multiplicacion, Latin-1). Se usa 00D7 y NO la
+    # cruz U+2717 (Dingbats) porque algunas fuentes de consola (p. ej. Cascadia Code) pintan el check
+    # pero NO esa cruz (sale un cuadro/tofu); 00D7 esta en cualquier fuente que ya dibuje el check.
     if ($Ok) { return [char]::ConvertFromUtf32(0x2713) }   # check monocromo
-    else     { return [char]::ConvertFromUtf32(0x2717) }   # cruz monocroma
+    else     { return [char]::ConvertFromUtf32(0x00D7) }   # cruz monocroma (x, universal)
 }
 
 function Write-CvLog {
@@ -92,6 +96,46 @@ function Write-CvInfoStep {
     param($Context, [string]$Tag, [string]$Message)
     if ($Context.Debug) { Write-CvLog $Tag $Message }
     else { Write-Host (" - {0}" -f $Message) }
+}
+
+function Save-CvToolError {
+    <#
+        Guarda en logs\ la salida de error (stderr) de una herramienta cuando falla, para poder
+        diagnosticarla despues (util en modo progreso, donde ffmpeg corre oculto sin ventana). Escribe
+        el detalle COMPLETO en un fichero 'error_<tool>_<nombre>_<fecha>_<pid>.log'. Devuelve la ruta,
+        o '' si no habia nada que guardar o no se pudo escribir. Se guarda siempre que haya fallo (es
+        un diagnostico puntual), independientemente de behavior.log.
+    #>
+    param([Parameter(Mandatory)]$Context, [string]$Name = '', [string]$Tool = 'ffmpeg', [string]$StdErr = '')
+    if ([string]::IsNullOrWhiteSpace($StdErr)) { return '' }
+    try {
+        $dir = $Context.Logs
+        if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+        $safe = ($Name -replace '[^\w\.\-]', '_'); if ($safe.Length -gt 60) { $safe = $safe.Substring(0, 60) }
+        $file = Join-Path $dir ("error_{0}_{1}_{2}_{3}.log" -f $Tool, $safe, (Get-Date -Format 'yyyyMMdd_HHmmss'), $PID)
+        [System.IO.File]::WriteAllText($file, "$StdErr", (New-Object System.Text.UTF8Encoding($false)))
+        return $file
+    } catch { return '' }
+}
+
+function Show-CvToolError {
+    <#
+        Si hay stderr de ffmpeg capturado (fallo en modo progreso, donde corre oculto), lo guarda en
+        logs\ (Save-CvToolError), muestra las ULTIMAS lineas (donde suele estar el error) y la ruta del
+        log completo, y limpia el buffer global. Sin nada capturado (p. ej. modo ventana aparte), no
+        hace nada. Llamar tras Stop-CvStep en la rama de fallo.
+    #>
+    param([Parameter(Mandatory)]$Context, [string]$Category = 'WORKER', [string]$Name = '', [string]$Tool = 'ffmpeg')
+    $err = "$($global:CvLastToolError)"
+    $global:CvLastToolError = $null
+    if ([string]::IsNullOrWhiteSpace($err)) { return }
+    $tail = @($err -split "`r?`n" | Where-Object { $_.Trim() -ne '' } | Select-Object -Last 8)
+    if ($tail.Count -gt 0) {
+        Write-CvLog $Category '[ERR] - Ultimas lineas de ffmpeg:'
+        foreach ($l in $tail) { Write-Host ('     ' + $l) -ForegroundColor DarkGray }
+    }
+    $path = Save-CvToolError -Context $Context -Name $Name -Tool $Tool -StdErr $err
+    if ($path) { Write-CvLog $Category ("[ERR] - Salida completa de ffmpeg guardada en: {0}" -f $path) }
 }
 
 function Start-CvLog {

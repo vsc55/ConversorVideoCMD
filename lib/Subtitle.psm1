@@ -72,13 +72,14 @@ function Split-CvSubtitlesByRole {
 
 function Show-SubtitlePreview {
     <#
-        Reproduce un tramo del video CON un subtitulo concreto superpuesto (ffplay -sst s:N),
-        para distinguir entre varios subtitulos (p. ej. normal vs SDH) antes de elegir.
+        Reproduce el video CON un subtitulo concreto superpuesto (ffplay -sst s:N), para distinguir
+        entre varios subtitulos (p. ej. normal vs SDH) antes de elegir. Por defecto desde el principio
+        y sin limite (preview.start/seconds).
         -SubPos: posicion 0-based entre las pistas de subtitulo.
     #>
     param(
         [Parameter(Mandatory)]$Context, [Parameter(Mandatory)][string]$File,
-        [int]$SubPos, [string]$Label = 'SUBTITULO', [int]$Seconds = -1, [int]$Start = -1, [double]$Duration = 0
+        [int]$SubPos, [string]$Label = 'SUBTITULO', [int]$Start = -1, [int]$Seconds = -1, [double]$Duration = 0
     )
     Write-CvLog 'SUB' ("[TEST] - Reproduciendo con {0}; se cierra solo o pulsa ESC/Q" -f $Label) -Indent 3
     Invoke-CvPreview -Context $Context -File $File -ExtraArgs @('-sst', ("s:{0}" -f $SubPos)) -Label $Label -Start $Start -Seconds $Seconds -Duration $Duration
@@ -123,6 +124,7 @@ function Select-SubtitlesKeep {
     $dur  = Get-MediaDuration $Info
     $cues = @{}
     foreach ($s in $streams) { $cues[[int]$s.index] = (Get-CvSubtitleCueCount -Context $Context -File $file -Index ([int]$s.index) -Stream $s) }
+    $to = Get-CvPromptTimeout $Context 'subtitle'   # auto-aceptar por inactividad (0 = off; al expirar = ninguno)
 
     while ($true) {
         $lines = @()
@@ -132,7 +134,7 @@ function Select-SubtitlesKeep {
             $lines += ("[{0}] idioma={1} codec={2} ({3}) {4}" -f $s.index, (Get-Tag $s 'language'), $s.codec_name, $ctxt, $tt)
         }
         Show-Menu -Title 'SUBTITULOS (ninguno del idioma preferido) - elige cuales conservar:' -Lines ($lines + @('', "Indices separados por espacio (ej '3 5') / 'P N'=reproducir / 'V N'=ver texto / T=todos / ENTER=ninguno")) -Indent 3
-        $a = (Read-Host '   [SUB] - Opcion').Trim()
+        $a = (Read-CvMenuLine '   [SUB] - Opcion' $to).Trim()
         if ($a -eq '') { Write-Host ''; return @() }
         # 'V N' = ver el contenido del subtitulo N (extrae a .srt y abre con el editor asociado).
         $mView = [regex]::Match($a, '^[Vv]\s*(\d+)$')

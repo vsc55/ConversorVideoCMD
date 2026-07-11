@@ -61,7 +61,7 @@ Ejecuta el **pipeline real** (`Convert.ps1`, fase worker desatendida) sobre toda
 flowchart TD
     A["Crear root temporal<br/>junctions a lib\\ y tools\\ + config.json propio + copia de Convert.ps1"] --> B["Copiar fixtures a Original\\ del root"]
     B --> C["Generar los .job.json por adelantado<br/>(Select-AudioStream / ConvertTo-SubSel: sin menús)"]
-    C --> D["Ejecutar Convert.ps1 -WorkerOnly<br/>(entra directo como worker, codifica sin preguntar)"]
+    C --> D["Ejecutar Convert.ps1<br/>(como todos tienen .job.json, entra directo como worker y codifica sin preguntar)"]
     D --> E["Verificar cada salida con ffprobe<br/>(codec, resize, audio/subs, forced+default, 0 tags)"]
     E --> F{"¿todas OK?"}
     F -- "sí" --> G["TOTAL n/n PASS → exit 0"]

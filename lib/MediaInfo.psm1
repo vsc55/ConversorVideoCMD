@@ -300,7 +300,7 @@ function Write-SourceSummary {
     # --- Capitulos ---
     $lines += ("Capitulos: {0}" -f (Get-CvChapterCount -Context $Context -File $File))
 
-    $dash = '-' * 64
+    $dash = Get-CvDashLine
     Write-Host ''
     Write-Host $dash
     Write-Host 'RESUMEN DEL ORIGEN'
@@ -405,8 +405,8 @@ function Write-ConversionSummary {
         $lines += ('', ("*** MODO PRUEBAS: salida recortada a los primeros {0} min ***" -f [int]($Context.TestLimit / 60)))
     }
     # Sin encuadrar: los cuadros recortan las lineas largas (p.ej. el nombre del archivo).
-    $dash = '-' * 64
-    $eq   = '=' * 64
+    $dash = Get-CvDashLine
+    $eq   = Get-CvSepLine
     Write-Host ''
     Write-Host $dash
     Write-Host 'RESUMEN DE LA CONVERSION'

@@ -4,7 +4,7 @@ Recopilación de fallos **reales** que ya nos han mordido (con su corrección) y
 
 ## PowerShell (tipos y números)
 
-- **`[math]::Max`/`Min` con un entero y un decimal → trunca.** `[math]::Max(0, 0.259)` devuelve **0**: el `0` es `[int]`, PowerShell resuelve el overload `Max(int,int)` y trunca el `0.259`. Mordió en el `%` de recorte del auto-borde (letterbox: el ancho no cambia → `1-cw/iw = 0` entero → 0%; ver `redPct` en `Video.psm1`). **Regla:** si algún argumento puede ser fraccionario, usa `0.0` o castea el otro a `[double]` explícito (`[math]::Max([double]$a,[double]$b)` o `[math]::Max(0.0,$x)`). Ojo: un `[double]$x` **cast explícito** sí liga el overload double, pero un `(expr)` calculado no siempre. Auditadas todas las llamadas del repo: el único fallo activo era `redPct`; `BorderMinCropPct` y `Get-CvSafeStart` (`Context.psm1`) usaban la forma `Max(0, …)` y se **blindaron a `0.0`** (funcionaban, pero para no depender del detalle).
+- **`[math]::Max`/`Min` con un entero y un decimal → trunca.** `[math]::Max(0, 0.259)` devuelve **0**: el `0` es `[int]`, PowerShell resuelve el overload `Max(int,int)` y trunca el `0.259`. Mordió en el `%` de recorte del auto-borde (letterbox: el ancho no cambia → `1-cw/iw = 0` entero → 0%; el cálculo está en el `Where-Object` de `Find-CropDetectSamples` en `Video.psm1`, con casts a `[double]`). **Regla:** si algún argumento puede ser fraccionario, usa `0.0` o castea el otro a `[double]` explícito (`[math]::Max([double]$a,[double]$b)` o `[math]::Max(0.0,$x)`). Ojo: un `[double]$x` **cast explícito** sí liga el overload double, pero un `(expr)` calculado no siempre. Auditadas todas las llamadas del repo: el único fallo activo era ese `%` de recorte; `BorderMinCropPct` y `Get-CvSafeStart` (`Context.psm1`) usaban la forma `Max(0, …)` y se **blindaron a `0.0`** (funcionaban, pero para no depender del detalle).
 - **`[int]` redondea, no trunca.** `[int]0.9 = 1`. Un vídeo de 0,899 h salía como `1:xx:xx`. **Regla:** para truncar usa `[math]::Floor`. (v4.2.1)
 - **Parseo de números sensible al locale.** En ES, `[double]::TryParse("5.758")` interpreta `.` como separador de miles → 5758. **Regla:** parsea con `[System.Globalization.CultureInfo]::InvariantCulture` (`ConvertTo-InvDouble` en Context) y formatea con `InvariantCulture` para los args de ffmpeg. Mordió al generar fixtures de subtítulos.
 - **`@(if(){ @(x) })` desenvuelve arrays de un elemento.** Un `@()` con un solo objeto puede colapsar. **Regla:** envolver con `@(...)` en el punto de uso y no asumir `.Count`.
@@ -31,6 +31,12 @@ Recopilación de fallos **reales** que ya nos han mordido (con su corrección) y
 
 - **`loudnorm` es ~4,5× más lento que `peak`** (medido: ~63 s vs ~14 s sobre 5 min). No asumir que "una pasada" = rápido.
 - **`aacgain` solo procesa AAC/MP3 en MP4** (`.m4a`). Con otro códec de salida (`.mka`) no aplica → se usa `peak`.
+- **`adelay` cuantiza a milisegundos ENTEROS.** La sincronía BETA (`test.syncAdelay`) usa `adelay=<ms>:all=1` con `<ms> = [int][math]::Round($Sync*1000)`, mientras que el método clásico (WAV `aevalsrc`) usa segundos exactos → pueden diferir hasta ~0,5 ms. Inaudible para A/V (tolerancia ~decenas de ms), pero es la única discrepancia sistemática entre ambos métodos.
+
+## Consola / rendering (fuentes y foco)
+
+- **No todas las fuentes tienen la cruz Dingbats `✗` (U+2717).** Cascadia Code (la fuente por defecto) pinta el check `✓` (U+2713) pero la cruz U+2717 sale como cuadro/tofu. **Regla:** para la marca de error se usa **`×` (U+00D7)**, del bloque Latin-1, presente en cualquier fuente que ya dibuje el check (`Get-CvMark`). No asumir que un glifo Unicode "bonito" existe en conhost.
+- **`SetForegroundWindow` falla en silencio por el _foreground lock_ de Windows.** Si el proceso que llama no es el de primer plano, el SO no cambia el foco (la ventana solo parpadea en la barra). Mordió al traer la preview de ffplay al frente. **Regla:** enganchar la cola de entrada del hilo de la ventana de primer plano actual con **`AttachThreadInput`** antes del `SetForegroundWindow` (y desengancharla después); es el método fiable (`CvWin::ToForeground` en `Exec.psm1`).
 
 ## Verificación (obligatorio antes de dar algo por bueno)
 

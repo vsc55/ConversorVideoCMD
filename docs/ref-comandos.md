@@ -26,7 +26,7 @@ Leyenda de placeholders comunes:
 - `<N>` = `$ctx.Threads` (`encode.threads`, 0 = auto).
 - `<fps>` = `$ctx.Fps` (`encode.fps`).
 - `<hz>` = bitrate/samplerate de audio (`Profile.AudioHz` o `encode.audioHz`).
-- `<start>`/`<dur>` = `border.start` / `border.duration` en el scan de bordes; `preview.start` / `preview.seconds` en las previews de ffplay. Ambos se ajustan solos si el vídeo es más corto (`Get-CvSafeStart`).
+- `<start>`/`<dur>` = `border.start` / `border.duration` en el scan de bordes; `preview.start` / `preview.seconds` en las previews de ffplay (por defecto `0`/`0` = desde el principio y sin límite). El inicio se ajusta solo si el vídeo es más corto (`Get-CvSafeStart`).
 
 ---
 
@@ -58,31 +58,31 @@ De la salida (`stderr`) se extraen las líneas `crop=W:H:X:Y` y se agrupan; gana
 
 ## 3. Previsualización (ffplay)
 
-Todas las previews reproducen un tramo y se cierran solas (`-autoexit`, o antes con ESC/Q). `<start>`/`<seg>` salen de `preview.start`/`preview.seconds` (ver [ref-configuracion.md](ref-configuracion.md#preview)); si el vídeo es más corto que `<start>`, el inicio se ajusta solo (`Get-CvSafeStart`). En los menús se puede indicar un inicio puntual (`P N <seg>`). La preview se ejecuta en la consola principal (no en ventana aparte).
+Las previews (`-autoexit`: se cierran al acabar o antes con `q`/ESC) usan `preview.start` (inicio; `0` = desde el principio, ajustado con `Get-CvSafeStart`) y `preview.seconds` (duración; `0` = **sin límite**, todo el vídeo, sin `-t`). **Por defecto (`0`/`0`) reproducen todo desde el principio y las cierra el usuario.** En los menús se puede forzar un **inicio puntual** con `P N <seg>`. La preview se ejecuta en la consola principal (no en ventana aparte) y recibe el foco (`CvWin::ToForeground`). En los comandos de abajo, `[-ss <start>]` y `[-t <seg>]` **solo se añaden** si `start` / `seconds` son > 0 (por defecto ninguno).
 
 **Bordes** (`Show-Preview`) — primero el original, luego con el recorte aplicado; con varias pistas de vídeo apunta a la elegida (`-vst`):
 
 ```
-ffplay -hide_banner -loglevel error -ss <start> -t <seg> -autoexit [-vst v:<pos>] -window_title "ORIGINAL" <file>
-ffplay -hide_banner -loglevel error -ss <start> -t <seg> -autoexit [-vst v:<pos>] -vf "crop=<W:H:X:Y>" -window_title "RECORTADO <crop>" <file>
+ffplay -hide_banner -loglevel error [-ss <start>] [-t <seg>] -autoexit [-vst v:<pos>] -window_title "ORIGINAL" <file>
+ffplay -hide_banner -loglevel error [-ss <start>] [-t <seg>] -autoexit [-vst v:<pos>] -vf "crop=<W:H:X:Y>" -window_title "RECORTADO <crop>" <file>
 ```
 
 **Pista de vídeo** (`Show-VideoPreview`, menú de 2+ pistas de vídeo) — selecciona la pista con `-vst v:<pos>` (posición 0-based entre las de vídeo, `Get-VideoStreamPos`):
 
 ```
-ffplay -hide_banner -loglevel error -ss <start> -t <seg> -autoexit -vst v:<pos> -window_title "PISTA <idx>" <file>
+ffplay -hide_banner -loglevel error [-ss <start>] [-t <seg>] -autoexit -vst v:<pos> -window_title "PISTA <idx>" <file>
 ```
 
 **Pista de audio** (`Show-AudioPreview`, menús de audio) — selecciona la pista con `-ast a:<pos>`; con `A N` (solo audio) añade `-nodisp`:
 
 ```
-ffplay -hide_banner -loglevel error -ss <start> -t <seg> -autoexit -ast a:<pos> [-nodisp] -window_title "PISTA <idx>" <file>
+ffplay -hide_banner -loglevel error [-ss <start>] [-t <seg>] -autoexit -ast a:<pos> [-nodisp] -window_title "PISTA <idx>" <file>
 ```
 
 **Subtítulo** (`Show-SubtitlePreview`, menú de 2+ subtítulos completos) — vídeo con ese subtítulo superpuesto vía `-sst s:<pos>` (útil para distinguir normal vs SDH):
 
 ```
-ffplay -hide_banner -loglevel error -ss <start> -t <seg> -autoexit -sst s:<pos> -window_title "SUBTITULO <idx>" <file>
+ffplay -hide_banner -loglevel error [-ss <start>] [-t <seg>] -autoexit -sst s:<pos> -window_title "SUBTITULO <idx>" <file>
 ```
 
 ---
@@ -101,15 +101,17 @@ Si `pts_time > 0`, el audio empieza más tarde que el vídeo y se ofrece añadir
 
 ## 5. Audio: generar silencio + pista (solo si hay sincronía)
 
-Cuando hay que compensar `<sync>` segundos, se genera un WAV estéreo (silencio + audio) para recodificarlo después. Evita un bug del AAC que desincroniza al concatenar:
+Cuando hay que compensar `<sync>` segundos, se genera un WAV (silencio + audio) en el **layout de salida** (`<layout>` = `stereo`/`5.1`/`7.1` según `audioChannels`) para recodificarlo después. Evita un bug del AAC que desincroniza al concatenar:
 
 ```
 ffmpeg -hide_banner -y -i <file> -filter_complex \
-  "[0:<i>]aformat=channel_layouts=stereo[a2];aevalsrc=0:d=<sync>:sample_rate=<hz>:channel_layout=stereo[sil];[sil][a2]concat=n=2:v=0:a=1[out]" \
+  "[0:<i>]aformat=channel_layouts=<layout>[a2];aevalsrc=0:d=<sync>:sample_rate=<hz>:channel_layout=<layout>[sil];[sil][a2]concat=n=2:v=0:a=1[out]" \
   -map "[out]" <name>_concat.wav
 ```
 
-> Nota: se referencia `[0:<i>]` (índice concreto), no `[0:a]` (que sería la primera pista y podría no ser la seleccionada).
+> Nota: se referencia `[0:<i>]` (índice concreto), no `[0:a]` (que sería la primera pista y podría no ser la seleccionada). Si hay **downmix con voz reforzada** (5.1→estéreo, `downmixMode=dialogue`), el `aformat` se sustituye por el filtro `pan=stereo|c0=<center>*c2+<front>*c0+<surround>*c4|c1=…` (sube el central, baja surrounds; ver [explica-audio.md](explica-audio.md)).
+>
+> **Alternativa BETA (`test.syncAdelay`):** en vez del WAV, el retardo se aplica en la **misma pasada** de recodificación con `adelay=<ms>:all=1` encadenado con el volumen (sin temporal `_concat.wav`). `<ms>` = `round(<sync>·1000)` (milisegundos enteros).
 
 ---
 
@@ -187,15 +189,15 @@ ffmpeg -hide_banner -y -threads <N> -i <file> -an -sn -map_chapters -1 \
 -c:v hevc_nvenc -tier high -pix_fmt <p010le|yuv420p> -preset slow
 [-profile:v <profile>] [-level:v <level>]
 <-rc constqp -qp <q>  |  -qmin <qmin> -qmax <qmax>>
--rc-lookahead:v 32 -r <fps> -movflags +faststart
+[-multipass <qres|fullres>] -rc-lookahead:v 32 [-r <fps>] -movflags +faststart
 ```
-`p010le` si el profile es `main10`, si no `yuv420p`. **No** se pasa `-refs` (muchas GPUs abortan con "No capable devices found").
+`p010le` si el profile es `main10`, si no `yuv420p`. `-multipass` (2-pass NVENC) solo si `multipass` ≠ `off` (perfil o `encode.multipass`). `-r <fps>` solo si `encode.forceFps` (por defecto sí). **No** se pasa `-refs` (muchas GPUs abortan con "No capable devices found").
 
 ### h264_nvenc (H.264 GPU)
 ```
 -c:v h264_nvenc -pix_fmt yuv420p -preset slow
 <-rc constqp -qp <q>  |  -qmin <qmin> -qmax <qmax>>
--rc-lookahead:v 32 -r <fps> -movflags +faststart
+[-multipass <qres|fullres>] -rc-lookahead:v 32 [-r <fps>] -movflags +faststart
 ```
 
 ### libx264 (H.264 CPU)
@@ -285,6 +287,13 @@ mkvpropedit.exe --version # regex: mkvpropedit v(\d+\.\d+)
 
 ---
 
+## Ejecución de ffmpeg: progreso, ventana y log de error
+
+Los pasos largos (recodificar **vídeo**/**audio**) se ejecutan según `behavior.progress`:
+
+- **`progress = true` (por defecto):** ffmpeg corre **inline** (sin ventana, `CreateNoWindow`) con `-nostats -progress pipe:1`; se lee su salida de progreso y se pinta una línea viva `- <acción>...  42%  ETA 03:12  1.8x` (`Invoke-ToolProgress`). El `stderr` de ffmpeg se **captura**; si el proceso **falla** (código ≠ 0) se muestran sus últimas líneas y se guarda **completo** en `logs\error_ffmpeg-video|audio_<nombre>_<fecha>_<pid>.log` (`Save-CvToolError`/`Show-CvToolError`).
+- **`progress = false`:** ffmpeg va en una **ventana aparte minimizada sin foco** (`Invoke-ToolShow`, `CvProc::RunMinimizedNoActivate`), y en la consola solo se ve el `✓` al terminar. (Las **previews** ffplay sí van en primer plano con foco, ver §3.)
+
 ## Modo debug
 
-Con `behavior.debug = true` o el marcador `debug_on`, antes de cada ejecución se **imprime el comando completo** y se pide ENTER para continuar; además las codificaciones van a la ventana principal (no a una aparte).
+Con `behavior.debug = true` o el marcador `debug_on`, antes de cada ejecución se **imprime el comando completo** y se pide ENTER para continuar; además las codificaciones van a la ventana principal (no inline con progreso ni en ventana aparte), para ver todo el log de ffmpeg.

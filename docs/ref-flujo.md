@@ -143,7 +143,7 @@ flowchart TD
     UNLOCK --> W1
 ```
 
-Al iniciar cada archivo, el worker muestra su **resolución y duración** (útil para estimar cuánto durará la codificación). En **uso normal**, cada paso se muestra como una línea compacta `- <acción>... ✓` (o `✗` en rojo si falla), y el resumen final va enmarcado con guiones. En **modo debug** se ven los logs detallados por sección, los comandos exactos y las confirmaciones.
+Al iniciar cada archivo, el worker muestra su **resolución y duración** (útil para estimar cuánto durará la codificación). En **uso normal**, cada paso se muestra como una línea compacta `- <acción>... ✓` (o `×` en rojo si falla; la cruz es `×` U+00D7 para que se vea en cualquier fuente). Los pasos **largos** (recodificar audio/vídeo) muestran **progreso en vivo** `- <acción>...  42%  ETA 03:12  1.8x` (porcentaje, tiempo restante y velocidad) leyendo el `-progress` de ffmpeg, si `behavior.progress` está activo (por defecto); si se desactiva, ffmpeg va en una ventana aparte y solo se ve el `✓` al terminar. Al acabar cada archivo se imprime su **resumen de conversión** enmarcado con guiones. En **modo debug** se ven los logs detallados por sección, los comandos exactos y las confirmaciones.
 
 Orden de codificación por archivo: **audio → vídeo → multiplexado**. El audio se recodifica a un temporal (`.m4a` si el códec es AAC, `.mka` para el resto), el vídeo a un `.mkv` temporal, y el multiplexado los une con los **subtítulos** y los **adjuntos** conservados del original en `Convertido\<nombre>_fix.mkv`; después limpia los metadatos heredados y quita las etiquetas `DURATION` con **mkvpropedit**.
 
@@ -184,6 +184,11 @@ Ver los comandos exactos en [ref-comandos.md](ref-comandos.md). El detalle del a
 - El lock se libera siempre en el `finally`, incluso si la codificación falla. Si un worker muere a mitad, otro puede **robar el lock caducado** (guarda `PID`+equipo; ver [ref-jobs.md](ref-jobs.md)).
 - **Reintentos con límite**: un archivo que falla se reintenta hasta un máximo (`behavior.retries`, por defecto 2); superado, se **abandona** (se marca en `skip`). Los ilegibles se descartan y un error inesperado se captura por archivo (no aborta el lote). Esto evita el bucle infinito con inputs corruptos o ffmpeg que no arranca.
 - La codificación de audio/vídeo debe terminar con éxito (ffmpeg código 0 + salida no vacía) para que se multiplexe; si no, el archivo cuenta como fallo (no se genera un MKV con vídeo sin recodificar).
+
+## Errores y resumen del worker
+
+- **Si ffmpeg falla** (código ≠ 0): como en modo progreso corre **oculto** (sin ventana), no se pierde su salida — se muestran en consola sus **últimas líneas de error** y se guarda la salida **completa** en `logs\error_ffmpeg-video|audio_<nombre>_<fecha>_<pid>.log` (`Show-CvToolError`). Tras **agotar los reintentos** (o ante un error inesperado), se muestra además un **cuadro rojo** de aviso con el archivo y el motivo.
+- **Resumen final**: cuando ya no quedan archivos libres, cada worker imprime un **RESUMEN DEL WORKER** con todo lo que procesó: `✓`/`×` por archivo, el **tiempo** (en los OK), el **nº de intentos** si hubo reintentos, y el **motivo** en los fallidos; más una línea `Total / OK / Errores / Tiempo`. Cada worker es un **proceso independiente**, así que **cada ventana imprime su propio resumen** (no hay uno combinado entre workers en paralelo).
 
 ## Protección de la ventana
 

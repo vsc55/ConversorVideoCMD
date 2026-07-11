@@ -33,27 +33,15 @@ foreach ($m in $modules) {
     Import-Module (Join-Path $Lib ("{0}.psm1" -f $m)) -Force
 }
 
-# Resolver el fichero de config (-Config): relativo al directorio actual; vacio = Root\config.json.
-$cfgPath = Resolve-CvConfigPathArg -Root $Root -Config $Config
-if (-not [string]::IsNullOrWhiteSpace($Config) -and -not (Test-Path -LiteralPath $cfgPath)) {
-    Write-Host ("AVISO: no existe el config indicado ({0}); se usan los valores por defecto." -f $cfgPath) -ForegroundColor Yellow
-}
+# Arranque comun (config + contexto + marcas + log + apariencia + cabecera). Ver Start-CvSession.
+$sess    = Start-CvSession -Root $Root -Config $Config -LogPrefix 'Convert'
+$ctx     = $sess.Context
+$cfgPath = $sess.ConfigPath
+$cvLog   = $sess.LogFile
 
-$ctx = New-CvContext -Root $Root -ConfigPath $cfgPath
-Set-CvMarkStyle -Ascii $ctx.AsciiMarks   # [OK]/[ERROR] en vez de simbolos si behavior.asciiMarks
-
-# Log de la ejecucion (transcript) a logs\ (behavior.log / marcador 'no_log').
-$cvLog = Start-CvLog -Context $ctx -Prefix 'Convert'
-
-# Colores, fuente, tamano y titulo de la ventana (config.json).
-Set-CvAppearance -Context $ctx -Title ("ConversorVideoCMD {0}" -f $ctx.Version)
-
-# Cabecera (app + version).
-Show-CvHeader -Context $ctx
-
-# Separadores de secciones (ancho del cuadro de los menus).
-$sepLine  = ('=' * 64)
-$dashLine = ('-' * 64)
+# Separadores de secciones (ancho comun de la UI; fuente unica en Console.psm1).
+$sepLine  = Get-CvSepLine
+$dashLine = Get-CvDashLine
 
 # ---- Comprobacion de herramientas ----
 # Si faltan herramientas, ofrecer descargarlas. $didInstall marca si se instalo algo.
@@ -355,6 +343,11 @@ Write-CvLog 'GLOBAL' '[WORKER] - Buscando archivos preparados para codificar...'
 # infinito con inputs corruptos, perfiles que fallan o ffmpeg que no arranca).
 $skip = New-Object 'System.Collections.Generic.HashSet[string]'
 $fail = @{}
+# Resultado FINAL por archivo procesado por ESTE worker (para el resumen del final). Clave = nombre;
+# se sobreescribe en cada intento, asi que refleja el ultimo estado (OK si acabo bien, ERROR si no).
+# Cada valor: @{ Status; Reason; Attempts; Elapsed }.
+$results = [ordered]@{}
+$workerSw = [System.Diagnostics.Stopwatch]::StartNew()   # tiempo total del worker (para el resumen)
 $maxRetries = [int]$ctx.Retries; if ($maxRetries -lt 1) { $maxRetries = 1 }
 
 $didAny = $true
@@ -388,6 +381,7 @@ while ($didAny) {
             # se marca para no reintentar en bucle y se pasa al siguiente.
             if (-not (Confirm-CvTool -Context $ctx -Name 'ffmpeg' -Version $ffVer)) {
                 Write-CvLog 'WORKER' ("[ERR] - No se pudo obtener ffmpeg {0}; se omite este archivo" -f $ffVer)
+                $results[$name] = @{ Status = 'ERROR'; Reason = ("no se pudo obtener ffmpeg {0}" -f $ffVer); Attempts = 1; Elapsed = $null }
                 [void]$skip.Add($name); continue
             }
             $didAny = $true
@@ -400,6 +394,7 @@ while ($didAny) {
             $info = Get-MediaInfo -Context $jctx -File $f.FullName
             if ($null -eq $info) {
                 Write-CvLog 'WORKER' '[ERR] - No se pudo leer el archivo; se descarta'
+                $results[$name] = @{ Status = 'ERROR'; Reason = 'no se pudo leer el archivo'; Attempts = 1; Elapsed = $null }
                 [void]$skip.Add($name); continue
             }
 
@@ -415,7 +410,12 @@ while ($didAny) {
             if ($jctx.Debug) { Write-Host '' }
             $audioOk = $true
             if ($job.audio.skip) { if ($jctx.Debug) { Write-CvLog 'AUDIO' '[SKIP] - se omite (copy/omitido)' } else { Write-Host ' - Audio (copy)' } }
-            else { $audioOk = Invoke-AudioRun -Context $jctx -Prof $prof -File $f.FullName -Sync ([double]$job.audio.sync) -Index ([int]$job.audio.index) }
+            else {
+                # Canales de la pista de audio elegida (para que audioChannels no haga upmix: es un maximo).
+                $aStream = @($info.streams | Where-Object { [int]$_.index -eq [int]$job.audio.index })[0]
+                $srcCh = if ($aStream -and $aStream.channels) { [int]$aStream.channels } else { 0 }
+                $audioOk = Invoke-AudioRun -Context $jctx -Prof $prof -File $f.FullName -Sync ([double]$job.audio.sync) -Index ([int]$job.audio.index) -Is51 ([bool]$job.audio.is51) -Duration (Get-MediaDuration $info) -SourceChannels $srcCh
+            }
 
             # ---------- VIDEO ----------
             if ($jctx.Debug) { Write-Host '' }
@@ -424,15 +424,18 @@ while ($didAny) {
             # campo -> -1, y tanto Invoke-VideoRun como Invoke-Multiplex caen a '0:v:0' como antes.
             $vIdx = if ($null -ne $job.video.index) { [int]$job.video.index } else { -1 }
             if ($job.video.skip) { if ($jctx.Debug) { Write-CvLog 'VIDEO' '[SKIP] - se omite (copy)' } else { Write-Host ' - Video (copy)' } }
-            else { $videoOk = Invoke-VideoRun -Context $jctx -Prof $prof -File $f.FullName -Crop $job.video.crop -Resize $job.video.resize -Anim ([bool]$job.video.anim) -Index $vIdx -Hdr ([bool]$job.video.hdr) }
+            else { $videoOk = Invoke-VideoRun -Context $jctx -Prof $prof -File $f.FullName -Crop $job.video.crop -Resize $job.video.resize -Anim ([bool]$job.video.anim) -Index $vIdx -Hdr ([bool]$job.video.hdr) -Duration (Get-MediaDuration $info) }
 
             # ---------- MULTIPLEX ----------
+            $failReason = ''
             if ((-not $audioOk) -or (-not $videoOk)) {
-                Write-CvLog 'WORKER' '[ERR] - Fallo la codificacion de audio o video; no se multiplexa'
+                $failReason = if (-not $audioOk) { 'fallo en la codificacion de audio' } else { 'fallo en la codificacion de video' }
+                Write-CvLog 'WORKER' ("[ERR] - {0}; no se multiplexa" -f $failReason)
                 $ok = $false
             } else {
                 if ($jctx.Debug) { Write-Host '' }
                 $ok = Invoke-Multiplex -Context $jctx -File $f.FullName -Info $info -VideoSkipped ([bool]$job.video.skip) -AudioSkipped ([bool]$job.audio.skip) -Subtitles $job.subtitles -AudioLang "$($job.audio.lang)" -VideoIndex $vIdx
+                if (-not $ok) { $failReason = 'fallo en el multiplexado' }
             }
 
             if ($ok) {
@@ -449,12 +452,18 @@ while ($didAny) {
                     Write-CvLog 'WORKER' ("[OK] - Finalizado: {0}" -f $name)
                 }
                 Write-ConversionSummary -Context $jctx -File $f.FullName -Info $info -Output $out -Elapsed $sw.Elapsed -Prof $prof -AudioIndex $(if ($null -ne $job.audio.index) { [int]$job.audio.index } else { -1 })
+                $results[$name] = @{ Status = 'OK'; Reason = ''; Attempts = ([int]$fail[$name] + 1); Elapsed = $sw.Elapsed }
             } else {
+                if (-not $failReason) { $failReason = 'no se genero la salida' }
+                $results[$name] = @{ Status = 'ERROR'; Reason = $failReason; Attempts = ([int]$fail[$name] + 1); Elapsed = $null }
                 $n = 1 + [int]$fail[$name]; $fail[$name] = $n
                 Write-Host ''
                 if ($n -ge $maxRetries) {
                     Write-CvLog 'WORKER' ("[ERR] - Fallo {0} intento(s), se abandona: {1}" -f $n, $name)
                     [void]$skip.Add($name)
+                    # Advertencia destacada en consola (el detalle de ffmpeg, si lo hubo, ya se mostro
+                    # y se guardo en logs\error_*.log via Show-CvToolError).
+                    Show-CvBox -Title 'ERROR - No se pudo convertir el archivo' -Lines @($name, ("Motivo: {0}" -f $failReason), 'Detalle en logs\ (error_*.log si fallo ffmpeg).') -Color Red
                 } else {
                     Write-CvLog 'WORKER' ("[ERR] - No se genero la salida (intento {0}/{1}), se reintentara: {2}" -f $n, $maxRetries, $name)
                 }
@@ -463,8 +472,13 @@ while ($didAny) {
         catch {
             # Error inesperado: no abortar todo el lote; contar el fallo y pasar al siguiente.
             $n = 1 + [int]$fail[$name]; $fail[$name] = $n
-            Write-CvLog 'WORKER' ("[ERR] - Error inesperado en {0}: {1}" -f $name, $_.Exception.Message)
-            if ($n -ge $maxRetries) { [void]$skip.Add($name) }
+            $emsg = "$($_.Exception.Message)"
+            $results[$name] = @{ Status = 'ERROR'; Reason = ("error inesperado: {0}" -f $emsg); Attempts = $n; Elapsed = $null }
+            Write-CvLog 'WORKER' ("[ERR] - Error inesperado en {0}: {1}" -f $name, $emsg)
+            if ($n -ge $maxRetries) {
+                [void]$skip.Add($name)
+                Show-CvBox -Title 'ERROR - No se pudo convertir el archivo' -Lines @($name, ("Motivo: error inesperado - {0}" -f $emsg)) -Color Red
+            }
         }
         finally {
             Exit-Lock -Context $ctx -Name $name
@@ -474,6 +488,38 @@ while ($didAny) {
 
 Write-Host ''
 Write-CvLog 'GLOBAL' '[END] - No quedan archivos libres por procesar'
+
+# Resumen de TODO lo que ha procesado este worker (OK/ERROR + motivo de los fallos). Solo si ha
+# tocado algun archivo (si no, no ensucia con un resumen vacio cuando no habia nada que hacer).
+$workerSw.Stop()
+$done = @($results.Keys)
+if ($done.Count -gt 0) {
+    $nOk  = @($done | Where-Object { $results[$_].Status -eq 'OK' }).Count
+    $nErr = $done.Count - $nOk
+    Write-Host ''
+    Write-Host $sepLine
+    Write-Host '  RESUMEN DEL WORKER'
+    Write-Host $dashLine
+    foreach ($n in $done) {
+        $r    = $results[$n]
+        $isOk = ($r.Status -eq 'OK')
+        Write-Host '  ' -NoNewline
+        Write-Host (Get-CvMark $isOk) -ForegroundColor $(if ($isOk) { 'Green' } else { 'Red' }) -NoNewline
+        Write-Host (' ' + $n) -NoNewline
+        if (-not $isOk) { Write-Host ('   -   ' + $r.Reason) -ForegroundColor Yellow -NoNewline }
+        # Extra entre parentesis: tiempo (si OK) y nº de intentos (si hubo reintentos).
+        $extra = @()
+        if ($isOk -and $r.Elapsed) { $extra += (Format-CvEta $r.Elapsed.TotalSeconds) }
+        if ([int]$r.Attempts -gt 1) { $extra += ("{0} intentos" -f [int]$r.Attempts) }
+        if ($extra.Count -gt 0) { Write-Host ('   (' + ($extra -join ', ') + ')') -ForegroundColor DarkGray -NoNewline }
+        Write-Host ''
+    }
+    Write-Host $dashLine
+    $totCol = if ($nErr -gt 0) { 'Yellow' } else { 'Green' }
+    Write-Host ("  Total: {0}    OK: {1}    Errores: {2}    Tiempo: {3}" -f $done.Count, $nOk, $nErr, (Format-CvEta $workerSw.Elapsed.TotalSeconds)) -ForegroundColor $totCol
+    Write-Host $sepLine
+    if ($nErr -gt 0) { Write-CvLog 'GLOBAL' ("[AVISO] - {0} archivo(s) con error; revisa el resumen y logs\error_*.log" -f $nErr) }
+}
 
 # Reactivar el boton X al terminar.
 if ($ctx.LockClose) { Set-CvCloseButton -Enabled $true }

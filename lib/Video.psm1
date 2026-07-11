@@ -69,12 +69,13 @@ function Find-CropDetectSamples {
 
 function Show-Preview {
     <#
-        Reproduce un tramo con FFplay para revisar visualmente. Si se pasa -Crop,
-        aplica el filtro de recorte. Ventana con autoexit tras unos segundos.
+        Reproduce el video con FFplay para revisarlo visualmente. Si se pasa -Crop, aplica el filtro
+        de recorte. Por defecto desde el principio y sin limite (preview.start/seconds); se cierra
+        con autoexit al acabar o antes con q/ESC.
     #>
     param(
         [Parameter(Mandatory)]$Context, [Parameter(Mandatory)][string]$File,
-        [string]$Crop = '', [int]$Seconds = -1, [int]$VideoPos = -1, [double]$Duration = 0
+        [string]$Crop = '', [int]$VideoPos = -1, [int]$Seconds = -1, [double]$Duration = 0
     )
     $title = 'ORIGINAL'
     $extra = @()
@@ -87,12 +88,13 @@ function Show-Preview {
 
 function Show-VideoPreview {
     <#
-        Reproduce un tramo de una pista de VIDEO concreta con FFplay para revisarla.
+        Reproduce una pista de VIDEO concreta con FFplay para revisarla (por defecto desde el
+        principio y sin limite; inicio/duracion configurables en preview.start/seconds).
         -VideoPos: posicion 0-based entre las pistas de video (se selecciona con '-vst v:N').
     #>
     param(
         [Parameter(Mandatory)]$Context, [Parameter(Mandatory)][string]$File,
-        [int]$VideoPos, [string]$Label = 'VIDEO', [int]$Seconds = -1, [int]$Start = -1, [double]$Duration = 0
+        [int]$VideoPos, [string]$Label = 'VIDEO', [int]$Start = -1, [int]$Seconds = -1, [double]$Duration = 0
     )
     Write-CvLog 'VIDEO' ("[TEST] - Reproduciendo {0}; se cierra solo o pulsa ESC/Q" -f $Label) -Indent 3
     Invoke-CvPreview -Context $Context -File $File -ExtraArgs @('-vst', ("v:{0}" -f $VideoPos)) -Label $Label -Start $Start -Seconds $Seconds -Duration $Duration
@@ -109,6 +111,7 @@ function Select-VideoInteractive {
     )
     $streams = @($VideoStreams)
     $vdur    = Get-MediaDuration $Info
+    $to      = Get-CvPromptTimeout $Context 'video'   # auto-aceptar por inactividad (0 = off)
     $chosen  = $null
     while ($null -eq $chosen) {
         $lines = @()
@@ -119,7 +122,7 @@ function Select-VideoInteractive {
             $lines += ("{0} [{1}] {2}x{3} codec={4} idioma={5} {6}" -f $mark, $s.index, $s.width, $s.height, $s.codec_name, $lang, $titleTxt)
         }
         Show-Menu -Title 'SELECCIONAR PISTA DE VIDEO [* = por defecto]:' -Lines $lines -Indent 3
-        $a = (Read-Host ("   [VIDEO] - Indice / 'P N'=reproducir (opc. seg inicio: 'P N 300') [{0}]" -f $DefaultIndex)).Trim()
+        $a = (Read-CvMenuLine ("   [VIDEO] - Indice / 'P N'=reproducir (opc. seg inicio: 'P N 300') [{0}]" -f $DefaultIndex) $to).Trim()
         if ($a -eq '') { $a = "$DefaultIndex" }
 
         $play = ConvertFrom-CvPlayCommand $a
@@ -134,7 +137,7 @@ function Select-VideoInteractive {
         if ([int]::TryParse($a, [ref]$n)) {
             $match = $streams | Where-Object { [int]$_.index -eq $n } | Select-Object -First 1
             if ($match) {
-                $ok = (Read-Host ("   Usar la pista {0}? (ENTER=si / N=volver a la lista)" -f $n)).Trim()
+                $ok = (Read-CvMenuLine ("   Usar la pista {0}? (ENTER=si / N=volver a la lista)" -f $n) $to).Trim()
                 if ($ok -match '^[Nn]$') { continue }
                 $chosen = $match; continue
             }
@@ -256,7 +259,7 @@ function Invoke-VideoAsk {
         $res.Manual = $true   # la deteccion de bordes hace preguntas interactivas
         $done  = $false
         # Nº de muestras (puntos de escaneo) ANTES de escanear: por defecto el configurado, editable.
-        $samples = Read-IntOrDefault '   Numero de muestras (puntos de escaneo)' ([int]$Context.BorderSamples)
+        $samples = Read-IntOrDefault '   Numero de muestras (puntos de escaneo)' ([int]$Context.BorderSamples) -TimeoutSec (Get-CvPromptTimeout $Context 'border')
 
         while (-not $done) {
             # Escaneo en varios puntos; agrupa recortes por votos.
@@ -264,11 +267,11 @@ function Invoke-VideoAsk {
 
             if ($groups.Count -eq 0) {
                 Write-CvLog 'VIDEO' '[BORDE] - No se detectaron bordes en este tramo' -Indent 3
-                $a = (Read-Host '   [VIDEO] [BORDE] - [R] reintentar con otro tramo / [ENTER] continuar sin recorte').Trim()
+                $a = (Read-CvLine -Prompt '   [VIDEO] [BORDE] - [R] reintentar con otro tramo / [ENTER] continuar sin recorte' -TimeoutSec (Get-CvPromptTimeout $Context 'border')).Trim()
                 if ($a -match '^[Rr]') {
-                    $start   = Read-IntOrDefault '   Segundo de inicio del scan' $start
-                    $dur     = Read-IntOrDefault '   Duracion total del scan (seg)' $dur
-                    $samples = Read-IntOrDefault '   Numero de muestras (puntos de escaneo)' $samples
+                    $start   = Read-IntOrDefault '   Segundo de inicio del scan' $start -TimeoutSec (Get-CvPromptTimeout $Context 'border')
+                    $dur     = Read-IntOrDefault '   Duracion total del scan (seg)' $dur -TimeoutSec (Get-CvPromptTimeout $Context 'border')
+                    $samples = Read-IntOrDefault '   Numero de muestras (puntos de escaneo)' $samples -TimeoutSec (Get-CvPromptTimeout $Context 'border')
                     continue
                 }
                 $res.Crop = ''; $done = $true; continue
@@ -311,9 +314,9 @@ function Invoke-VideoAsk {
                     $sel = (Read-Host '   [VIDEO] [BORDE] - Opcion').Trim()
                     if ($sel -match '^0$') { $res.Crop = ''; $done = $true; continue }
                     if ($sel -match '^[Rr]$') {
-                        $start   = Read-IntOrDefault '   Segundo de inicio del scan' $start
-                        $dur     = Read-IntOrDefault '   Duracion total del scan (seg)' $dur
-                        $samples = Read-IntOrDefault '   Numero de muestras (puntos de escaneo)' $samples
+                        $start   = Read-IntOrDefault '   Segundo de inicio del scan' $start -TimeoutSec (Get-CvPromptTimeout $Context 'border')
+                        $dur     = Read-IntOrDefault '   Duracion total del scan (seg)' $dur -TimeoutSec (Get-CvPromptTimeout $Context 'border')
+                        $samples = Read-IntOrDefault '   Numero de muestras (puntos de escaneo)' $samples -TimeoutSec (Get-CvPromptTimeout $Context 'border')
                         $reScan = $true; continue
                     }
                     if ($sel -match '^[Mm]$') { $crop = '__MANUAL__' }
@@ -338,7 +341,7 @@ function Invoke-VideoAsk {
                 Show-Preview -Context $Context -File $Info.format.filename -VideoPos $vpos -Duration $vdur
                 Show-Preview -Context $Context -File $Info.format.filename -Crop $crop -VideoPos $vpos -Duration $vdur
                 $volver = if ($autoWin) { 'volver a detectar' } else { 'volver al menu' }
-                $a = (Read-Host ("   [VIDEO] [BORDE] - [ENTER/S] usar / [N] {0} / [M] manual / [0] sin recorte" -f $volver)).Trim()
+                $a = (Read-CvLine -Prompt ("   [VIDEO] [BORDE] - [ENTER/S] usar / [N] {0} / [M] manual / [0] sin recorte" -f $volver) -TimeoutSec (Get-CvPromptTimeout $Context 'border')).Trim()
                 if ($a -eq '' -or $a -match '^[SsYy]$') { $res.Crop = $crop; $done = $true }
                 elseif ($a -match '^0$') { $res.Crop = ''; $done = $true }
                 elseif ($a -match '^[Mm]$') {
@@ -352,9 +355,9 @@ function Invoke-VideoAsk {
                 else {
                     # [N]: si hubo auto-aceptacion, re-escanear (otro tramo); con menu, volver al menu.
                     if ($autoWin) {
-                        $start   = Read-IntOrDefault '   Segundo de inicio del scan' $start
-                        $dur     = Read-IntOrDefault '   Duracion total del scan (seg)' $dur
-                        $samples = Read-IntOrDefault '   Numero de muestras (puntos de escaneo)' $samples
+                        $start   = Read-IntOrDefault '   Segundo de inicio del scan' $start -TimeoutSec (Get-CvPromptTimeout $Context 'border')
+                        $dur     = Read-IntOrDefault '   Duracion total del scan (seg)' $dur -TimeoutSec (Get-CvPromptTimeout $Context 'border')
+                        $samples = Read-IntOrDefault '   Numero de muestras (puntos de escaneo)' $samples -TimeoutSec (Get-CvPromptTimeout $Context 'border')
                         $reScan = $true
                     }
                 }
@@ -387,7 +390,7 @@ function Invoke-VideoAsk {
 
     # ---- Animacion (solo libx264/libx265) ----
     if ($Prof.VideoEncoder -in @('libx264','libx265')) {
-        $a = (Read-Host '   [VIDEO] - Es un video de animacion? (s/N)').Trim()
+        $a = (Read-CvLine -Prompt '   [VIDEO] - Es un video de animacion? (s/N)' -TimeoutSec (Get-CvPromptTimeout $Context 'animation')).Trim()
         $res.Anim = ($a -match '^[SsYy]')
         $res.Manual = $true   # se pregunto por animacion (intervencion manual)
         Write-Host ''
@@ -460,7 +463,9 @@ function Invoke-VideoRun {
         [Parameter(Mandatory)]$Context,
         [Parameter(Mandatory)]$Prof,
         [Parameter(Mandatory)][string]$File,
-        [string]$Crop = '', [string]$Resize = '', [bool]$Anim = $false, [int]$Index = -1, [bool]$Hdr = $false
+        [string]$Crop = '', [string]$Resize = '', [bool]$Anim = $false, [int]$Index = -1, [bool]$Hdr = $false,
+        # Duracion del video en segundos (para el % y ETA del progreso). 0 = desconocida (sin %/ETA).
+        [double]$Duration = 0
     )
     $name = [System.IO.Path]::GetFileNameWithoutExtension($File)
     $outTmp = (Get-CvTempPaths -Context $Context -Name $name).Video
@@ -505,10 +510,20 @@ function Invoke-VideoRun {
     if ($Context.TestLimit -gt 0) { $ffArgs += @('-t',"$($Context.TestLimit)") }
     $ffArgs += @('-map',$vmap,'-f','matroska',$outTmp)
 
-    Start-CvStep $Context 'VIDEO' 'Procesando Video...'
-    $code = Invoke-ToolShow -Exe $Context.FFmpeg -Arguments $ffArgs -Context $Context
+    # Progreso inline (% + ETA) si esta activo y sabemos la duracion; si no, ventana aparte + ✓.
+    # Total = duracion del video (acotada a TestLimit en modo pruebas). Ambos caminos dejan la linea
+    # "abierta" para que Stop-CvStep la cierre con OK/ERROR.
+    $global:CvLastToolError = $null   # el modo progreso lo rellena; se vuelca al log si ffmpeg falla
+    if ($Context.Progress -and -not $Context.Debug -and $Duration -gt 0) {
+        $total = if ($Context.TestLimit -gt 0) { [math]::Min([double]$Duration, [double]$Context.TestLimit) } else { [double]$Duration }
+        $code = Invoke-ToolProgress -Exe $Context.FFmpeg -Arguments $ffArgs -Context $Context -Label 'Procesando Video...' -TotalSeconds $total
+    } else {
+        Start-CvStep $Context 'VIDEO' 'Procesando Video...'
+        $code = Invoke-ToolShow -Exe $Context.FFmpeg -Arguments $ffArgs -Context $Context
+    }
     if ($code -ne 0) {
         Stop-CvStep $Context 'VIDEO' $false -FailMsg ("[ERR] - ffmpeg devolvio codigo {0}" -f $code)
+        Show-CvToolError -Context $Context -Category 'VIDEO' -Name $name -Tool 'ffmpeg-video'
         if (Test-Path -LiteralPath $outTmp) { Remove-Item -Force -LiteralPath $outTmp -ErrorAction SilentlyContinue }
         return $false
     }

@@ -20,13 +20,52 @@ function New-CvProfile {
         [string]$AudioEncoder = 'aac_coder',  # aac_coder (recodificar) | copy
         [string]$AudioCodec = 'aac',   # codec de salida al recodificar: aac | ac3 | eac3 | libmp3lame | flac | libopus
         [string]$AudioBitrate = '192k',
-        [int]$AudioHz = 44100
+        [int]$AudioHz = 44100,
+        # Salida de audio POR PERFIL (override del global; $null = usar el global encode.*):
+        [object]$AudioChannels = $null,   # MAXIMO de canales (no hace upmix). $null = encode.audioChannels | 2 | 6 | 8
+        [object]$DownmixMode   = $null,   # $null = encode.downmixMode | 'default' | 'dialogue' (voz reforzada, BETA)
+        [object]$DownmixCoeffs = $null    # $null = encode.downmixCoeffs | @{ Center; Front; Surround }
     )
     [pscustomobject]@{
         VideoEncoder = $VideoEncoder; VideoProfile = $VideoProfile; VideoLevel = $VideoLevel
         Qmin = $Qmin; Qmax = $Qmax; Crf = $Crf; DetectBorder = $DetectBorder; ChangeSize = $ChangeSize; MaxWidth = $MaxWidth
         Multipass = $Multipass
         AudioEncoder = $AudioEncoder; AudioCodec = $AudioCodec; AudioBitrate = $AudioBitrate; AudioHz = $AudioHz
+        AudioChannels = $AudioChannels; DownmixMode = $DownmixMode; DownmixCoeffs = $DownmixCoeffs
+    }
+}
+
+function Get-CvAudioChannels {
+    <# Catalogo de canales de salida para los menus (@{Value;Text}). #>
+    @(
+        @{ Value = '2'; Text = 'estereo' }
+        @{ Value = '6'; Text = '5.1' }
+        @{ Value = '8'; Text = '7.1' }
+    )
+}
+
+function Get-CvDownmixModes {
+    <# Catalogo de modos de downmix 5.1->estereo para los menus (@{Value;Text}). #>
+    @(
+        @{ Value = 'default';  Text = 'estandar de ffmpeg' }
+        @{ Value = 'dialogue'; Text = 'voz reforzada (BETA; requiere test.betaDownmix)' }
+    )
+}
+
+function ConvertTo-CvDownmixCoeffs {
+    <#
+        Convierte un objeto de coeficientes de config.json (camelCase center/front/surround) en
+        @{ Center; Front; Surround }. Devuelve $null si el objeto es $null (=> usar el global). Las
+        subclaves ausentes caen al default de Get-CvDefaultDownmixCoeffs (fuente unica de los numeros).
+        El cast [double] de PS es invariante de locale (los numeros del JSON ya vienen como double).
+    #>
+    param($Obj)
+    if ($null -eq $Obj) { return $null }
+    $d = Get-CvDefaultDownmixCoeffs
+    @{
+        Center   = $(if ($null -ne (Get-CvProfileProp $Obj 'center'   $null)) { [double](Get-CvProfileProp $Obj 'center'   $d.Center) }   else { $d.Center })
+        Front    = $(if ($null -ne (Get-CvProfileProp $Obj 'front'    $null)) { [double](Get-CvProfileProp $Obj 'front'    $d.Front) }    else { $d.Front })
+        Surround = $(if ($null -ne (Get-CvProfileProp $Obj 'surround' $null)) { [double](Get-CvProfileProp $Obj 'surround' $d.Surround) } else { $d.Surround })
     }
 }
 
@@ -237,13 +276,16 @@ function ConvertTo-CvProfile {
         -AudioEncoder "$(Get-CvProfileProp $Obj 'audioEncoder' 'aac_coder')" `
         -AudioCodec   "$(Get-CvProfileProp $Obj 'audioCodec' 'aac')" `
         -AudioBitrate "$(Get-CvProfileProp $Obj 'audioBitrate' '192k')" `
-        -AudioHz ([int](Get-CvProfileProp $Obj 'audioHz' 44100))
+        -AudioHz ([int](Get-CvProfileProp $Obj 'audioHz' 44100)) `
+        -AudioChannels (Get-CvProfileProp $Obj 'audioChannels' $null) `
+        -DownmixMode   (Get-CvProfileProp $Obj 'downmixMode' $null) `
+        -DownmixCoeffs (ConvertTo-CvDownmixCoeffs (Get-CvProfileProp $Obj 'downmixCoeffs' $null))
 }
 
 function Format-CvProfileLabel {
     <#
         Etiqueta compacta de un perfil para el menu (estilo 'A: 192K, V: h265[NV]/M10/L5/Q(1-23)').
-        FUENTE UNICA: la usan tanto los 7 perfiles de serie (Select-Profile) como los propios de
+        FUENTE UNICA: la usan tanto los perfiles de serie (Select-Profile) como los propios de
         config.json, para no duplicar la lista del menu y que siempre refleje los valores reales.
     #>
     param([Parameter(Mandatory)]$Prof)
@@ -285,6 +327,9 @@ function Format-CvProfileLabel {
         }
         $a = '{0}{1}' -f $ac, "$($Prof.AudioBitrate)".ToUpper()
     }
+    # Overrides de salida de audio del perfil: canales (si != estereo) y downmix con voz reforzada.
+    if ($null -ne $Prof.AudioChannels -and [int]$Prof.AudioChannels -ge 1 -and [int]$Prof.AudioChannels -ne 2) { $a += (' {0}CH' -f [int]$Prof.AudioChannels) }
+    if ("$($Prof.DownmixMode)".ToLower() -eq 'dialogue') { $a += ' DLG' }
     ('A: {0}, V: {1}' -f $a, $v)
 }
 
@@ -295,17 +340,19 @@ function New-CustomProfile {
         Devuelve el perfil, o $null si se cancela.
     #>
     param($Context = $null)
-    # Valores por defecto (config 'customProfile' via contexto; fallback si no hay contexto).
-    $defEnc  = if ($Context -and "$($Context.CustomVideoEncoder)" -ne '') { "$($Context.CustomVideoEncoder)" } else { 'hevc_nvenc' }
-    $defProf = if ($Context -and "$($Context.CustomVideoProfile)" -ne '') { "$($Context.CustomVideoProfile)" } else { 'main10' }
-    $defLvl  = if ($Context -and "$($Context.CustomVideoLevel)"   -ne '') { "$($Context.CustomVideoLevel)"   } else { '5.0' }
-    # Si hay contexto se usa su valor TAL CUAL (puede ser $null = "auto"); sin contexto, el hardcodeado.
-    $defQmin = if ($Context) { $Context.CustomQmin } else { 1 }
-    $defQmax = if ($Context) { $Context.CustomQmax } else { 23 }
-    $defCrf  = if ($Context) { $Context.CustomCrf }  else { 21 }
-    $defMp    = if ($Context -and "$($Context.CustomMultipass)" -ne '') { "$($Context.CustomMultipass)" } else { 'off' }
-    $defAb    = if ($Context -and "$($Context.CustomAudioBitrate)" -ne '') { "$($Context.CustomAudioBitrate)" } else { '192k' }
-    $defCodec = if ($Context -and "$($Context.CustomAudioCodec)" -ne '') { "$($Context.CustomAudioCodec)" } else { 'aac' }
+    # Valores por defecto: del contexto (config 'customProfile'); si no hay contexto, de los defaults
+    # de config (Get-CvConfigDefaults, fuente unica) en vez de literales hardcodeados aqui.
+    $dflt = Get-CvConfigDefaults; $cp = $dflt.customProfile
+    $defEnc  = if ($Context -and "$($Context.CustomVideoEncoder)" -ne '') { "$($Context.CustomVideoEncoder)" } else { "$($cp.videoEncoder)" }
+    $defProf = if ($Context -and "$($Context.CustomVideoProfile)" -ne '') { "$($Context.CustomVideoProfile)" } else { "$($cp.videoProfile)" }
+    $defLvl  = if ($Context -and "$($Context.CustomVideoLevel)"   -ne '') { "$($Context.CustomVideoLevel)"   } else { "$($cp.videoLevel)" }
+    # Si hay contexto se usa su valor TAL CUAL (puede ser $null = "auto"); sin contexto, el default de config.
+    $defQmin = if ($Context) { $Context.CustomQmin } else { [int]$cp.qmin }
+    $defQmax = if ($Context) { $Context.CustomQmax } else { [int]$cp.qmax }
+    $defCrf  = if ($Context) { $Context.CustomCrf }  else { [int]$cp.crf }
+    $defMp    = if ($Context -and "$($Context.CustomMultipass)" -ne '') { "$($Context.CustomMultipass)" } else { "$($cp.multipass)" }
+    $defAb    = if ($Context -and "$($Context.CustomAudioBitrate)" -ne '') { "$($Context.CustomAudioBitrate)" } else { "$($cp.audioBitrate)" }
+    $defCodec = if ($Context -and "$($Context.CustomAudioCodec)" -ne '') { "$($Context.CustomAudioCodec)" } else { "$($cp.audioCodec)" }
 
     while ($true) {
         try {
@@ -395,6 +442,15 @@ function New-CustomProfile {
                         $p.AudioBitrate = $ab; break
                     }
                 }
+                # Canales de salida (override del global encode.audioChannels). Default = el global.
+                $defCh = if ($Context -and [int]$Context.AudioChannels -ge 1) { [int]$Context.AudioChannels } else { [int]$dflt.encode.audioChannels }
+                $chSel = Select-FromList -Title 'CANALES DE SALIDA:' -Options (Get-CvAudioChannels) -NoNone -DefaultValue "$defCh" -AllowCancel
+                $p.AudioChannels = [int]$chSel
+                # Downmix SOLO si la salida es estereo (2): solo entonces se baja 5.1 -> estereo.
+                if ([int]$chSel -eq 2) {
+                    $defDm = if ($Context -and "$($Context.DownmixMode)" -ne '') { "$($Context.DownmixMode)" } else { "$($dflt.encode.downmixMode)" }
+                    $p.DownmixMode = Select-FromList -Title 'DOWNMIX 5.1 -> estereo:' -Options (Get-CvDownmixModes) -NoNone -DefaultValue "$defDm" -AllowCancel
+                }
             }
 
             # Resumen y confirmacion.
@@ -413,8 +469,8 @@ function New-CustomProfile {
 function Select-Profile {
     <#
         Muestra el menu y devuelve el perfil elegido, o $null si el usuario elige salir (X).
-        -Extra: perfiles PROPIOS de config.json (seccion 'profiles'); se ANADEN como 8, 9, ...
-        despues de los 7 de serie (no los sustituyen).
+        -Extra: perfiles PROPIOS de config.json (seccion 'profiles'); se ANADEN despues de los de
+        serie (numeracion continua, 12, 13, ...) sin sustituirlos.
     #>
     param([object[]]$Extra = @(), $Context = $null)
     # Perfiles de serie por GRUPOS; se numeran automaticamente 1..N (continuo entre grupos) y el
@@ -488,6 +544,13 @@ function Write-ProfileInfo {
     } else {
         $codec = "$($Prof.AudioCodec)"; if (-not $codec) { $codec = 'aac' }
         Write-CvLog 'GLOBAL' ("[INFO] - [AUDIO] - CODEC: {0} / {1}" -f $codec, $Prof.AudioBitrate)
+        # Overrides de salida del perfil (si no, se usa el global encode.*).
+        if ($null -ne $Prof.AudioChannels -and [int]$Prof.AudioChannels -ge 1) {
+            Write-CvLog 'GLOBAL' ("[INFO] - [AUDIO] - CANALES: {0}" -f [int]$Prof.AudioChannels)
+        }
+        if ($Prof.DownmixMode) {
+            Write-CvLog 'GLOBAL' ("[INFO] - [AUDIO] - DOWNMIX 5.1->estereo: {0}" -f "$($Prof.DownmixMode)".ToLower())
+        }
     }
     Write-Host ''
 }

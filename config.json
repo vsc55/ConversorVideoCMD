@@ -4,11 +4,11 @@
             "selected": "7.1.1"
         }
     },
-    "languages": {
-        "audio": ["es"]
+    "encode": {
+        "downmixMode": "dialogue"
     },
-    "console": {
-        "windowWidth": 150,
-        "windowHeight": 40
+    "test": {
+        "syncAdelay": true,
+        "betaDownmix": true
     }
 }

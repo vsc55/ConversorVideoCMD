@@ -26,21 +26,16 @@ try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 
 $Root = $PSScriptRoot
 $Lib  = Join-Path $Root 'lib'
-$modules = @('Log','Config','Context','Console','Exec','Tools')   # setup no usa el pipeline de conversion
+$modules = @('Log','Config','Context','Console','Exec','Job','Tools')   # setup no usa el pipeline completo (Job = patrones de limpieza de Proceso)
 foreach ($m in $modules) {
     Import-Module (Join-Path $Lib ("{0}.psm1" -f $m)) -Force
 }
 
-# Resolver el fichero de config (-Config): relativo al directorio actual; vacio = Root\config.json.
-$CfgPath = Resolve-CvConfigPathArg -Root $Root -Config $Config
-
-$ctx = New-CvContext -Root $Root -ConfigPath $CfgPath
-Set-CvMarkStyle -Ascii $ctx.AsciiMarks   # [OK]/[ERROR] en vez de simbolos si behavior.asciiMarks
-Set-CvAppearance -Context $ctx -Title ("ConversorVideoCMD {0} - Setup" -f $ctx.Version)
-Show-CvHeader -Context $ctx -Subtitle 'Setup'
-
-# Log de la sesion (transcript) a logs\ (behavior.log / marcador no_log).
-$logFile = Start-CvLog -Context $ctx -Prefix 'setup'
+# Arranque comun (config + contexto + marcas + log + apariencia + cabecera). Ver Start-CvSession.
+$sess    = Start-CvSession -Root $Root -Config $Config -TitleSuffix ' - Setup' -Subtitle 'Setup' -LogPrefix 'setup'
+$ctx     = $sess.Context
+$CfgPath = $sess.ConfigPath
+$logFile = $sess.LogFile
 
 function Wait-Setup {
     # Pausa antes de limpiar la pantalla, para poder leer la info mostrada.
@@ -52,33 +47,43 @@ function Wait-Setup {
 #  Editor de valores
 # ===========================================================================
 function Edit-Scalar {
-    <# Devuelve @{ changed=$bool; value=... } conservando el tipo. #>
-    param([string]$Key, $Current, [string]$Kind)
+    <#
+        Devuelve @{ changed=$bool; value=... } conservando el tipo. La marca `<= por defecto` senala
+        el valor POR DEFECTO DE FABRICA (-Default, de Get-CvConfigDefaults), NO el actual; el actual
+        se muestra en el titulo. La opcion 0 (cancelar) deja el valor actual sin cambios.
+    #>
+    param([string]$Key, $Current, [string]$Kind, $Default = $null)
     $inv = [System.Globalization.CultureInfo]::InvariantCulture
 
     if ($Kind -eq 'bool') {
-        $def = 2; if ($Current) { $def = 1 }
-        $p = Select-FromList -Title ("{0} (actual: {1})" -f $Key, "$Current".ToLower()) -Options @('true','false') -NoneLabel 'cancelar' -DefaultIndex $def
+        $def = if ($Default) { 1 } else { 2 }   # marca el DEFAULT de fabrica (no el actual)
+        $p = Select-FromList -Title ("{0} (actual: {1})" -f $Key, "$Current".ToLower()) -Options @('true','false') -NoneLabel 'cancelar (dejar actual)' -DefaultIndex $def
         if ($p -eq '') { return @{ changed = $false } }
         return @{ changed = $true; value = ($p -eq 'true') }
     }
     # Selectores especiales por nombre de clave.
     if ($Key -in @('background','foreground')) {
         $colors = [enum]::GetNames([System.ConsoleColor])
-        $def = [array]::IndexOf($colors, "$Current") + 1; if ($def -lt 1) { $def = 1 }
-        $p = Select-FromList -Title ("{0} (actual: {1})" -f $Key, $Current) -Options $colors -NoneLabel 'cancelar' -DefaultIndex $def
+        $def = [array]::IndexOf($colors, "$Default") + 1
+        if ($def -lt 1) { $def = [array]::IndexOf($colors, "$Current") + 1 }
+        if ($def -lt 1) { $def = 1 }
+        $p = Select-FromList -Title ("{0} (actual: {1})" -f $Key, $Current) -Options $colors -NoneLabel 'cancelar (dejar actual)' -DefaultIndex $def
         if ($p -eq '') { return @{ changed = $false } }
         return @{ changed = $true; value = "$p" }
     }
     if ($Key -eq 'method') {
-        $opts = @('peak','loudnorm','aacgain')
-        $def = [array]::IndexOf($opts, "$Current") + 1; if ($def -lt 1) { $def = 1 }
-        $p = Select-FromList -Title ("method (actual: {0})" -f $Current) -Options $opts -NoneLabel 'cancelar' -DefaultIndex $def
+        $opts = @(Get-CvVolumeMethods)
+        $def = [array]::IndexOf($opts, "$Default") + 1
+        if ($def -lt 1) { $def = [array]::IndexOf($opts, "$Current") + 1 }
+        if ($def -lt 1) { $def = 1 }
+        $p = Select-FromList -Title ("method (actual: {0})" -f $Current) -Options $opts -NoneLabel 'cancelar (dejar actual)' -DefaultIndex $def
         if ($p -eq '') { return @{ changed = $false } }
         return @{ changed = $true; value = "$p" }
     }
 
-    $ans = (Read-Host ("   {0}  (actual: {1})  nuevo valor [ENTER=cancelar]" -f $Key, $Current)).Trim()
+    # Numero / texto libre: sin menu; se muestra actual y default, ENTER = dejar actual.
+    $defTxt = if ($null -ne $Default) { ", por defecto: $Default" } else { '' }
+    $ans = (Read-Host ("   {0}  (actual: {1}{2})  nuevo valor [ENTER=cancelar]" -f $Key, $Current, $defTxt)).Trim()
     if ($ans -eq '') { return @{ changed = $false } }
     if ($Kind -eq 'number') {
         if ($ans -match '^-?\d+$') { return @{ changed = $true; value = [long]$ans } }
@@ -131,7 +136,7 @@ function Edit-Node {
     while ($true) {
         Clear-Host
         $keys = @(Get-CvNodeKeys $Node)
-        $opts = @()
+        $opts = @(); $descs = @()
         foreach ($k in $keys) {
             $v = Get-CvNodeVal $Node $k
             $kind = Get-CvNodeKind $v
@@ -143,10 +148,12 @@ function Edit-Node {
                 default  { "$v" }
             }
             if ($preview.Length -gt 42) { $preview = $preview.Substring(0, 39) + '...' }
-            $opts += ("{0} = {1}" -f $k, $preview)
+            $opts  += ("{0} = {1}" -f $k, $preview)
+            # Ayuda de la opcion (que hace) mostrada junto al valor; ruta con '/' como aqui.
+            $descs += (Get-CvHelpFor $(if ($Path) { "$Path/$k" } else { "$k" }))
         }
         $title = if ($Path) { "config > $Path" } else { 'config.json' }
-        $sel = Select-FromList -Title $title -Options $opts -NoneLabel 'volver' -DefaultIndex 0
+        $sel = Select-FromList -Title $title -Options $opts -Descriptions $descs -NoneLabel 'volver' -DefaultIndex 0
         if ($sel -eq '') { break }
         $key  = $keys[[array]::IndexOf($opts, $sel)]
         $val  = Get-CvNodeVal $Node $key
@@ -168,7 +175,9 @@ function Edit-Node {
             if ($r.changed) { Set-CvNodeVal $Node $key $r.value; $script:dirty = $true }
         }
         else {
-            $r = Edit-Scalar -Key $key -Current $val -Kind $kind
+            # Default de fabrica de esta opcion (por su ruta), para marcarlo en el editor.
+            $defVal = Get-CvConfigDefaultValue $(if ($Path) { "$Path/$key" } else { "$key" })
+            $r = Edit-Scalar -Key $key -Current $val -Kind $kind -Default $defVal
             if ($r.changed) { Set-CvNodeVal $Node $key $r.value; $script:dirty = $true }
         }
     }
@@ -351,12 +360,7 @@ function Clear-Proceso {
     param([ValidateSet('jobs','locks','temps','all')][string]$What)
     $proc = $ctx.Proceso
     if (-not (Test-Path -LiteralPath $proc)) { Write-CvLog 'SETUP' 'No existe la carpeta Proceso.'; return }
-    $patterns = switch ($What) {
-        'jobs'  { @('*.job.json','*.job.json.tmp') }
-        'locks' { @('*.lock') }
-        'temps' { @('*.mkv','*.m4a','*.mka','*_concat.wav','*.job.json.tmp') }
-        'all'   { @('*.job.json','*.job.json.tmp','*.lock','*.mkv','*.m4a','*.mka','*_concat.wav') }
-    }
+    $patterns = Get-CvProcesoPatterns -What $What   # fuente unica de las convenciones (lib\Job.psm1)
     $files = @()
     foreach ($p in $patterns) { $files += @(Get-ChildItem -LiteralPath $proc -Filter $p -File -ErrorAction SilentlyContinue) }
     $files = @($files | Sort-Object -Property FullName -Unique)
@@ -400,7 +404,7 @@ function Show-CleanMenu {
 #  Estado general (directorios de trabajo + herramientas)
 # ===========================================================================
 function Show-Estado {
-    $sep = '=' * 64
+    $sep = Get-CvSepLine
     Write-Host $sep
     Write-Host 'ESTADO'
     Write-Host $sep

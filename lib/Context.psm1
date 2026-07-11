@@ -5,7 +5,40 @@
 
 function Get-CvVersion {
     <# Version del proyecto (fuente unica; la usan Convert.ps1 y setup.ps1). #>
-    '4.2.3'
+    '4.3.0'
+}
+
+function Get-CvAppName {
+    <# Nombre del proyecto/aplicacion (fuente unica: titulos de ventana, cabecera). #>
+    'ConvertVideo'
+}
+
+function Start-CvSession {
+    <#
+        Arranque COMUN de Convert.ps1 y setup.ps1 (evita duplicar la secuencia y desincronizar el
+        orden): resuelve el -Config (avisa si la ruta indicada no existe), crea el contexto, fija las
+        marcas ASCII, arranca el transcript y aplica apariencia (titulo = "<AppName> <Version><Suffix>")
+        y cabecera. Devuelve @{ Context; ConfigPath; LogFile }. El bootstrap (encoding + Import-Module)
+        se queda en cada script por ser previo a que existan estas funciones.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Root,
+        [string]$Config = '',        # argumento -Config (vacio = Root\config.json)
+        [string]$TitleSuffix = '',   # p. ej. ' - Setup' para el titulo de ventana
+        [string]$Subtitle = '',      # subtitulo de la cabecera (p. ej. 'Setup')
+        [string]$LogPrefix = 'app'   # prefijo del fichero de transcript en logs\
+    )
+    $cfgPath = Resolve-CvConfigPathArg -Root $Root -Config $Config
+    if (-not [string]::IsNullOrWhiteSpace($Config) -and -not (Test-Path -LiteralPath $cfgPath)) {
+        Write-Host ("AVISO: no existe el config indicado ({0}); se usan los valores por defecto." -f $cfgPath) -ForegroundColor Yellow
+    }
+    $ctx = New-CvContext -Root $Root -ConfigPath $cfgPath
+    Set-CvMarkStyle -Ascii $ctx.AsciiMarks     # [OK]/[ERROR] en vez de simbolos si behavior.asciiMarks
+    Set-CvSepWidth -Width $ctx.SepWidth         # ancho de los separadores de seccion (config console.sepWidth)
+    $log = Start-CvLog -Context $ctx -Prefix $LogPrefix   # transcript a logs\ (antes de pintar, para capturarlo)
+    Set-CvAppearance -Context $ctx -Title ("{0} {1}{2}" -f $ctx.AppName, $ctx.Version, $TitleSuffix)
+    Show-CvHeader -Context $ctx -Subtitle $Subtitle
+    [pscustomobject]@{ Context = $ctx; ConfigPath = $cfgPath; LogFile = $log }
 }
 
 function Get-CvWorkDirs {
@@ -38,6 +71,10 @@ function New-CvContext {
 
     $cfgFile = if ([string]::IsNullOrWhiteSpace($ConfigPath)) { Join-Path $Root 'config.json' } else { $ConfigPath }
     $cfg = Get-CvConfig -Root $Root -Path $cfgFile
+    # Defaults (fuente unica): se usan como fallback cuando un valor de $cfg es INVALIDO (no cuando
+    # falta, que ya lo cubre la fusion de Get-CvConfig). Asi los numeros/opciones por defecto viven
+    # SOLO en Get-CvConfigDefaults y no se re-hardcodean aqui.
+    $def = Get-CvConfigDefaults
     $plat  = Get-CvPlatform
     $ffSel = "$($cfg.downloads.ffmpeg.selected)"
     $agSel = "$($cfg.downloads.aacgain.selected)"
@@ -47,6 +84,7 @@ function New-CvContext {
         # Fichero de config en uso (Root\config.json por defecto, o el pasado con -Config).
         ConfigPath     = $cfgFile
         Version        = Get-CvVersion
+        AppName        = Get-CvAppName
         # Carpetas de trabajo (configurables en config.json 'paths'; vacio = junto al programa).
         Original       = Resolve-CvPath $Root "$($cfg.paths.original)"   'Original'
         Proceso        = Resolve-CvPath $Root "$($cfg.paths.proceso)"    'Proceso'
@@ -75,9 +113,23 @@ function New-CvContext {
         # Forzar el fps de salida (-r). $true = como hasta ahora; $false = conserva el fps de origen.
         ForceFps       = [bool]$cfg.encode.forceFps
         # 2-pass de NVENC (-multipass): 'off'|'qres'|'fullres'. Solo lo usan los encoders NVENC.
-        Multipass      = $(if ("$($cfg.encode.multipass)".ToLower() -in @('qres','fullres')) { "$($cfg.encode.multipass)".ToLower() } else { 'off' })
+        Multipass      = $(if ("$($cfg.encode.multipass)".ToLower() -in @('qres','fullres')) { "$($cfg.encode.multipass)".ToLower() } else { "$($def.encode.multipass)" })
         # Tone-mapping HDR->SDR (BT.709): 'auto' = solo si el origen es HDR; 'off' = nunca.
-        TonemapHdr     = $(if ("$($cfg.encode.tonemapHdr)".ToLower() -eq 'off') { 'off' } else { 'auto' })
+        TonemapHdr     = $(if ("$($cfg.encode.tonemapHdr)".ToLower() -eq 'off') { 'off' } else { "$($def.encode.tonemapHdr)" })
+        # Downmix 5.1->estereo: 'dialogue' = voz reforzada (pan); 'default' = downmix estandar.
+        DownmixMode    = $(if ("$($cfg.encode.downmixMode)".ToLower() -eq 'dialogue') { 'dialogue' } else { "$($def.encode.downmixMode)" })
+        # Pesos del downmix 'dialogue' (center/front/surround); el pan se construye de estos valores.
+        # Del JSON llegan como numero; el cast [double] de PowerShell es invariante de locale. Con la
+        # clave ausente (null) se usa el default de Get-CvDefaultDownmixCoeffs (fuente unica de los
+        # numeros, sin repetirlos aqui). El LFE siempre se descarta.
+        DownmixCoeffs  = $(
+            $d = Get-CvDefaultDownmixCoeffs
+            @{
+                Center   = $(if ($null -ne $cfg.encode.downmixCoeffs.center)   { [double]$cfg.encode.downmixCoeffs.center }   else { $d.Center })
+                Front    = $(if ($null -ne $cfg.encode.downmixCoeffs.front)    { [double]$cfg.encode.downmixCoeffs.front }    else { $d.Front })
+                Surround = $(if ($null -ne $cfg.encode.downmixCoeffs.surround) { [double]$cfg.encode.downmixCoeffs.surround } else { $d.Surround })
+            }
+        )
         DefaultAudioHz = [int]$cfg.encode.audioHz
         BorderStart    = [int]$cfg.border.start
         BorderDur      = [int]$cfg.border.duration
@@ -92,9 +144,9 @@ function New-CvContext {
         BorderAutoSamples = [Math]::Max(1, [int]$cfg.border.autoSamples)
         BorderAutoDuration = [Math]::Max(1, [int]$cfg.border.autoDuration)
         BorderMinCropPct  = [Math]::Max(0.0, [double]$cfg.border.minCropPct)   # 0.0 (no 0) para forzar el overload double y no truncar un valor fraccionario
-        # Previsualizacion ffplay (inicio y duracion de la muestra en PREPARAR).
-        PreviewStart   = [int]$cfg.preview.start
-        PreviewSeconds = [int]$cfg.preview.seconds
+        # Previsualizacion ffplay: inicio (0 = principio) y duracion de la muestra (0 = sin limite).
+        PreviewStart   = [Math]::Max(0, [int]$cfg.preview.start)
+        PreviewSeconds = [Math]::Max(0, [int]$cfg.preview.seconds)
         AudioLangs     = @($cfg.languages.audio)
         SubLangs       = @($cfg.languages.subtitle)
         # debug: desde config.json o creando el marcador 'debug_on' (cualquiera lo activa).
@@ -110,6 +162,13 @@ function New-CvContext {
         Retries        = [int]$cfg.behavior.retries
         # Marcas/avisos en ASCII puro ([OK]/[ERROR]) en vez de simbolos/badge (consolas sin glifos).
         AsciiMarks     = [bool]$cfg.behavior.asciiMarks
+        # Progreso inline (% + ETA) en los pasos largos de recodificacion en vez de ventana aparte.
+        Progress       = [bool]$cfg.behavior.progress
+        # Timeout de inactividad (seg) en las preguntas simples de PREPARAR: mapa {tipo -> segundos}
+        # normalizado desde behavior.promptTimeout. 'default' es el generico; los tipos con -1 heredan
+        # de 'default'. Lo resuelve Get-CvPromptTimeout $Context <tipo>. Tolera el formato antiguo
+        # (escalar) tratandolo como el generico. 0 = desactivado.
+        PromptTimeouts = (ConvertTo-CvPromptTimeouts $cfg.behavior.promptTimeout)
         # Modo pruebas: limite de codificacion por archivo en SEGUNDOS (0 = off = archivo completo).
         # Se activa por config (test.enabled) o con el marcador 'test_on'; los minutos salen de
         # test.minutes (>=1). Lo consumen Invoke-VideoRun/Invoke-AudioRun/Invoke-Multiplex (-t).
@@ -119,6 +178,10 @@ function New-CvContext {
         # BETA: sincronia con el filtro 'adelay' en una pasada (combinada con el volumen), sin WAV
         # intermedio. Config test.syncAdelay. Lo consume Invoke-AudioRun.
         SyncAdelay     = [bool]$cfg.test.syncAdelay
+        # BETA: activador del downmix 'dialogue' (voz reforzada). Doble llave: DownmixMode='dialogue'
+        # fija el modo, pero solo refuerza la voz si BetaDownmix. Config test.betaDownmix; lo usa
+        # Invoke-AudioRun junto con DownmixMode.
+        BetaDownmix    = [bool]$cfg.test.betaDownmix
         # log: transcript de la ejecucion a logs\; el marcador 'no_log' lo desactiva.
         Log            = ([bool]$cfg.behavior.log -and -not (Test-Path (Join-Path $Root 'no_log')))
         # Postproceso: limpiar las etiquetas DURATION del MKV con mkvpropedit.
@@ -139,11 +202,13 @@ function New-CvContext {
         ConsoleFontSize   = [int]$cfg.console.fontSize
         WindowWidth       = [int]$cfg.console.windowWidth
         WindowHeight      = [int]$cfg.console.windowHeight
+        # Ancho de los separadores de seccion (=== / ---) de la UI; lo aplica Set-CvSepWidth al arrancar.
+        SepWidth          = [Math]::Max(1, [int]$cfg.console.sepWidth)
         # Extensiones de ENTRADA (config encode.extensions): se normalizan a patron glob '*.ext'
         # (tolera que el usuario las escriba con o sin '*.'/'.').
         Extensions     = @(@($cfg.encode.extensions) | Where-Object { "$_" -ne '' } | ForEach-Object { '*.' + ("$_".TrimStart('*').TrimStart('.')) })
         # Canales del audio recodificado (encode.audioChannels; 2 = estereo por defecto).
-        AudioChannels  = $(if ([int]$cfg.encode.audioChannels -ge 1) { [int]$cfg.encode.audioChannels } else { 2 })
+        AudioChannels  = $(if ([int]$cfg.encode.audioChannels -ge 1) { [int]$cfg.encode.audioChannels } else { [int]$def.encode.audioChannels })
         # Perfiles de codificacion propios (config 'profiles'); se anaden a los de serie.
         Profiles       = @($cfg.profiles)
         # Valores por defecto del constructor de perfil CUSTOM interactivo (config 'customProfile').
@@ -155,7 +220,7 @@ function New-CvContext {
         CustomQmin         = $(if ([int]$cfg.customProfile.qmin -lt 0) { $null } else { [Math]::Min(51, [int]$cfg.customProfile.qmin) })
         CustomQmax         = $(if ([int]$cfg.customProfile.qmax -lt 0) { $null } else { [Math]::Min(51, [int]$cfg.customProfile.qmax) })
         CustomCrf          = $(if ([int]$cfg.customProfile.crf  -lt 0) { $null } else { [Math]::Min(51, [int]$cfg.customProfile.crf) })
-        CustomMultipass    = $(if ("$($cfg.customProfile.multipass)".ToLower() -in @('qres','fullres')) { "$($cfg.customProfile.multipass)".ToLower() } else { 'off' })
+        CustomMultipass    = $(if ("$($cfg.customProfile.multipass)".ToLower() -in @('qres','fullres')) { "$($cfg.customProfile.multipass)".ToLower() } else { "$($def.customProfile.multipass)" })
         CustomAudioBitrate = "$($cfg.customProfile.audioBitrate)"
         CustomAudioCodec   = "$($cfg.customProfile.audioCodec)"
     }
@@ -201,9 +266,9 @@ function Get-CvLangCanon {
 
 function Get-CvSafeStart {
     <#
-        Ajusta un segundo de inicio (para scan de bordes o preview) a la duracion real del video:
-        si el inicio configurado (p. ej. border.start/preview.start = 120) cae fuera porque el
-        video es mas corto, lo lleva a ~10% de la duracion para seguir dentro del contenido
+        Ajusta un segundo de inicio (scan de bordes, o el inicio explicito de una preview 'P N seg')
+        a la duracion real del video: si el inicio configurado (p. ej. border.start = 120) cae fuera
+        porque el video es mas corto, lo lleva a ~10% de la duracion para seguir dentro del contenido
         (dejando hueco para una ventana de $Window segundos). Duracion desconocida (<=0) = sin cambios.
     #>
     param([int]$Start, [double]$Duration, [int]$Window = 5)
