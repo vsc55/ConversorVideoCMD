@@ -36,10 +36,15 @@ function Start-CvSession {
     Set-CvMarkStyle -Ascii $ctx.AsciiMarks     # [OK]/[ERROR] en vez de simbolos si behavior.asciiMarks
     Set-CvSepWidth -Width $ctx.SepWidth         # ancho de los separadores de seccion (config console.sepWidth)
     Set-CvProgressBarWidth -Width $ctx.ProgressBarWidth   # ancho de la barra de progreso (config console.progressBarWidth)
+    Set-CvPromptStopOnType -Value $ctx.PromptStopOnType   # auto-timeout: desactivar al teclear (behavior.promptTimeoutStopOnType)
     $log = Start-CvLog -Context $ctx -Prefix $LogPrefix   # transcript a logs\ (antes de pintar, para capturarlo)
     Set-CvAppearance -Context $ctx -Title ("{0} {1}{2}" -f $ctx.AppName, $ctx.Version, $TitleSuffix)
     Show-CvHeader -Context $ctx -Subtitle $Subtitle
-    [pscustomobject]@{ Context = $ctx; ConfigPath = $cfgPath; LogFile = $log }
+    [pscustomobject]@{
+        Context    = $ctx
+        ConfigPath = $cfgPath
+        LogFile    = $log
+    }
 }
 
 function Get-CvWorkDirs {
@@ -117,6 +122,9 @@ function New-CvContext {
         Multipass      = (Resolve-CvOneOf "$($cfg.encode.multipass)" @('off','qres','fullres') "$($def.encode.multipass)")
         # Tone-mapping HDR->SDR (BT.709): 'auto' = solo si el origen es HDR; 'off' = nunca.
         TonemapHdr     = (Resolve-CvOneOf "$($cfg.encode.tonemapHdr)" @('auto','off') "$($def.encode.tonemapHdr)")
+        # Video anamorfico (SAR!=1): 'keep' = conserva SAR; 'square'/'squareheight' = cuadra a pixeles
+        # cuadrados (fijando ancho/alto). Lo consume Get-CvResize al decidir el reescalado.
+        Anamorphic     = (Resolve-CvOneOf "$($cfg.encode.anamorphic)" @('keep','square','squareheight') "$($def.encode.anamorphic)")
         # Downmix 5.1->estereo: 'dialogue' = voz reforzada (pan); 'default' = downmix estandar.
         DownmixMode    = (Resolve-CvOneOf "$($cfg.encode.downmixMode)" @('default','dialogue') "$($def.encode.downmixMode)")
         # Pesos del downmix 'dialogue' (center/front/surround); el pan se construye de estos valores.
@@ -170,6 +178,8 @@ function New-CvContext {
         # de 'default'. Lo resuelve Get-CvPromptTimeout $Context <tipo>. Tolera el formato antiguo
         # (escalar) tratandolo como el generico. 0 = desactivado.
         PromptTimeouts = (ConvertTo-CvPromptTimeouts $cfg.behavior.promptTimeout)
+        # Al teclear en una pregunta con auto: $true desactiva el auto (solo ENTER); $false = clasico.
+        PromptStopOnType = [bool]$cfg.behavior.promptTimeoutStopOnType
         # Modo pruebas: limite de codificacion por archivo en SEGUNDOS (0 = off = archivo completo).
         # Se activa por config (test.enabled) o con el marcador 'test_on'; los minutos salen de
         # test.minutes (>=1). Lo consumen Invoke-VideoRun/Invoke-AudioRun/Invoke-Multiplex (-t).

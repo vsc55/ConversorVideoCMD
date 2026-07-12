@@ -96,14 +96,14 @@ Se elige **un** perfil ([ref-perfiles.md](ref-perfiles.md)) que se aplica a todo
 flowchart TD
     P0["Select-Profile (una vez para el lote)"] --> P1["Para cada archivo sin .job:"]
     P1 --> P2["Get-MediaInfo (ffprobe)"]
-    P2 --> P3["Invoke-VideoAsk: bordes + preview, resize, animación"]
+    P2 --> P3["Invoke-VideoAsk: bordes + preview, anamórfico, resize, animación"]
     P3 --> P4["Invoke-AudioAsk: pista, sincronía"]
     P4 --> P5["Select-Subtitles: idioma, forzados"]
     P5 --> P6["Write-CvJob → Proceso\\&lt;nombre&gt;.job.json"]
     P6 --> P1
 ```
 
-El job **congela**: el perfil completo, las respuestas del usuario (índice de vídeo, recorte, resize, animación, índice de audio, sincronía, subtítulos) y **las versiones de ffmpeg/aacgain** en uso. Es autosuficiente: el worker no depende de la config global. Ver [ref-jobs.md](ref-jobs.md).
+El job **congela**: el perfil completo, las respuestas del usuario (índice de vídeo, recorte, resize —incluido el tratamiento anamórfico si el vídeo tiene SAR ≠ 1—, animación, índice de audio, sincronía, subtítulos) y **las versiones de ffmpeg/aacgain** en uso. Es autosuficiente: el worker no depende de la config global. Ver [ref-jobs.md](ref-jobs.md).
 
 **Salida por archivo:** en uso normal, PREPARAR imprime primero el **nombre del archivo** como cabecera (`- <nombre>`) y, **debajo e indentadas**, las preguntas interactivas (selección de pista de vídeo/audio/subtítulo, bordes, animación, sincronía) — así siempre se sabe de qué archivo son. Al terminar, una línea de estado: `Preparado ✓` (verde), `Preparado (seleccion manual) ✓` (amarillo, si hubo **cualquier** pregunta) o `No se pudo preparar ✗` (rojo, si ffprobe no puede leerlo). Los avisos (p. ej. **varias pistas de vídeo** o **audio sin idioma preferido**) salen como *badge* `▐ AVISO - … ▌`. En **modo debug** (`behavior.debug` / marcador `debug_on`) se ve el detalle completo (marco, tamaño/duración, y los `[INFO]` de audio/subtítulo/vídeo).
 

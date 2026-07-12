@@ -122,6 +122,36 @@ try {
     Assert-True 'resize: encode OK' $ok
     Assert-Eq 'resize: ancho 640' 640 ([int](Get-V (Get-Info (Get-CvTempPaths -Context $ctx -Name 'uhd').Video)).width)
 
+    # maxWidth anamorfico: origen 640x360 con SAR 2:1 se MUESTRA a 1280 de ancho. maxWidth debe mirar el
+    # ancho mostrado (no el almacenado 640) y reescalar conservando el aspecto (DAR). Ver ref-gotchas.
+    Reset-Ctx; Clear-Work
+    $f   = New-In -Name 'anam.mkv' -Size '640x360' -Extra @('-vf','setsar=2/1')
+    $vin = Get-V (Get-Info $f)
+    Assert-Eq 'anamorf: SAR entrada 2:1'        '2:1' "$($vin.sample_aspect_ratio)"
+    Assert-Eq 'anamorf: ancho mostrado 1280'    1280  (Get-CvDisplayWidth -Width ([int]$vin.width) -Sar "$($vin.sample_aspect_ratio)")
+    $rz = Get-CvMaxWidthResize -Width ([int]$vin.width) -Sar "$($vin.sample_aspect_ratio)" -MaxWidth 640
+    Assert-Eq 'anamorf: resize 320:-2'          '320:-2' "$rz"
+    $prof = New-CvProfile -VideoEncoder 'libx264' -Crf 30
+    $ok = Invoke-VideoRun -Context $ctx -Prof $prof -File $f -Crop '' -Resize $rz -Anim $false -Index 0 -Hdr $false -Duration (Get-Dur $f)
+    Assert-True 'anamorf: encode OK' $ok
+    $vout = Get-V (Get-Info (Get-CvTempPaths -Context $ctx -Name 'anam').Video)
+    $dwOut = Get-CvDisplayWidth -Width ([int]$vout.width) -Sar "$($vout.sample_aspect_ratio)"
+    Assert-True ("anamorf keep: ancho mostrado salida <=640 y anamorfico (dw=$dwOut, w=$($vout.width))") ($dwOut -le 640 -and $dwOut -gt [int]$vout.width)
+
+    # anamorfico modo 'square': de-anamorfiza a pixeles cuadrados (SAR 1:1) fijando el ancho de
+    # almacenamiento (640). Salida 640x180, SAR 1:1, mismo aspecto mostrado (640:180) sin depender del SAR.
+    Reset-Ctx; Clear-Work
+    $f   = New-In -Name 'sq.mkv' -Size '640x360' -Extra @('-vf','setsar=2/1')
+    $vin = Get-V (Get-Info $f)
+    $rz  = Get-CvResize -Width ([int]$vin.width) -Height ([int]$vin.height) -Sar "$($vin.sample_aspect_ratio)" -MaxWidth 0 -Anamorphic 'square'
+    Assert-Eq 'square: resize 640:180,setsar=1' '640:180,setsar=1' "$rz"
+    $prof = New-CvProfile -VideoEncoder 'libx264' -Crf 30
+    $ok = Invoke-VideoRun -Context $ctx -Prof $prof -File $f -Crop '' -Resize $rz -Anim $false -Index 0 -Hdr $false -Duration (Get-Dur $f)
+    Assert-True 'square: encode OK' $ok
+    $vs = Get-V (Get-Info (Get-CvTempPaths -Context $ctx -Name 'sq').Video)
+    Assert-Eq 'square: salida 640x180' '640x180' ("{0}x{1}" -f [int]$vs.width, [int]$vs.height)
+    Assert-Eq 'square: salida SAR 1:1'  '1:1'     "$($vs.sample_aspect_ratio)"
+
     # tune animation (libx264 + Anim)
     Reset-Ctx; Clear-Work
     $f = New-In -Name 'anim.mkv'

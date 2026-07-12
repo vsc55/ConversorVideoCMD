@@ -25,7 +25,11 @@ function Resolve-CvAudioChannels {
     if ($t -lt 1) { $t = 2 }
     $ch = $t; $capped = $false
     if ($SourceChannels -ge 1 -and $ch -gt $SourceChannels) { $ch = $SourceChannels; $capped = $true }
-    [pscustomobject]@{ Channels = $ch; Target = $t; Capped = $capped }
+    [pscustomobject]@{
+        Channels = $ch
+        Target   = $t
+        Capped   = $capped
+    }
 }
 
 function Resolve-CvDownmixMode {
@@ -245,7 +249,13 @@ function Select-AudioMulti {
         foreach ($idx in $ordered) {
             $s = $pref | Where-Object { [int]$_.index -eq $idx } | Select-Object -First 1
             $sel = ConvertTo-AudioSel $s
-            $result += [pscustomobject]@{ Index = $sel.Index; Language = $sel.Language; Channels = $sel.Channels; Is51 = $sel.Is51; Default = ($idx -eq $defIdx) }
+            $result += [pscustomobject]@{
+                Index    = $sel.Index
+                Language = $sel.Language
+                Channels = $sel.Channels
+                Is51     = $sel.Is51
+                Default  = ($idx -eq $defIdx)
+            }
         }
         return $result
     }
@@ -323,7 +333,12 @@ function Select-AudioFallback {
     }
     Write-Host ''
     # Devolver la seleccion con el idioma ELEGIDO (no el del tag original).
-    return [pscustomobject]@{ Index = $sel.Index; Language = $lang; Channels = $sel.Channels; Is51 = $sel.Is51 }
+    return [pscustomobject]@{
+        Index    = $sel.Index
+        Language = $lang
+        Channels = $sel.Channels
+        Is51     = $sel.Is51
+    }
 }
 
 function Invoke-AudioAsk {
@@ -335,7 +350,11 @@ function Invoke-AudioAsk {
         vacio, cae al comportamiento clasico 0:a:0).
     #>
     param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)]$Prof, [Parameter(Mandatory)]$Info)
-    $res    = [ordered]@{ Skip = $false; Tracks = @(); Manual = $false }
+    $res    = [ordered]@{
+        Skip   = $false
+        Tracks = @()
+        Manual = $false
+    }
     $isCopy = ($Prof.AudioEncoder -eq 'copy')
     $file   = $Info.format.filename
     $adur   = Get-MediaDuration $Info
@@ -380,7 +399,13 @@ function Invoke-AudioAsk {
             $res.Manual = $true   # no habia idioma preferido
         }
         $lang = if ($sel.Language) { "$($sel.Language)" } else { 'und' }
-        $sels = @([pscustomobject]@{ Index = $sel.Index; Language = $lang; Channels = $sel.Channels; Is51 = $sel.Is51; Default = $true })
+        $sels = @([pscustomobject]@{
+            Index    = $sel.Index
+            Language = $lang
+            Channels = $sel.Channels
+            Is51     = $sel.Is51
+            Default  = $true
+        })
     }
 
     # copy CON multipista: se copian las pistas elegidas (no se recodifican).
@@ -409,7 +434,13 @@ function Invoke-AudioAsk {
                 Write-CvLog 'AUDIO' ("[SYNC] - Audio y video inician a la vez [OK] (pista {0})" -f $s.Index)
             }
         }
-        $tracks += [pscustomobject]@{ Index = [int]$s.Index; Is51 = [bool]$s.Is51; Sync = [double]$sync; Lang = $lang; Default = [bool]$s.Default }
+        $tracks += [pscustomobject]@{
+            Index   = [int]$s.Index
+            Is51    = [bool]$s.Is51
+            Sync    = [double]$sync
+            Lang    = $lang
+            Default = [bool]$s.Default
+        }
         if ($Context.Debug) { Write-CvLog 'AUDIO' ("[INFO] - Pista {0} (idioma={1}, canales={2}, default={3})" -f $s.Index, $lang, $s.Channels, $s.Default) }
     }
     $res.Tracks = @($tracks)

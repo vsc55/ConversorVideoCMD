@@ -98,6 +98,11 @@ Write-Host "`nGet-CvConfigDefaultValue (Config)" -ForegroundColor Cyan
 Assert-Eq 'console/sepWidth = 64'         64  (Get-CvConfigDefaultValue 'console/sepWidth')
 Assert-Eq 'console/progressBarWidth = 20' 20  (Get-CvConfigDefaultValue 'console/progressBarWidth')
 Assert-Eq 'console/windowWidth = 150'    150  (Get-CvConfigDefaultValue 'console/windowWidth')
+Assert-Eq 'behavior/promptTimeoutStopOnType def true' $true (Get-CvConfigDefaultValue 'behavior/promptTimeoutStopOnType')
+Assert-True 'help promptTimeoutStopOnType' ((Get-CvConfigHelp).Contains('behavior/promptTimeoutStopOnType'))
+Assert-Eq 'encode/anamorphic def square' 'square' (Get-CvConfigDefaultValue 'encode/anamorphic')
+Assert-Eq 'promptTimeout/anamorphic def 10' 10 (Get-CvConfigDefaultValue 'behavior/promptTimeout/anamorphic')
+Assert-True 'help encode/anamorphic' ((Get-CvConfigHelp).Contains('encode/anamorphic'))
 Assert-Eq 'ruta inexistente -> null'    $null (Get-CvConfigDefaultValue 'no/existe/aqui')
 
 # ================================================================================================
@@ -243,6 +248,41 @@ Assert-Eq 'MediaDuration'   3236 (Get-MediaDuration $infoDur)
 Assert-Eq 'VideoSize'  '1920x1080' (Get-VideoSize ([pscustomobject]@{ width = 1920; height = 1080 }))
 Assert-Eq 'Get-Tag title' 'Hola' (Get-Tag ([pscustomobject]@{ tags = [pscustomobject]@{ title = 'Hola' } }) 'title')
 Assert-Eq 'Get-Tag ausente -> null' $null (Get-Tag ([pscustomobject]@{ tags = [pscustomobject]@{} }) 'title')
+
+# Get-CvDisplayWidth: ancho mostrado = almacenado x SAR (anamorfico)
+Assert-Eq 'DisplayWidth SAR 1:1'      1920 (Get-CvDisplayWidth -Width 1920 -Sar '1:1')
+Assert-Eq 'DisplayWidth SAR vacio'    1920 (Get-CvDisplayWidth -Width 1920 -Sar '')
+Assert-Eq 'DisplayWidth SAR N/A'      1920 (Get-CvDisplayWidth -Width 1920 -Sar 'N/A')
+Assert-Eq 'DisplayWidth SAR 0:1'      1920 (Get-CvDisplayWidth -Width 1920 -Sar '0:1')
+Assert-Eq 'DisplayWidth anamorf 115:87' 2538 (Get-CvDisplayWidth -Width 1920 -Sar '115:87')
+Assert-Eq 'DisplayWidth ancho 0'         0 (Get-CvDisplayWidth -Width 0 -Sar '115:87')
+
+# Get-CvMaxWidthResize: compara ANCHO MOSTRADO; con anamorfico apunta a tw = MaxWidth/SAR
+Assert-Eq 'MaxWidth cuadrado no supera'  ''       (Get-CvMaxWidthResize -Width 1280 -Sar '1:1'    -MaxWidth 1920)
+Assert-Eq 'MaxWidth cuadrado supera'     '1280:-2' (Get-CvMaxWidthResize -Width 1920 -Sar '1:1'    -MaxWidth 1280)
+Assert-Eq 'MaxWidth anamorf dispara'     '968:-2'  (Get-CvMaxWidthResize -Width 1920 -Sar '115:87' -MaxWidth 1280)
+Assert-Eq 'MaxWidth anamorf no supera'   ''        (Get-CvMaxWidthResize -Width 1920 -Sar '115:87' -MaxWidth 2560)
+Assert-Eq 'MaxWidth sin SAR = clasico'   '1280:-2' (Get-CvMaxWidthResize -Width 1920 -Sar ''       -MaxWidth 1280)
+Assert-Eq 'MaxWidth <=0 -> vacio'        ''        (Get-CvMaxWidthResize -Width 1920 -Sar '1:1'    -MaxWidth 0)
+Assert-Eq 'MaxWidth no amplia origen'    ''        (Get-CvMaxWidthResize -Width 640  -Sar '1:1'    -MaxWidth 1280)
+
+# Get-CvResize: combina anamorfico (keep/square/squareheight) + maxWidth. Ejemplo: 1920x1072 SAR 115:87
+Assert-Eq 'Resize keep=clasico'          '968:-2'          (Get-CvResize -Width 1920 -Height 1072 -Sar '115:87' -MaxWidth 1280 -Anamorphic 'keep')
+Assert-Eq 'Resize keep sin maxWidth'     ''                (Get-CvResize -Width 1920 -Height 1072 -Sar '115:87' -MaxWidth 0    -Anamorphic 'keep')
+Assert-Eq 'Resize square por ancho'      '1920:810,setsar=1' (Get-CvResize -Width 1920 -Height 1072 -Sar '115:87' -MaxWidth 0    -Anamorphic 'square')
+Assert-Eq 'Resize square + maxWidth capa' '1280:540,setsar=1' (Get-CvResize -Width 1920 -Height 1072 -Sar '115:87' -MaxWidth 1280 -Anamorphic 'square')
+Assert-Eq 'Resize squareheight por alto' '2538:1072,setsar=1' (Get-CvResize -Width 1920 -Height 1072 -Sar '115:87' -MaxWidth 0    -Anamorphic 'squareheight')
+Assert-Eq 'Resize square SAR1:1=clasico' '1280:-2'         (Get-CvResize -Width 1920 -Height 1072 -Sar '1:1'    -MaxWidth 1280 -Anamorphic 'square')
+Assert-Eq 'Resize square SAR1:1 sin max' ''                (Get-CvResize -Width 1920 -Height 1072 -Sar '1:1'    -MaxWidth 0    -Anamorphic 'square')
+Assert-Eq 'Resize dims invalidas -> ""'  ''                (Get-CvResize -Width 0    -Height 1072 -Sar '115:87' -MaxWidth 1280 -Anamorphic 'square')
+
+# Get-CvAnamorphicWarning: aviso SIEMPRE si SAR != 1 (tamaño almacenado != mostrado)
+Assert-Eq   'AnamWarn cuadrado -> ""'     '' (Get-CvAnamorphicWarning -Width 1920 -Height 1080 -Sar '1:1'    -Anamorphic 'keep')
+Assert-Eq   'AnamWarn SAR vacio -> ""'    '' (Get-CvAnamorphicWarning -Width 1920 -Height 1080 -Sar ''       -Anamorphic 'keep')
+Assert-Eq   'AnamWarn dims invalidas'     '' (Get-CvAnamorphicWarning -Width 0    -Height 1080 -Sar '115:87' -Anamorphic 'keep')
+Assert-True 'AnamWarn keep: se VE a 2538'    ((Get-CvAnamorphicWarning -Width 1920 -Height 1072 -Sar '115:87' -Anamorphic 'keep')        -match '2538x1072')
+Assert-True 'AnamWarn keep: menciona keep'   ((Get-CvAnamorphicWarning -Width 1920 -Height 1072 -Sar '115:87' -Anamorphic 'keep')        -match "keep")
+Assert-True 'AnamWarn square: menciona square' ((Get-CvAnamorphicWarning -Width 1920 -Height 1072 -Sar '115:87' -Anamorphic 'square')    -match "square")
 
 # ================================================================================================
 Write-Host "`nAudio (layout / bitrate / rank / seleccion / parseo)" -ForegroundColor Cyan

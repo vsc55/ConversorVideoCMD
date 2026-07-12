@@ -148,6 +148,29 @@ function Select-VideoInteractive {
     return $chosen
 }
 
+function Invoke-CvAnamorphicAsk {
+    <#
+        Pregunta interactiva en PREPARAR al detectar video ANAMORFICO (SAR != 1: el tamaño almacenado
+        no es el que se ve). Devuelve el modo elegido ('keep' | 'square' | 'squareheight'), preseleccionando
+        el configurado ($Context.Anamorphic): ENTER (o expirar el timeout 'anamorphic') lo acepta. Solo
+        se llama al RECODIFICAR (en copy no se puede cambiar el SAR sin recodificar).
+    #>
+    param([Parameter(Mandatory)]$Context, [int]$Width, [int]$Height, [string]$Sar)
+    $dw   = Get-CvDisplayWidth -Width $Width -Sar $Sar
+    $cur  = "$($Context.Anamorphic)".ToLower()
+    $num  = @{ '1' = 'keep'; '2' = 'square'; '3' = 'squareheight' }
+    $rev  = @{ 'keep' = '1'; 'square' = '2'; 'squareheight' = '3' }
+    $lbl  = @{ 'keep' = 'mantener SAR'; 'square' = 'cuadrar por ancho'; 'squareheight' = 'cuadrar por alto' }
+    $defN = if ($rev.ContainsKey($cur)) { $rev[$cur] } else { '2' }
+    Write-CvLog 'VIDEO' ("[ANAMORFICO] - Almacena {0}x{1} pero SE VE a {2}x{1} (SAR {3}); el tamano real no es el que reporta el contenedor." -f $Width, $Height, $dw, $Sar) -Indent 3
+    $prompt = "   [VIDEO] [ANAMORFICO] - [1] mantener SAR / [2] cuadrar por ancho / [3] cuadrar por alto  [ENTER={0}={1}]" -f $defN, $lbl[$num[$defN]]
+    $ans = (Read-CvLine -Prompt $prompt -TimeoutSec (Get-CvPromptTimeout $Context 'anamorphic') -TimeoutDefault $defN).Trim()
+    Write-Host ''
+    if (-not $ans) { $ans = $defN }
+    if ($num.ContainsKey($ans)) { return $num[$ans] }
+    return $cur
+}
+
 function Invoke-VideoAsk {
     <#
         Hace las preguntas/detecciones de video y devuelve un objeto:
@@ -160,7 +183,14 @@ function Invoke-VideoAsk {
         [Parameter(Mandatory)]$Info,
         [bool]$ForceBorder = $false
     )
-    $res = [ordered]@{ Skip = $false; Index = -1; Crop = ''; Resize = ''; Anim = $false; Manual = $false }
+    $res = [ordered]@{
+        Skip   = $false
+        Index  = -1
+        Crop   = ''
+        Resize = ''
+        Anim   = $false
+        Manual = $false
+    }
 
     # ---- Seleccion de pista de video ----
     # Se elige SIEMPRE (aunque sea copy) para congelar el indice y usarlo tanto al copiar como
@@ -181,10 +211,26 @@ function Invoke-VideoAsk {
     $res.Index = [int]$vstream.index
     $vpos      = Get-VideoStreamPos -Info $Info -Index $res.Index
 
+    # Video ANAMORFICO (SAR != 1: el tamaño almacenado no es el que se ve). Se detecta SIEMPRE.
+    $vW = [int]$vstream.width; $vH = [int]$vstream.height; $vSar = "$($vstream.sample_aspect_ratio)"
+    $isAnam   = ($vW -gt 0 -and (Get-CvDisplayWidth -Width $vW -Sar $vSar) -ne $vW)
+    $anamMode = "$($Context.Anamorphic)"
+
     if ($Prof.VideoEncoder -eq 'copy') {
+        # En copy no se recodifica: no se puede cambiar el SAR. Solo avisar del tamaño real.
+        if ($isAnam) {
+            $w = Get-CvAnamorphicWarning -Width $vW -Height $vH -Sar $vSar -Anamorphic $anamMode
+            Write-CvLog 'VIDEO' ("[AVISO] - {0} (copy: la pista se copia sin cambios)" -f $w) -Indent 3
+        }
         if ($Context.Debug) { Write-CvLog 'VIDEO' '[SKIP] - Se copiara la pista de video' }
         $res.Skip = $true
         return [pscustomobject]$res
+    }
+
+    # Recodificando: si es anamorfico, preguntar que hacer (default = lo configurado en encode.anamorphic).
+    if ($isAnam) {
+        $anamMode = Invoke-CvAnamorphicAsk -Context $Context -Width $vW -Height $vH -Sar $vSar
+        $res.Manual = $true
     }
 
     # ---- Deteccion de bordes ----
@@ -373,14 +419,29 @@ function Invoke-VideoAsk {
     # aspecto y altura par), y si ya es <= no se reescala (Resize vacio). ChangeSize tiene prioridad.
     if ($Prof.ChangeSize) {
         $res.Resize = $Prof.ChangeSize
-    } elseif ($null -ne $Prof.MaxWidth -and [int]$Prof.MaxWidth -gt 0) {
-        $mw = [int]$Prof.MaxWidth
-        $sw = [int]$vstream.width
-        if ($sw -gt $mw) {
-            $res.Resize = "{0}:-2" -f $mw
-            Write-CvLog 'VIDEO' ("[RESIZE] - Origen {0}px de ancho > {1}px: se reescala a {1}px." -f $sw, $mw) -Indent 3
-        } elseif ($Context.Debug) {
-            Write-CvLog 'VIDEO' ("[RESIZE] - Origen {0}px de ancho <= {1}px: no se reescala." -f $sw, $mw)
+    } else {
+        # Reescalado por ancho maximo y/o tratamiento anamorfico (Get-CvResize). Se compara contra el
+        # ancho MOSTRADO (display = almacenado x SAR): en video anamorfico (SAR != 1) el que importa es
+        # el que se ve. Con Anamorphic 'square'/'squareheight' se cuadra a pixeles cuadrados (setsar=1)
+        # aunque no haya maxWidth; con 'keep' solo se capa por maxWidth conservando el SAR del origen.
+        $mw   = if ($null -ne $Prof.MaxWidth -and [int]$Prof.MaxWidth -gt 0) { [int]$Prof.MaxWidth } else { 0 }
+        $sw   = [int]$vstream.width
+        $sh   = [int]$vstream.height
+        $sar  = "$($vstream.sample_aspect_ratio)"
+        $dw   = Get-CvDisplayWidth -Width $sw -Sar $sar
+        $anam = $anamMode   # modo elegido en la pregunta anamorfica (o el configurado si no se pregunto)
+        $rz   = Get-CvResize -Width $sw -Height $sh -Sar $sar -MaxWidth $mw -Anamorphic $anam
+        if ($rz) {
+            $res.Resize = $rz
+            if ($rz -match 'setsar=1') {
+                Write-CvLog 'VIDEO' ("[RESIZE] - Anamorfico ({0}): SAR {1} (mostrado {2}x{3}) -> pixeles cuadrados {4}." -f $anam, $sar, $dw, $sh, $rz) -Indent 3
+            } elseif ($dw -ne $sw) {
+                Write-CvLog 'VIDEO' ("[RESIZE] - Anamorfico: ancho mostrado {0}px (almacenado {1}px, SAR {2}) > {3}px: se reescala a {4}." -f $dw, $sw, $sar, $mw, $rz) -Indent 3
+            } else {
+                Write-CvLog 'VIDEO' ("[RESIZE] - Origen {0}px de ancho > {1}px: se reescala a {2}." -f $sw, $mw, $rz) -Indent 3
+            }
+        } elseif ($Context.Debug -and $mw -gt 0) {
+            Write-CvLog 'VIDEO' ("[RESIZE] - Ancho mostrado {0}px <= {1}px: no se reescala." -f $dw, $mw)
         }
     }
     if ($res.Resize -and $Context.Debug) {

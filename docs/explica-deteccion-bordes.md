@@ -43,8 +43,8 @@ ffmpeg -ss <inicio> -to <fin> -i <archivo> [-map 0:<pista>] -vf cropdetect -f nu
 Un solo escaneo al inicio se equivoca a menudo: los primeros minutos pueden ser créditos, un logo, una escena oscura o un plano con formato distinto al del grueso de la película. Por eso se muestrea en **`border.samples`** puntos repartidos **uniformemente** entre `border.start` y casi el final del vídeo, y cada punto **vota** su recorte.
 
 - **`border.start`** (def. 120): segundo del primer punto.
-- **`border.duration`** (def. 120): segundos que escanea **cada** punto. No es un presupuesto que se reparta: con `samples=9` son **9 escaneos de `duration` segundos** cada uno (más puntos = más tiempo total de análisis, pero cada muestra conserva su ventana completa).
-- **`border.samples`** (def. 9): número de puntos. Con `1` (o duración desconocida) se comporta como el escaneo único clásico.
+- **`border.duration`** (def. 120): segundos que escanea **cada** punto. No es un presupuesto que se reparta: con `samples=6` son **6 escaneos de `duration` segundos** cada uno (más puntos = más tiempo total de análisis, pero cada muestra conserva su ventana completa).
+- **`border.samples`** (def. 6): número de puntos. Con `1` (o duración desconocida) se comporta como el escaneo único clásico.
 
 Ejemplo de reparto en un vídeo de 46 min (`start=120`, `duration=120`):
 
@@ -96,7 +96,7 @@ flowchart TD
 |---|---|---|
 | `start` | `120` | Segundo del primer punto (se ajusta solo si el vídeo es más corto). |
 | `duration` | `120` | Segundos que escanea **cada** punto. |
-| `samples` | `9` | Nº de puntos repartidos por el vídeo (`1` = escaneo único clásico). |
+| `samples` | `6` | Nº de puntos repartidos por el vídeo (`1` = escaneo único clásico). |
 | `autoAcceptPct` | `60` | % de votos del más votado para auto-aceptar. `100` = exigir unanimidad. |
 | `autoAcceptMinMargin` | `2` | Margen mínimo de votos sobre el 2º (además del %). `0` = solo cuenta el %. |
 | `autoSamples` / `autoDuration` | `3` / `5` | Pre-escaneo del modo `'auto'`: puntos y segundos por punto (mín. 5 s/punto por el escáner). |

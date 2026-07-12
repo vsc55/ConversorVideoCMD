@@ -270,8 +270,26 @@ if ($needPrepare) {
             profile        = $cfgProfile
             ffmpegVersion  = $ctx.FFmpegVersion
             aacgainVersion = $ctx.AacGainVersion
-            video          = @{ skip = $vAsk.Skip; index = $vAsk.Index; crop = $vAsk.Crop; resize = $vAsk.Resize; anim = $vAsk.Anim; hdr = [bool](Test-CvHdr -Info $info -Index $(if ($null -ne $vAsk.Index) { [int]$vAsk.Index } else { -1 })) }
-            audio          = @{ skip = $aAsk.Skip; tracks = @($aAsk.Tracks | ForEach-Object { @{ index = $_.Index; is51 = $_.Is51; sync = $_.Sync; lang = $_.Lang; default = $_.Default } }) }
+            video          = @{
+                skip   = $vAsk.Skip
+                index  = $vAsk.Index
+                crop   = $vAsk.Crop
+                resize = $vAsk.Resize
+                anim   = $vAsk.Anim
+                hdr    = [bool](Test-CvHdr -Info $info -Index $(if ($null -ne $vAsk.Index) { [int]$vAsk.Index } else { -1 }))
+            }
+            audio          = @{
+                skip   = $aAsk.Skip
+                tracks = @($aAsk.Tracks | ForEach-Object {
+                    @{
+                        index   = $_.Index
+                        is51    = $_.Is51
+                        sync    = $_.Sync
+                        lang    = $_.Lang
+                        default = $_.Default
+                    }
+                })
+            }
             subtitles      = @($subSel)
         }
         Write-CvJob -Context $ctx -Name $name -Job $job
@@ -381,7 +399,12 @@ while ($didAny) {
             # se marca para no reintentar en bucle y se pasa al siguiente.
             if (-not (Confirm-CvTool -Context $ctx -Name 'ffmpeg' -Version $ffVer)) {
                 Write-CvLog 'WORKER' ("[ERR] - No se pudo obtener ffmpeg {0}; se omite este archivo" -f $ffVer)
-                $results[$name] = @{ Status = 'ERROR'; Reason = ("no se pudo obtener ffmpeg {0}" -f $ffVer); Attempts = 1; Elapsed = $null }
+                $results[$name] = @{
+                    Status   = 'ERROR'
+                    Reason   = ("no se pudo obtener ffmpeg {0}" -f $ffVer)
+                    Attempts = 1
+                    Elapsed  = $null
+                }
                 [void]$skip.Add($name); continue
             }
             $didAny = $true
@@ -394,7 +417,12 @@ while ($didAny) {
             $info = Get-MediaInfo -Context $jctx -File $f.FullName
             if ($null -eq $info) {
                 Write-CvLog 'WORKER' '[ERR] - No se pudo leer el archivo; se descarta'
-                $results[$name] = @{ Status = 'ERROR'; Reason = 'no se pudo leer el archivo'; Attempts = 1; Elapsed = $null }
+                $results[$name] = @{
+                    Status   = 'ERROR'
+                    Reason   = 'no se pudo leer el archivo'
+                    Attempts = 1
+                    Elapsed  = $null
+                }
                 [void]$skip.Add($name); continue
             }
 
@@ -416,7 +444,13 @@ while ($didAny) {
                 # original; sin pistas (copy clasico) el multiplex cae a 0:a:0.
                 if ($jctx.Debug) { Write-CvLog 'AUDIO' '[SKIP] - se omite recodificar (copy)' } else { Write-Host ' - Audio (copy)' }
                 foreach ($t in $aTracks) {
-                    $audioTracks += [pscustomobject]@{ Source = 'copy'; File = ''; Index = [int]$t.Index; Lang = "$($t.Lang)"; Default = [bool]$t.Default }
+                    $audioTracks += [pscustomobject]@{
+                        Source  = 'copy'
+                        File    = ''
+                        Index   = [int]$t.Index
+                        Lang    = "$($t.Lang)"
+                        Default = [bool]$t.Default
+                    }
                 }
             }
             else {
@@ -430,7 +464,13 @@ while ($didAny) {
                     $srcCh = if ($aStream -and $aStream.channels) { [int]$aStream.channels } else { 0 }
                     $outA = Invoke-AudioRun -Context $jctx -Prof $prof -File $f.FullName -Sync ([double]$t.Sync) -Index ([int]$t.Index) -Is51 ([bool]$t.Is51) -Duration $adur -SourceChannels $srcCh -Pos $ti
                     if (-not $outA) { $audioOk = $false; break }
-                    $audioTracks += [pscustomobject]@{ Source = 'temp'; File = "$outA"; Index = [int]$t.Index; Lang = "$($t.Lang)"; Default = [bool]$t.Default }
+                    $audioTracks += [pscustomobject]@{
+                        Source  = 'temp'
+                        File    = "$outA"
+                        Index   = [int]$t.Index
+                        Lang    = "$($t.Lang)"
+                        Default = [bool]$t.Default
+                    }
                 }
             }
 
@@ -472,10 +512,20 @@ while ($didAny) {
                 # con varias pistas el resumen las enumera todas de la salida (no usa este indice).
                 $sumAIdx = if ($aTracks.Count -gt 0) { [int]$aTracks[0].Index } else { -1 }
                 Write-ConversionSummary -Context $jctx -File $f.FullName -Info $info -Output $out -Elapsed $sw.Elapsed -Prof $prof -AudioIndex $sumAIdx
-                $results[$name] = @{ Status = 'OK'; Reason = ''; Attempts = ([int]$fail[$name] + 1); Elapsed = $sw.Elapsed }
+                $results[$name] = @{
+                    Status   = 'OK'
+                    Reason   = ''
+                    Attempts = ([int]$fail[$name] + 1)
+                    Elapsed  = $sw.Elapsed
+                }
             } else {
                 if (-not $failReason) { $failReason = 'no se genero la salida' }
-                $results[$name] = @{ Status = 'ERROR'; Reason = $failReason; Attempts = ([int]$fail[$name] + 1); Elapsed = $null }
+                $results[$name] = @{
+                    Status   = 'ERROR'
+                    Reason   = $failReason
+                    Attempts = ([int]$fail[$name] + 1)
+                    Elapsed  = $null
+                }
                 $n = 1 + [int]$fail[$name]; $fail[$name] = $n
                 Write-Host ''
                 if ($n -ge $maxRetries) {
@@ -493,7 +543,12 @@ while ($didAny) {
             # Error inesperado: no abortar todo el lote; contar el fallo y pasar al siguiente.
             $n = 1 + [int]$fail[$name]; $fail[$name] = $n
             $emsg = "$($_.Exception.Message)"
-            $results[$name] = @{ Status = 'ERROR'; Reason = ("error inesperado: {0}" -f $emsg); Attempts = $n; Elapsed = $null }
+            $results[$name] = @{
+                Status   = 'ERROR'
+                Reason   = ("error inesperado: {0}" -f $emsg)
+                Attempts = $n
+                Elapsed  = $null
+            }
             Write-CvLog 'WORKER' ("[ERR] - Error inesperado en {0}: {1}" -f $name, $emsg)
             if ($n -ge $maxRetries) {
                 [void]$skip.Add($name)

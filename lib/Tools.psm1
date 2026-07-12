@@ -366,16 +366,32 @@ function Test-CvNvenc {
     #>
     param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)][string]$Version)
     $exe = Join-Path (Get-CvToolDir -Context $Context -Name 'ffmpeg' -Version $Version) 'ffmpeg.exe'
-    if (-not (Test-Path -LiteralPath $exe)) { return [pscustomobject]@{ Ok = $false; Encoder = ''; Causes = @('ffmpeg no instalado') } }
+    if (-not (Test-Path -LiteralPath $exe)) {
+        return [pscustomobject]@{
+            Ok      = $false
+            Encoder = ''
+            Causes  = @('ffmpeg no instalado')
+        }
+    }
     $causes = @()
     foreach ($enc in 'hevc_nvenc','h264_nvenc') {
         $r = Invoke-ToolCapture -Exe $exe -Arguments @(
             '-hide_banner','-f','lavfi','-i','color=c=black:s=320x240:d=0.1','-c:v',$enc,'-f','null','-'
         ) -Context $Context
-        if ($r.ExitCode -eq 0) { return [pscustomobject]@{ Ok = $true; Encoder = $enc; Causes = @() } }
+        if ($r.ExitCode -eq 0) {
+            return [pscustomobject]@{
+                Ok      = $true
+                Encoder = $enc
+                Causes  = @()
+            }
+        }
         if ($causes.Count -eq 0) { $causes = @(Get-CvNvencCause $r.StdErr) }
     }
-    return [pscustomobject]@{ Ok = $false; Encoder = ''; Causes = @($causes) }
+    return [pscustomobject]@{
+        Ok      = $false
+        Encoder = ''
+        Causes  = @($causes)
+    }
 }
 
 function Get-CvNvencCause {

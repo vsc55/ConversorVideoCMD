@@ -20,6 +20,7 @@ Documentación técnica y detallada del conversor. Para la visión general y la 
 | [explica-control-tasa.md](explica-control-tasa.md) | Qué son **CRF**, **QMIN/QMAX** y **QP**, para qué sirven, cómo se traducen a ffmpeg y cómo elegir valores (escala 0–51). |
 | [explica-tonemap-hdr.md](explica-tonemap-hdr.md) | Por qué un **4K HDR** se ve "lavado" al pasarlo a SDR y cómo el conversor lo **tone-mapea** a BT.709 (detección `Test-CvHdr`, filtro `libplacebo` en GPU, clave `encode.tonemapHdr`). |
 | [explica-deteccion-bordes.md](explica-deteccion-bordes.md) | Detección de bordes negros: escaneo `cropdetect` multipunto, reparto por el vídeo, y la auto-aceptación por votos (% + margen) con matriz de decisión. |
+| [explica-anamorfico.md](explica-anamorfico.md) | Vídeo **anamórfico** (SAR ≠ 1): por qué el tamaño almacenado no es el que se ve, la pregunta de PREPARAR y los modos `encode.anamorphic` (`square`/`squareheight`/`keep`) que de-anamorfizan a píxeles cuadrados. |
 | [caso-rendimiento-subtitulos.md](caso-rendimiento-subtitulos.md) | Nota técnica: diagnóstico de la lentitud de PREPARAR con subtítulos (conteo de cues vía tag `NUMBER_OF_FRAMES` en vez de demultiplexar), cómo se localizó y la mejora medida. |
 | [ref-gotchas.md](ref-gotchas.md) | **Trampas y cosas a tener en cuenta**: fallos reales ya corregidos y reglas para no repetirlos (PowerShell tipos/números, ffmpeg/códecs, NVENC/GPU, verificación). Revisar antes de tocar esas áreas. |
 

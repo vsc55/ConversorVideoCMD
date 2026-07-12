@@ -187,6 +187,100 @@ function Get-VideoSize {
     "{0}x{1}" -f [int]$VideoStream.width, [int]$VideoStream.height
 }
 
+function Get-CvDisplayWidth {
+    <#
+        Ancho MOSTRADO (display) del video = ancho almacenado x SAR (sample aspect ratio).
+        En video anamorfico (pixeles no cuadrados, p.ej. SAR 115:87) el ancho que se ve NO es el
+        almacenado: un 1920x1072 con SAR 115:87 se muestra a ~2538px de ancho. Si el SAR es 1:1,
+        vacio o desconocido, el ancho mostrado es igual al almacenado.
+    #>
+    param([int]$Width, [string]$Sar)
+    if ($Width -le 0) { return 0 }
+    if ($Sar -match '^(\d+):(\d+)$') {
+        $n = [int]$Matches[1]; $d = [int]$Matches[2]
+        if ($n -gt 0 -and $d -gt 0) { return [int][math]::Round(($Width * $n) / $d) }
+    }
+    return $Width
+}
+
+function Get-CvMaxWidthResize {
+    <#
+        Decide el reescalado por ANCHO MAXIMO comparando el ancho MOSTRADO (no el almacenado): si el
+        ancho de display (Width x SAR) supera MaxWidth, devuelve "tw:-2" (ancho de almacenamiento par,
+        altura auto par). El objetivo es que el ancho MOSTRADO caiga a MaxWidth conservando el aspecto
+        (DAR) del origen: como scale mantiene el DAR, basta con escalar el almacenamiento a tw = MaxWidth/SAR.
+        Nunca amplia por encima del origen. Devuelve '' si no hay que reescalar (o datos invalidos).
+        Con SAR 1:1 (pixeles cuadrados) equivale al clasico "MaxWidth:-2".
+    #>
+    param([int]$Width, [string]$Sar, [int]$MaxWidth)
+    if ($Width -le 0 -or $MaxWidth -le 0) { return '' }
+    $dw = Get-CvDisplayWidth -Width $Width -Sar $Sar
+    if ($dw -le $MaxWidth) { return '' }
+    $n = 1; $d = 1
+    if ($Sar -match '^(\d+):(\d+)$' -and [int]$Matches[1] -gt 0 -and [int]$Matches[2] -gt 0) {
+        $n = [int]$Matches[1]; $d = [int]$Matches[2]
+    }
+    $tw = [int][math]::Round(($MaxWidth * $d) / $n)   # ancho de almacenamiento cuyo display = MaxWidth
+    if ($tw % 2 -ne 0) { $tw-- }                      # par (yuv420 exige dimensiones pares)
+    if ($tw -lt 2) { $tw = 2 }
+    if ($tw -gt $Width) { $tw = $Width }              # no ampliar el almacenamiento por encima del origen
+    "{0}:-2" -f $tw
+}
+
+function Get-CvResize {
+    <#
+        Decide el filtro de reescalado (valor para `scale=`) combinando el ancho maximo (MaxWidth) con
+        el tratamiento del video ANAMORFICO (SAR != 1). Devuelve '' si no hay que reescalar.
+          - Anamorphic 'keep' (o SAR 1:1): comportamiento clasico (Get-CvMaxWidthResize) -> conserva el
+            caracter anamorfico y solo capa por ancho MOSTRADO.
+          - 'square'       : cuadra a pixeles cuadrados fijando el ANCHO de almacenamiento (Width; no
+            amplia). Sale "W:H,setsar=1" con la proporcion (DAR) del origen conservada.
+          - 'squareheight' : cuadra fijando el ALTO (Height); el ancho pasa a ser el MOSTRADO (amplia).
+          En 'square'/'squareheight', MaxWidth sigue capando el ancho de salida (y baja el alto a la vez).
+        No se usa aqui para ChangeSize (valor literal, tiene prioridad y se resuelve fuera).
+    #>
+    param([int]$Width, [int]$Height, [string]$Sar, [int]$MaxWidth = 0, [string]$Anamorphic = 'keep')
+    if ($Width -le 0 -or $Height -le 0) { return '' }
+    $sn = 1; $sd = 1
+    if ($Sar -match '^(\d+):(\d+)$' -and [int]$Matches[1] -gt 0 -and [int]$Matches[2] -gt 0) { $sn = [int]$Matches[1]; $sd = [int]$Matches[2] }
+    $isAnam = ($sn -ne $sd)
+    $mode   = "$Anamorphic".ToLower()
+
+    if ($isAnam -and ($mode -eq 'square' -or $mode -eq 'squareheight')) {
+        $dispW  = [int][math]::Round(($Width * $sn) / $sd)   # ancho mostrado del origen
+        $darNum = $Width * $sn; $darDen = $Height * $sd      # DAR = darNum/darDen (aspecto mostrado)
+        $outW   = if ($mode -eq 'square') { $Width } else { $dispW }
+        if ($MaxWidth -gt 0 -and $outW -gt $MaxWidth) { $outW = $MaxWidth }  # capa por MaxWidth
+        if ($outW -gt $dispW) { $outW = $dispW }             # nunca ampliar mas que el mostrado original
+        if ($outW % 2 -ne 0) { $outW-- }
+        if ($outW -lt 2) { $outW = 2 }
+        $outH = [int][math]::Round(($outW * $darDen) / $darNum)   # H = W / DAR (conserva proporcion)
+        if ($outH % 2 -ne 0) { $outH-- }
+        if ($outH -lt 2) { $outH = 2 }
+        return "{0}:{1},setsar=1" -f $outW, $outH
+    }
+    Get-CvMaxWidthResize -Width $Width -Sar $Sar -MaxWidth $MaxWidth
+}
+
+function Get-CvAnamorphicWarning {
+    <#
+        Si la pista es ANAMORFICA (SAR != 1: el tamaño ALMACENADO que reporta el contenedor NO es el que
+        se VE), devuelve un texto de aviso para PREPARAR con almacenado vs mostrado y que hara el modo
+        Anamorphic configurado. Devuelve '' si los pixeles son cuadrados (nada que avisar). Se comprueba
+        SIEMPRE, aunque no haya maxWidth ni reescalado, para que el usuario sepa que el tamaño real difiere.
+    #>
+    param([int]$Width, [int]$Height, [string]$Sar, [string]$Anamorphic = 'keep')
+    if ($Width -le 0 -or $Height -le 0) { return '' }
+    $dw = Get-CvDisplayWidth -Width $Width -Sar $Sar
+    if ($dw -eq $Width) { return '' }
+    $acc = switch ("$Anamorphic".ToLower()) {
+        'square'       { "se cuadrara a pixeles cuadrados por ancho (encode.anamorphic='square')" }
+        'squareheight' { "se cuadrara a pixeles cuadrados por alto (encode.anamorphic='squareheight')" }
+        default        { "se conservara el SAR tal cual (encode.anamorphic='keep'; depende de que el reproductor lo respete)" }
+    }
+    "Pista anamorfica: almacena {0}x{1} pero SAR {2} -> se VE a {3}x{1}. {4}." -f $Width, $Height, $Sar, $dw, $acc
+}
+
 function Get-MediaDuration {
     <# Duracion del contenedor en segundos (double), o 0 si ffprobe no la trae. #>
     param([Parameter(Mandatory)]$Info)

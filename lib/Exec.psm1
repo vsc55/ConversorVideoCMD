@@ -145,7 +145,11 @@ function Invoke-ToolCapture {
     $p.WaitForExit()
     $err = $errTask.Result
 
-    return [pscustomobject]@{ ExitCode = $p.ExitCode; StdOut = $out; StdErr = $err }
+    return [pscustomobject]@{
+        ExitCode = $p.ExitCode
+        StdOut   = $out
+        StdErr   = $err
+    }
 }
 
 

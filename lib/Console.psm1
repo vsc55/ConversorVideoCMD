@@ -8,6 +8,12 @@
 # no se hardcodea aqui: la fuente unica es Get-CvConfigDefaults (console.sepWidth).
 $script:CvSepWidth = 0
 function Set-CvSepWidth { param([int]$Width) $script:CvSepWidth = [Math]::Max(1, $Width) }
+
+# Auto-timeout de los prompts: $true (por defecto) = al teclear algo se desactiva el auto y solo ENTER
+# envia; $false = clasico (al expirar envia lo tecleado). Lo fija Start-CvSession desde config
+# (behavior.promptTimeoutStopOnType). Lo usa Read-CvLine.
+$script:CvPromptStopOnType = $true
+function Set-CvPromptStopOnType { param([bool]$Value) $script:CvPromptStopOnType = $Value }
 function Resolve-CvSepWidth {
     <# Ancho a usar: -Width explicito (>0) | el fijado por Set-CvSepWidth | el default de config. #>
     param([int]$Width = 0)
@@ -212,10 +218,11 @@ function Read-CvLine {
     try { $null = [Console]::KeyAvailable } catch { $interactive = $false }
     if (-not $interactive) { return (Read-Host $Prompt) }   # stdin redirigido (tests): sin timeout
 
-    # Con timeout, se avisa en el prompt ("[auto Ns]") y se espera SIN teclear; cada tecla reinicia
-    # el contador de inactividad. Al expirar, si no se ha tecleado nada se devuelve -TimeoutDefault
-    # ('' = como pulsar ENTER = valor por defecto; se puede fijar otra respuesta, p. ej. 'n'/'0');
-    # si se tecleo algo, se respeta lo tecleado. Sin timeout (0), lectura bloqueante clasica.
+    # Con timeout, se avisa en el prompt ("[auto Ns]") y se espera SIN teclear. Al expirar (sin haber
+    # tecleado nada) se devuelve -TimeoutDefault ('' = como pulsar ENTER = valor por defecto; se puede
+    # fijar otra respuesta, p. ej. 'n'/'0'). Comportamiento al TECLEAR: configurable (Set-CvPromptStopOnType,
+    # de behavior.promptTimeoutStopOnType): $true (por defecto) desactiva el auto en cuanto escribes (solo
+    # ENTER envia); $false = clasico (al expirar envia lo tecleado). Sin timeout (0), lectura bloqueante.
     $timed = ($TimeoutSec -gt 0)
     $dhint = if ($timed -and $TimeoutDefault -ne '') { "->{0}" -f $TimeoutDefault } else { '' }
     $ptxt  = if ($timed) { "{0} [auto {1}s{2}]: " -f $Prompt, $TimeoutSec, $dhint } else { "{0}: " -f $Prompt }
@@ -225,10 +232,15 @@ function Read-CvLine {
     while ($true) {
         if ($timed) {
             while (-not [Console]::KeyAvailable) {
-                if ($sw.Elapsed.TotalSeconds -ge $TimeoutSec) {                       # inactividad -> default
+                # Contador de INACTIVIDAD (cada tecla lo reinicia). Con CvPromptStopOnType=$true (por
+                # defecto) el auto SOLO actua mientras no se haya tecleado nada: al escribir algo se
+                # DESACTIVA y solo ENTER envia. Con $false = modo clasico: al expirar envia lo tecleado
+                # (si hay) o el TimeoutDefault (si no hay nada).
+                $canAuto = ($sb.Length -eq 0) -or (-not $script:CvPromptStopOnType)
+                if ($canAuto -and $sw.Elapsed.TotalSeconds -ge $TimeoutSec) {
                     Write-Host ''
-                    if ($sb.Length -gt 0) { return $sb.ToString() }                   # algo tecleado: se respeta
-                    return $TimeoutDefault                                             # nada tecleado: respuesta por defecto
+                    if ($sb.Length -gt 0) { return $sb.ToString() }
+                    return $TimeoutDefault
                 }
                 Start-Sleep -Milliseconds 100
             }
@@ -430,11 +442,23 @@ function Select-FromList {
     for ($i = 0; $i -lt $Options.Count; $i++) {
         $o = $Options[$i]
         if ($o -is [System.Collections.IDictionary]) {
-            $recs += @{ Val = "$($o['Value'])"; Txt = "$($o['Text'])"; Pos = "$($o['Position'])" }
+            $recs += @{
+                Val = "$($o['Value'])"
+                Txt = "$($o['Text'])"
+                Pos = "$($o['Position'])"
+            }
         } elseif ($o -is [psobject] -and $o.PSObject.Properties['Value']) {
-            $recs += @{ Val = "$($o.Value)"; Txt = "$($o.Text)"; Pos = "$(if ($o.PSObject.Properties['Position']) { $o.Position })" }
+            $recs += @{
+                Val = "$($o.Value)"
+                Txt = "$($o.Text)"
+                Pos = "$(if ($o.PSObject.Properties['Position']) { $o.Position })"
+            }
         } else {
-            $recs += @{ Val = "$o"; Txt = $(if ($i -lt $Descriptions.Count) { $Descriptions[$i] } else { '' }); Pos = '' }
+            $recs += @{
+                Val = "$o"
+                Txt = $(if ($i -lt $Descriptions.Count) { $Descriptions[$i] } else { '' })
+                Pos = ''
+            }
         }
     }
     # Reparto por posicion: numeradas = mids (sin Position) + ends; la opcion 0 = 'first' si existe.
