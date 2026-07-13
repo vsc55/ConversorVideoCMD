@@ -34,7 +34,11 @@ function Merge-CvConfig {
 
 function Get-CvVolumeMethods {
     <# FUENTE UNICA de los metodos de normalizacion de volumen validos (el 1o es el fallback). #>
-    @('peak','loudnorm','aacgain')
+    @(
+        'peak'
+        'loudnorm'
+        'aacgain'
+    )
 }
 
 function Resolve-CvOneOf {
@@ -66,7 +70,15 @@ function Get-CvDefaultDownmixCoeffs {
 
 function Get-CvConfigDefaults {
     <# Valores por defecto de config.json (fuente unica: los usa Get-CvConfig y el reset). #>
-    $langs = @('spa','es','esp','es-es','es_es','castellano','spanish')
+    $langs = @(
+        'spa'
+        'es'
+        'esp'
+        'es-es'
+        'es_es'
+        'castellano'
+        'spanish'
+    )
     $dmc   = Get-CvDefaultDownmixCoeffs   # coeficientes por defecto del downmix dialogue (fuente unica)
     [ordered]@{
         downloads = [ordered]@{
@@ -75,7 +87,11 @@ function Get-CvConfigDefaults {
                 type         = 'zip'
                 url          = 'https://github.com/GyanD/codexffmpeg/releases/download/{version}/ffmpeg-{version}-full_build.zip'
                 binPath      = 'ffmpeg-{version}-full_build/bin'
-                files        = @('ffmpeg.exe','ffprobe.exe','ffplay.exe')
+                files        = @(
+                    'ffmpeg.exe'
+                    'ffprobe.exe'
+                    'ffplay.exe'
+                )
                 platform     = 'x86_64'
                 versionExe   = 'ffmpeg.exe'
                 versionArgs  = @('-version')
@@ -173,7 +189,13 @@ function Get-CvConfigDefaults {
         #   se elimina el SAR (se ve igual en cualquier reproductor) conservando la proporcion; maxWidth capa.
         encode    = [ordered]@{
             outputExtension = 'mkv'
-            extensions      = @('avi','flv','mp4','mov','mkv')
+            extensions      = @(
+                'avi'
+                'flv'
+                'mp4'
+                'mov'
+                'mkv'
+            )
             threads         = 0
             fps             = '23.976'
             forceFps        = $true
@@ -343,7 +365,7 @@ function Get-CvConfigDefaults {
             convertido = ''
             logs       = ''
         }
-        # Perfiles de codificacion PROPIOS: se ANADEN a los 7 de serie en el menu USAR PERFIL
+        # Perfiles de codificacion PROPIOS: se ANADEN a los 11 de serie en el menu USAR PERFIL
         # (no los sustituyen). Cada objeto admite: label, videoEncoder, videoProfile, videoLevel,
         # qmin, qmax, crf, detectBorder, changeSize, audioEncoder, audioCodec, audioBitrate, audioHz.
         # Ejemplo: { "label":"Anime 1080p", "videoEncoder":"libx265", "crf":18, "changeSize":"1920:-2" }

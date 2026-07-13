@@ -28,7 +28,23 @@ try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 
 $Root = $PSScriptRoot
 $Lib  = Join-Path $Root 'lib'
-$modules = @('Log','Config','Context','Console','Exec','Job','Tools','MediaInfo','Profile','Video','Audio','Subtitle','Attachment','Multiplex')
+$modules = @(
+    'Log'
+    'Config'
+    'Context'
+    'Console'
+    'Exec'
+    'Job'
+    'Tools'
+    'MediaInfo'
+    'Profile'
+    'Video'
+    'Audio'
+    'Subtitle'
+    'SubtitleSRT'
+    'Attachment'
+    'Multiplex'
+)
 foreach ($m in $modules) {
     Import-Module (Join-Path $Lib ("{0}.psm1" -f $m)) -Force
 }
@@ -120,14 +136,8 @@ if ($ctx.TestLimit -gt 0) {
 
 function Get-SourceFiles {
     param($Context)
-    $files = @()
-    foreach ($ext in $Context.Extensions) {
-        $files += @(Get-ChildItem -LiteralPath $Context.Original -Filter $ext -File -ErrorAction SilentlyContinue)
-    }
-    # -Filter hereda el comodin 8.3 de Windows ('*.mp4' tambien casa '.mp4v', '*.avi' casa
-    # '.avix'): re-filtrar por extension EXACTA. -Unique dedupe por si dos patrones solapan.
-    $allowed = @($Context.Extensions | ForEach-Object { "$_".TrimStart('*').ToLower() })   # '.mp4'
-    return @($files | Where-Object { $allowed -contains $_.Extension.ToLower() } | Sort-Object Name -Unique)
+    # -Exact evita el falso positivo del comodin 8.3 de Windows ('*.mp4' casando '.mp4v').
+    return @(Get-CvFiles -Dir $Context.Original -Filters $Context.Extensions -Exact)
 }
 
 function Get-ProcessableFiles {

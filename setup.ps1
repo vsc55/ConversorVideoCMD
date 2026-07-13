@@ -26,7 +26,17 @@ try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 
 $Root = $PSScriptRoot
 $Lib  = Join-Path $Root 'lib'
-$modules = @('Log','Config','Context','Console','Exec','Job','Tools','ConfigEditor')   # setup no usa el pipeline completo (Job = patrones de limpieza de Proceso; ConfigEditor = editor de config.json)
+# setup no usa el pipeline completo (Job = patrones de limpieza de Proceso; ConfigEditor = editor de config.json)
+$modules = @(
+    'Log'
+    'Config'
+    'Context'
+    'Console'
+    'Exec'
+    'Job'
+    'Tools'
+    'ConfigEditor'
+)
 foreach ($m in $modules) {
     Import-Module (Join-Path $Lib ("{0}.psm1" -f $m)) -Force
 }
@@ -248,9 +258,7 @@ function Clear-Proceso {
     $proc = $ctx.Proceso
     if (-not (Test-Path -LiteralPath $proc)) { Write-CvLog 'SETUP' 'No existe la carpeta Proceso.'; return }
     $patterns = Get-CvProcesoPatterns -What $What   # fuente unica de las convenciones (lib\Job.psm1)
-    $files = @()
-    foreach ($p in $patterns) { $files += @(Get-ChildItem -LiteralPath $proc -Filter $p -File -ErrorAction SilentlyContinue) }
-    $files = @($files | Sort-Object -Property FullName -Unique)
+    $files = @(Get-CvFiles -Dir $proc -Filters $patterns -Exact)
     if ($files.Count -eq 0) { Write-CvLog 'SETUP' 'Nada que eliminar.'; return }
 
     Write-CvLog 'SETUP' ("Se eliminaran {0} fichero(s):" -f $files.Count)
@@ -320,10 +328,7 @@ function Show-Pending {
     # Trabajo pendiente: videos de entrada en Original\ vs convertidos (*_fix.<ext>) en Convertido\.
     Write-Host ''
     Write-CvLog 'SETUP' 'Trabajo:'
-    $nin = 0
-    if (Test-Path -LiteralPath $ctx.Original) {
-        foreach ($p in $ctx.Extensions) { $nin += @(Get-ChildItem -LiteralPath $ctx.Original -Filter $p -File -ErrorAction SilentlyContinue).Count }
-    }
+    $nin = @(Get-CvFiles -Dir $ctx.Original -Filters $ctx.Extensions -Exact).Count
     $nout = 0
     if (Test-Path -LiteralPath $ctx.Convertido) {
         $nout = @(Get-ChildItem -LiteralPath $ctx.Convertido -Filter ("*_fix.{0}" -f $ctx.OutExt) -File -ErrorAction SilentlyContinue).Count

@@ -332,5 +332,41 @@ function ConvertTo-InvDouble {
     return $null
 }
 
+function Get-CvFiles {
+    <#
+        Lista los ficheros de $Dir que casen con uno o varios -Filters (p. ej. '*.mkv','*.srt'); con
+        -Recurse baja a subcarpetas. Devuelve FileInfo UNICOS ordenados por ruta; @() si el dir no existe.
+        Fuente unica del "listar ficheros por extension/patron" (clasificacion de Original, limpieza de
+        Proceso, selector de subtitulos).
+          -Exact: endurece el match. El `-Filter` del proveedor hereda el comodin 8.3 de Windows
+        ('*.mp4' tambien casa '.mp4v', '*.avi' casa '.avix'); con -Exact se re-comprueba cada resultado
+        con `-like` (comparacion real de PowerShell, sin la trampa 8.3), asi el llamador no re-filtra.
+    #>
+    param([Parameter(Mandatory)][string]$Dir, [string[]]$Filters = @('*'), [switch]$Recurse, [switch]$Exact)
+    if (-not (Test-Path -LiteralPath $Dir)) { return @() }
+    $out = @()
+    foreach ($f in $Filters) {
+        $found = @(Get-ChildItem -LiteralPath $Dir -Filter $f -File -Recurse:$Recurse -ErrorAction SilentlyContinue)
+        if ($Exact) { $found = @($found | Where-Object { $_.Name -like $f }) }
+        $out += $found
+    }
+    @($out | Sort-Object -Property FullName -Unique)
+}
+
+function Get-CvTimeParts {
+    <#
+        Descompone unos segundos (double) en @{ H; M; S; MS } (milisegundos redondeados; negativo -> 0).
+        Base comun de los formateadores de tiempo (Format-CvEta, ConvertTo-CvSrtStamp), cada uno con su
+        propio formato de salida.
+    #>
+    param([double]$Seconds)
+    if ($Seconds -lt 0) { $Seconds = 0 }
+    $ms = [long][math]::Round($Seconds * 1000)
+    $h = [math]::Floor($ms / 3600000); $ms -= $h * 3600000
+    $m = [math]::Floor($ms / 60000);   $ms -= $m * 60000
+    $s = [math]::Floor($ms / 1000);    $ms -= $s * 1000
+    @{ H = [int]$h; M = [int]$m; S = [int]$s; MS = [int]$ms }
+}
+
 
 Export-ModuleMember -Function *

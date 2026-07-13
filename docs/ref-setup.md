@@ -41,7 +41,7 @@ Si la versión recién instalada **NO es compatible** con NVENC en este equipo (
 
 Así no depende de qué versiones estén ya instaladas: descarga y prueba las del catálogo. `Install-CvTool` expone el resultado NVENC con `-NvencOk`.
 
-La elección la decide `Resolve-CvFallbackVersion` (función pura); `Install-CvTool` expone el resultado NVENC con `-NvencOk`. La comprobación *Comprobar compatibilidad GPU* del menú **no** reinstala ni cambia la selección: solo informa.
+El bucle lo hace `setup.ps1` (en `Ensure-Tool`), iterando los candidatos de `Get-CvNvencFallbackCandidates` (`lib\Tools.psm1`) e instalando cada uno con `Install-CvTool -NvencOk`. La comprobación *Comprobar compatibilidad GPU* del menú **no** reinstala ni cambia la selección: solo informa.
 
 ## Editor de configuración
 

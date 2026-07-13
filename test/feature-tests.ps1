@@ -25,7 +25,24 @@ try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 
 $Root = Split-Path -Parent $PSScriptRoot
 $Lib  = Join-Path $Root 'lib'
-foreach ($m in @('Log','Config','Context','Console','Exec','Job','Tools','MediaInfo','Profile','Video','Audio','Subtitle','Attachment','ConfigEditor','Multiplex')) {
+$modules = @(
+    'Log'
+    'Config'
+    'Context'
+    'Console'
+    'Exec'
+    'Job'
+    'Tools'
+    'MediaInfo'
+    'Profile'
+    'Video'
+    'Audio'
+    'Subtitle'
+    'Attachment'
+    'ConfigEditor'
+    'Multiplex'
+)
+foreach ($m in $modules) {
     Import-Module (Join-Path $Lib ("{0}.psm1" -f $m)) -Force
 }
 

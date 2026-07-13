@@ -23,6 +23,7 @@ Documentación técnica y detallada del conversor. Para la visión general y la 
 | [explica-anamorfico.md](explica-anamorfico.md) | Vídeo **anamórfico** (SAR ≠ 1): por qué el tamaño almacenado no es el que se ve, la pregunta de PREPARAR y los modos `encode.anamorphic` (`square`/`squareheight`/`keep`) que de-anamorfizan a píxeles cuadrados. |
 | [caso-rendimiento-subtitulos.md](caso-rendimiento-subtitulos.md) | Nota técnica: diagnóstico de la lentitud de PREPARAR con subtítulos (conteo de cues vía tag `NUMBER_OF_FRAMES` en vez de demultiplexar), cómo se localizó y la mejora medida. |
 | [ref-gotchas.md](ref-gotchas.md) | **Trampas y cosas a tener en cuenta**: fallos reales ya corregidos y reglas para no repetirlos (PowerShell tipos/números, ffmpeg/códecs, NVENC/GPU, verificación). Revisar antes de tocar esas áreas. |
+| [ref-fixsyncsub.md](ref-fixsyncsub.md) | Utilidad **independiente** `FixSyncSub.ps1`/`.cmd` para corregir y sincronizar subtítulos `.srt`: normaliza codificación → UTF-8, corrige OCR (`l`→`I`) y espaciado, y re-sincroniza (offset / lineal 2 cues / por tramos / por extremos). Explica cómo calcula la desviación (`t' = a·t + b`). |
 
 ## Convención de nombres
 

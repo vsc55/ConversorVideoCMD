@@ -217,12 +217,12 @@ function Invoke-ToolShow {
 }
 
 function Format-CvEta {
-    <# Segundos -> 'mm:ss' o 'h:mm:ss'. Negativo/no finito -> '--:--'. #>
+    <# Segundos -> 'mm:ss' o 'h:mm:ss' (compacto, sin ms). Negativo/no finito -> '--:--'. #>
     param([double]$Seconds)
     if ($Seconds -lt 0 -or [double]::IsInfinity($Seconds) -or [double]::IsNaN($Seconds)) { return '--:--' }
-    $t = [TimeSpan]::FromSeconds([math]::Round($Seconds))
-    if ($t.TotalHours -ge 1) { return ('{0}:{1:00}:{2:00}' -f [int][math]::Floor($t.TotalHours), $t.Minutes, $t.Seconds) }
-    return ('{0:00}:{1:00}' -f $t.Minutes, $t.Seconds)
+    $p = Get-CvTimeParts ([math]::Round($Seconds))   # redondeo a segundos (MS = 0)
+    if ($p.H -ge 1) { return ('{0}:{1:00}:{2:00}' -f $p.H, $p.M, $p.S) }
+    return ('{0:00}:{1:00}' -f $p.M, $p.S)
 }
 
 function Write-CvProgressLine {

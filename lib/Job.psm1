@@ -116,9 +116,18 @@ function Get-CvProcesoPatterns {
         sincronizada. -What: jobs | locks | temps | all.
     #>
     param([ValidateSet('jobs','locks','temps','all')][string]$What = 'all')
-    $jobs  = @('*.job.json','*.job.json.tmp')
+    $jobs  = @(
+        '*.job.json'
+        '*.job.json.tmp'
+    )
     $locks = @('*.lock')
-    $temps = @('*.mkv','*.m4a','*.mka','*_concat.wav','*.job.json.tmp')
+    $temps = @(
+        '*.mkv'
+        '*.m4a'
+        '*.mka'
+        '*_concat.wav'
+        '*.job.json.tmp'
+    )
     switch ($What) {
         'jobs'  { $jobs }
         'locks' { $locks }

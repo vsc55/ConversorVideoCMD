@@ -94,7 +94,17 @@ function Show-SubtitleContent {
     param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)][string]$File, [Parameter(Mandatory)]$Stream)
     $idx   = [int]$Stream.index
     $codec = "$($Stream.codec_name)".ToLower()
-    $textCodecs = @('subrip','srt','ass','ssa','mov_text','webvtt','text','eia_608','subviewer')
+    $textCodecs = @(
+        'subrip'
+        'srt'
+        'ass'
+        'ssa'
+        'mov_text'
+        'webvtt'
+        'text'
+        'eia_608'
+        'subviewer'
+    )
     if ($codec -notin $textCodecs) {
         Write-Host ("   La pista {0} es de imagen ({1}); no se puede ver como texto." -f $idx, $codec) -ForegroundColor Yellow
         return

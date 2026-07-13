@@ -19,7 +19,24 @@ try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 
 $Root = Split-Path -Parent $PSScriptRoot
 $Lib  = Join-Path $Root 'lib'
-foreach ($m in @('Log','Config','Context','Console','Exec','Job','Tools','MediaInfo','Profile','Video','Audio','Subtitle','Attachment','Multiplex')) {
+$modules = @(
+    'Log'
+    'Config'
+    'Context'
+    'Console'
+    'Exec'
+    'Job'
+    'Tools'
+    'MediaInfo'
+    'Profile'
+    'Video'
+    'Audio'
+    'Subtitle'
+    'SubtitleSRT'
+    'Attachment'
+    'Multiplex'
+)
+foreach ($m in $modules) {
     Import-Module (Join-Path $Lib ("{0}.psm1" -f $m)) -Force
 }
 
@@ -48,6 +65,13 @@ Assert-Eq '59 -> 00:59'              '00:59'   (Format-CvEta 59)
 Assert-Eq '65 -> 01:05'              '01:05'   (Format-CvEta 65)
 Assert-Eq '3600 -> 1:00:00'          '1:00:00' (Format-CvEta 3600)
 Assert-Eq '3661 -> 1:01:01'          '1:01:01' (Format-CvEta 3661)
+# Get-CvTimeParts (base comun de los formateadores de tiempo)
+$tp = Get-CvTimeParts 3723.5
+Assert-Eq 'TimeParts H' 1 $tp.H
+Assert-Eq 'TimeParts M' 2 $tp.M
+Assert-Eq 'TimeParts S' 3 $tp.S
+Assert-Eq 'TimeParts MS' 500 $tp.MS
+Assert-Eq 'TimeParts negativo -> 0' 0 (Get-CvTimeParts -5).S
 
 # ================================================================================================
 Write-Host "`nGet-CvProgressBar (Console)" -ForegroundColor Cyan
@@ -239,6 +263,14 @@ Assert-Eq 'SafeStart dentro igual'  10  (Get-CvSafeStart 10 100)
 Assert-Eq 'SafeStart dur<=0 igual'   5  (Get-CvSafeStart 5 0)
 Assert-Eq 'Resolve-CvPath vacio'  'D:\R\Original' (Resolve-CvPath 'D:\R' '' 'Original')
 Assert-Eq 'Resolve-CvPath absoluta' 'C:\abs' (Resolve-CvPath 'D:\R' 'C:\abs' 'X')
+Assert-Eq 'Files dir inexistente -> 0' 0 (@(Get-CvFiles -Dir 'X:\no\existe\aqui' -Filters '*.txt')).Count
+Assert-True 'Files lista .ps1 del test' ((@(Get-CvFiles -Dir $PSScriptRoot -Filters '*.ps1')).Count -ge 1)
+$fdir = Join-Path ([IO.Path]::GetTempPath()) ("cvfiles-" + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Force -Path $fdir | Out-Null
+'x' | Set-Content -LiteralPath (Join-Path $fdir 'a.mp4') -Encoding Ascii
+'x' | Set-Content -LiteralPath (Join-Path $fdir 'b.mp4v') -Encoding Ascii
+Assert-Eq 'Files -Exact excluye .mp4v' 1 (@(Get-CvFiles -Dir $fdir -Filters '*.mp4' -Exact)).Count
+Remove-Item -LiteralPath $fdir -Recurse -Force -ErrorAction SilentlyContinue
 Assert-Eq 'Resolve-CvPath relativa' 'D:\R\sub' (Resolve-CvPath 'D:\R' 'sub' 'X')
 $infoDur = [pscustomobject]@{ format = [pscustomobject]@{ duration = '3236' } }
 Assert-Eq 'DurationText <1h (bug v4.2.1)' '0:53:56' (Get-DurationText $infoDur)
@@ -350,6 +382,42 @@ $infoPos = [pscustomobject]@{ streams = @(
     [pscustomobject]@{ index = 2; codec_type = 'subtitle' }
 ) }
 Assert-Eq 'SubStreamPos idx2 -> 1' 1 (Get-SubtitleStreamPos -Info $infoPos -Index 2)
+
+# ================================================================================================
+Write-Host "`nSubtitulos .srt (SubtitleSRT: tiempos / bloques / OCR / sincronia)" -ForegroundColor Cyan
+# Conversion de tiempos
+Assert-Eq 'SrtSeconds hh:mm:ss,mmm' 3723.5 (ConvertTo-CvSrtSeconds '01:02:03,500')
+Assert-Eq 'SrtSeconds con punto'    3723.5 (ConvertTo-CvSrtSeconds '01:02:03.500')
+Assert-Eq 'SrtSeconds mm:ss'          65   (ConvertTo-CvSrtSeconds '01:05')
+Assert-Eq 'SrtSeconds signo +'         3   (ConvertTo-CvSrtSeconds '+3')
+Assert-Eq 'SrtSeconds invalido'      $null (ConvertTo-CvSrtSeconds 'xx')
+Assert-Eq 'SrtStamp 3723.5'  '01:02:03,500' (ConvertTo-CvSrtStamp 3723.5)
+Assert-Eq 'SrtStamp negativo' '00:00:00,000' (ConvertTo-CvSrtStamp -5)
+# Bloques / numeros / inicio de cue
+$srtDemo = "1`r`n00:00:10,000 --> 00:00:11,000`r`nuno`r`n`r`n2`r`n00:01:00,000 --> 00:01:01,000`r`ndos"
+Assert-Eq 'SrtBlocks = 2'    2   (@(Get-CvSrtBlocks $srtDemo)).Count
+Assert-Eq 'SrtBlockNum 1o'   1   (Get-CvSrtBlockNum (@(Get-CvSrtBlocks $srtDemo))[0])
+Assert-Eq 'SrtCueStart cue2' 60  (Get-CvSrtCueStart (@(Get-CvSrtBlocks $srtDemo)) 2)
+Assert-Eq 'SrtCueStart inexistente' $null (Get-CvSrtCueStart (@(Get-CvSrtBlocks $srtDemo)) 9)
+# Ajuste lineal
+$fit = Get-CvSrtLinearFit 0 10 100 210
+Assert-Eq 'LinearFit A' 2  $fit.A
+Assert-Eq 'LinearFit B' 10 $fit.B
+Assert-Eq 'LinearFit misma cue -> null' $null (Get-CvSrtLinearFit 5 1 5 2)
+# OCR (l->I en mayusculas) y espaciado
+$ocr = Repair-CvSrtOcr "MANSlON y los que"
+Assert-Eq 'OCR: 1 cambio'  1 $ocr.Changed.Count
+Assert-True 'OCR: MANSION' ($ocr.Text -match 'MANSION')
+Assert-True 'OCR: no toca minusculas' ($ocr.Text -match 'los que')
+$esp = Repair-CvSrtSpacing ("{0} Hola {1} Que" -f [char]0xA1, [char]0xBF)
+Assert-Eq 'espaciado: 2' 2 $esp.Count
+# Resync: offset (B=+5) a todas; y por tramos (FromCue=2)
+$rs = Invoke-CvSrtResync -Text $srtDemo -A 1 -B 5
+Assert-True 'resync offset cue1 15s' ($rs -match '00:00:15,000')
+Assert-True 'resync offset cue2 65s' ($rs -match '00:01:05,000')
+$rt = Invoke-CvSrtResync -Text $srtDemo -A 1 -B 5 -FromCue 2
+Assert-True 'resync tramos cue1 intacta' ($rt -match '00:00:10,000')
+Assert-True 'resync tramos cue2 movida'  ($rt -match '00:01:05,000')
 
 # ================================================================================================
 Write-Host "`nPerfiles" -ForegroundColor Cyan
