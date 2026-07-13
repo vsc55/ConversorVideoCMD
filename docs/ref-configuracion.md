@@ -32,14 +32,15 @@ Esquema completo (tras la fusión con los defaults):
 {
   "downloads":   { "ffmpeg": {...}, "aacgain": {...}, "sevenzip": {...}, "mkvtoolnix": {...} },
   "languages":   { "audio": [...], "subtitle": [...] },
-  "encode":      { "outputExtension": "mkv", "extensions": ["avi","flv","mp4","mov","mkv"], "threads": 0, "fps": "23.976", "forceFps": true, "multipass": "off", "tonemapHdr": "auto", "downmixMode": "default", "downmixCoeffs": { "center": 0.5, "front": 0.35, "surround": 0.15 }, "audioHz": 44100, "audioChannels": 2, "multiAudio": true, "audioKeepTitle": false, "anamorphic": "square" },
+  "encode":      { "outputExtension": "mkv", "extensions": ["avi","flv","mp4","mov","mkv"], "threads": 0, "fps": "23.976", "forceFps": true, "multipass": "off", "tonemapHdr": "auto", "downmixMode": "default", "downmixCoeffs": { "center": 0.5, "front": 0.35, "surround": 0.15 }, "audioHz": 44100, "audioChannels": 2, "syncAdelay": true, "multiAudio": true, "audioKeepTitle": false, "anamorphic": "square" },
   "customProfile": { "videoEncoder": "hevc_nvenc", "videoProfile": "main10", "videoLevel": "5.0", "qmin": 1, "qmax": 23, "crf": 21, "multipass": "off", "audioCodec": "aac", "audioBitrate": "192k" },
   "border":      { "start": 120, "duration": 120, "samples": 6, "autoAcceptPct": 60, "autoAcceptMinMargin": 2, "autoSamples": 3, "autoDuration": 5, "minCropPct": 2 },
   "preview":     { "start": 0, "seconds": 0 },
   "volume":      { "method": "peak", "peakTarget": 0, "loudnorm": { "I": -16, "TP": -1.5, "LRA": 11 } },
   "postprocess": { "stripTags": true, "mkvpropedit": "", "attachments": { "keep": false, "fonts": true, "covers": false, "other": false } },
-  "behavior":    { "cleanTemps": true, "separateWindow": true, "lockCloseButton": true, "debug": false, "log": true, "workers": 2, "retries": 2, "asciiMarks": false, "progress": true, "promptTimeout": { "default": 0, "sync": 5, "border": 10, "animation": 10, "anamorphic": 10, "video": -1, "audio": -1, "subtitle": -1 }, "promptTimeoutStopOnType": true },
-  "test":        { "enabled": false, "minutes": 5, "syncAdelay": false, "betaDownmix": false, "betaMultiAudio": false },
+  "behavior":    { "cleanTemps": true, "separateWindow": true, "lockCloseButton": true, "log": true, "workers": 2, "retries": 2, "asciiMarks": false, "progress": true, "promptTimeout": { "default": 0, "sync": 5, "border": 10, "animation": 10, "anamorphic": 10, "video": -1, "audio": -1, "subtitle": -1 }, "promptTimeoutStopOnType": true },
+  "debug":       { "enabled": false, "pausePerCommand": true },
+  "test":        { "enabled": false, "minutes": 5, "betaDownmix": false },
   "console":     { "background": "DarkBlue", "foreground": "Yellow", "font": "Cascadia Code", "fontSize": 18, "windowWidth": 150, "windowHeight": 40, "sepWidth": 64, "progressBarWidth": 20 },
   "paths":       { "original": "", "proceso": "", "convertido": "", "logs": "" },
   "profiles":    [ { "label": "...", "videoEncoder": "...", "crf": 18, ... } ]
@@ -84,9 +85,10 @@ Se **canonicalizan** las variantes (`Get-CvLangCanon`): `es`, `es-ES`, `es_es`, 
 | `tonemapHdr` | `"auto"` | **Tone-mapping HDR→SDR.** `"auto"` (por defecto) = si el origen es HDR (BT.2020 con PQ/HLG) lo convierte a **SDR BT.709** con `libplacebo` (GPU/Vulkan) para que no se vea lavado en SDR; `"off"` = nunca (deja el color como está). El material SDR no se toca. Detalle en [explica-tonemap-hdr.md](explica-tonemap-hdr.md). |
 | `audioHz` | `44100` | Samplerate de audio por defecto. |
 | `audioChannels` | `2` | Canales del audio **recodificado** (`-ac`), tratado como **máximo**: `2` = estéreo, `6` = 5.1, `8` = 7.1. Si la fuente tiene **más**, se hace **downmix**; si tiene **menos**, **no** se hace upmix (se conservan los del origen — p. ej. una fuente estéreo con `6` sale estéreo). (No afecta a `audioEncoder: copy`, que conserva la pista original.) Detalle en [explica-audio.md](explica-audio.md). |
+| `syncAdelay` | `true` | Método del **silencio de sincronía** audio/vídeo. `true` (por defecto) = filtro `adelay` en **una sola pasada** (encadenado con la normalización de volumen), sin WAV intermedio. `false` = método **clásico** (WAV `silencio + pista` y luego codificar). Ambos dan el mismo resultado audible; `adelay` cuantiza a **ms enteros** (ver [ref-gotchas.md](ref-gotchas.md)). Detalle en [explica-audio.md](explica-audio.md). |
 | `downmixMode` | `"default"` | **Solo al bajar 5.1 → estéreo.** `"default"` = downmix estándar de ffmpeg. `"dialogue"` 🧪 **(BETA)** = downmix con **voz reforzada** (`pan` que sube el canal central —diálogos— y baja los surrounds), para que los diálogos no queden bajos frente al ambiente; coeficientes provisionales, el worker lo marca con `[beta]`. Detalle en [explica-audio.md](explica-audio.md). |
 | `downmixCoeffs` | `{ center: 0.5, front: 0.35, surround: 0.15 }` | Pesos del downmix `dialogue` (voz reforzada): `center` = canal central (diálogos), `front` = frontales L/R, `surround` = surrounds (el LFE se descarta). Cada salida = `center·central + front·frontal + surround·surround`. **Clip-safe si suman ≤ 1,0** (los de serie suman 1,0); por encima puede recortar. Solo se usan con `downmixMode = "dialogue"`. |
-| `multiAudio` | `true` | **🧪 BETA.** Con **2+ pistas del idioma preferido**, permite **conservar varias** (no solo la mejor) y elegir la **predeterminada**. **Doble llave**: solo actúa si además `test.betaMultiAudio = true`; si no, el audio es **monopista** (comportamiento clásico). Con 0-1 pistas del idioma preferido no cambia nada. Detalle en [explica-audio.md](explica-audio.md). |
+| `multiAudio` | `true` | Con **2+ pistas del idioma preferido**, permite **conservar varias** (no solo la mejor) y elegir la **predeterminada**. `false` = **monopista** (elige una, comportamiento clásico). Con 0-1 pistas del idioma preferido no cambia nada. Detalle en [explica-audio.md](explica-audio.md). |
 | `audioKeepTitle` | `false` | Si `true`, la(s) pista(s) de audio de salida **conservan el título** del origen (útil para distinguir varias del mismo idioma). `false` (por defecto) = **título en blanco**. |
 | `anamorphic` | `"square"` | Tratamiento del vídeo **anamórfico** (píxeles no cuadrados, SAR ≠ 1; p. ej. un `1920x1072` con SAR `115:87` que **se ve** a ~`2538x1072`). Al detectarlo al **recodificar**, PREPARAR **pregunta** qué hacer preseleccionando este valor (ENTER/timeout lo aceptan); en modo `copy` no se pregunta (no se puede cambiar el SAR sin recodificar), solo se **avisa**. `"square"` (por defecto) = **cuadra a píxeles cuadrados** fijando el **ancho** de almacenamiento (`1920` → `1920x810`, SAR `1:1`, sin ampliar). `"squareheight"` = cuadra fijando el **alto** (amplía el ancho al mostrado). `"keep"` = conserva el SAR/DAR tal cual (depende de que el reproductor lo respete). En `square`/`squareheight` se elimina el SAR (se ve igual en cualquier reproductor) **conservando la proporción**; `maxWidth`/`changeSize` siguen aplicándose (`changeSize` tiene prioridad). El timeout de la pregunta es `behavior.promptTimeout.anamorphic`. Explicación completa: [explica-anamorfico.md](explica-anamorfico.md). |
 
@@ -102,7 +104,7 @@ Valores **por defecto** del constructor de perfil **custom** interactivo (opció
 
 | Clave | Ejemplo | Uso |
 |---|---|---|
-| `videoEncoder` | `"hevc_nvenc"` | Encoder preseleccionado: `libx264` / `h264_nvenc` / `libx265` / `hevc_nvenc` / `copy`. |
+| `videoEncoder` | `"hevc_nvenc"` | Encoder preseleccionado: `libx264` / `h264_nvenc` / `libx265` / `hevc_nvenc` / `libsvtav1` (AV1 CPU, validado) / `av1_nvenc` (AV1 GPU, RTX 40+, **`[SIN PROBAR]`** — sin validar en hardware compatible) / `copy`. |
 | `videoProfile` | `"main10"` | Perfil de codec por defecto (`main`/`main10` en H.265; `baseline`/`main`/`high`/`high10` en H.264). |
 | `videoLevel` | `"5.0"` | Level por defecto (`4.0`, `4.1`, `5.0`, … según codec). |
 | `qmin` / `qmax` | `1` / `23` | Control de tasa por defecto en NVENC (GPU). Acotados a 0–51; **`-1` (o negativo) = auto** (sin `-qmin`/`-qmax`, decide el encoder). |
@@ -168,12 +170,11 @@ Limpieza del MKV final tras multiplexar (ver "Tag DURATION y limpieza con mkvpro
 | `cleanTemps` | `true` | Borra temporales al terminar cada archivo. | `keep_temp` (los conserva) |
 | `separateWindow` | `true` | Codifica en ventana aparte minimizada **sin robar el foco** (`SW_SHOWMINNOACTIVE`). | `same_window` (todo en la principal) |
 | `lockCloseButton` | `true` | Desactiva el botón X durante el proceso. | — |
-| `debug` | `false` | Muestra y confirma cada comando; codifica en la principal. | `debug_on` |
 | `log` | `true` | Guarda un transcript de la ejecución en `logs\` (un fichero por ventana: fecha + PID). | `no_log` (lo desactiva) |
 | `workers` | `2` | Nº de workers en paralelo propuesto al terminar PREPARAR (esta ventana + N−1 nuevas). Es el valor por defecto del prompt; se puede cambiar en el momento (**0** = solo preparar y salir, sin codificar). | — |
 | `retries` | `2` | Reintentos por archivo si su codificación falla, antes de abandonarlo. (Distinto de `workers`.) | — |
 | `asciiMarks` | `false` | Usa marcas ASCII (`[OK]`/`[ERROR]`) y corchetes `[ ]` en los avisos, en vez de los símbolos `✓`/`✗` y el badge `▐ … ▌`. Útil si la consola/fuente no tiene esos glifos (se verían como cuadros). | — |
-| `progress` | `true` | En los pasos largos (recodificar **vídeo**/**audio**) muestra una **línea viva con % y ETA** (`- Procesando Video...  42%  ETA 03:12  1.8x`) ejecutando ffmpeg **inline** (lee su `-progress`). `false` = clásico: ffmpeg en **ventana aparte** y solo `✓` al terminar. En modo debug no aplica. Convive con `separateWindow` (si `progress` está activo, esos pasos van inline; el multiplexado y las previews no cambian). | — |
+| `progress` | `true` | En los pasos largos (recodificar **vídeo**/**audio**) muestra una **línea viva** con **% , ETA, velocidad, bitrate** y (en vídeo) el **cuantizador `q`** (`- Procesando Video...  42%  ETA 03:12  1.8x  1234.5kbits/s  q28`) ejecutando ffmpeg **inline** (lee su `-progress`). `false` = clásico: ffmpeg en **ventana aparte** y solo `✓` al terminar. En modo debug no aplica. Convive con `separateWindow` (si `progress` está activo, esos pasos van inline; el multiplexado y las previews no cambian). | — |
 | `promptTimeout` | *(objeto)* | **Auto-aceptar** el valor por defecto en las preguntas de PREPARAR (las simples —sync/bordes/animación— y los menús de selección de pista de vídeo/audio/subtítulos) si no tocas el teclado durante *N* segundos, para dejar la preparación desatendida. Contador de **inactividad**: cualquier tecla lo reinicia; si empiezas a escribir, no salta. Es un objeto (ver abajo). | — |
 | `promptTimeoutStopOnType` | `true` | Qué hace el auto-timeout **cuando ya has tecleado algo**. `true` (por defecto) = al escribir el **auto se desactiva** y solo **ENTER** envía (no se auto-acepta lo tecleado a medias). `false` = comportamiento clásico: al expirar se **envía lo tecleado** (o el default si no hay nada). Si no tecleas, ambos se comportan igual. | — |
 
@@ -198,6 +199,13 @@ Los marcadores son ficheros vacíos en la raíz del proyecto que fuerzan el comp
 
 > **Editor de `setup.ps1`:** cada opción del editor de configuración (menú **Editar config.json**) muestra, junto a su valor actual, una **descripción de qué hace** (catálogo `Get-CvConfigHelp`), para no tener que consultar esta referencia mientras se edita.
 
+## `debug` — depuración
+
+| Clave | Def. | Uso | Marcador equivalente |
+|---|---|---|---|
+| `enabled` | `false` | Modo debug: **log detallado** (comandos de ffmpeg, pasos internos, `[INFO]` de audio/subtítulo/vídeo) en vez de la vista compacta; además las codificaciones van a la **ventana principal** (ni inline con progreso ni en ventana aparte), para ver todo el log. | `debug_on` |
+| `pausePerCommand` | `true` | En modo debug, antes de **cada ejecución de ffmpeg** imprime el comando y pide **ENTER** para continuar. `false` = ejecuta **sin pausar** (log detallado corrido, sin ir confirmando comando a comando). Solo aplica si `enabled` (o `debug_on`). | — |
+
 ## `test` — modo pruebas
 
 Codifica solo un tramo del principio de cada archivo, para validar un perfil/ajuste **rápido** sin procesar el vídeo entero.
@@ -206,9 +214,7 @@ Codifica solo un tramo del principio de cada archivo, para validar un perfil/aju
 |---|---|---|---|
 | `enabled` | `false` | Activa el modo pruebas: codifica solo los **primeros `minutes` minutos** de cada archivo (el resto se descarta). Se avisa al arrancar y en el resumen (la salida es un **recorte**, no el archivo completo). Funciona con todos los perfiles, incluido `copy` (recorta también el vídeo copiado del original y los subtítulos/capítulos al mismo tramo). | `test_on` |
 | `minutes` | `5` | Minutos que se codifican por archivo cuando `enabled` está activo (mínimo 1). | — |
-| `syncAdelay` | `false` | **🧪 BETA.** Si `true`, el silencio de sincronía se aplica con el filtro `adelay` en **una sola pasada** (encadenado con la normalización de volumen), sin el WAV intermedio. `false` = método clásico (WAV `silencio + pista` y luego codificar). Ver [explica-audio.md](explica-audio.md). | — |
 | `betaDownmix` | `false` | **🧪 BETA.** Activador del downmix `dialogue` (voz reforzada). **Doble llave**: `encode.downmixMode = "dialogue"` fija el modo, pero solo refuerza la voz si además `betaDownmix = true`. Con `false`, `dialogue` cae al downmix **estándar** de ffmpeg (el worker lo avisa). Ver [explica-audio.md](explica-audio.md). | — |
-| `betaMultiAudio` | `false` | **🧪 BETA.** Activador de la **multipista de audio** (`encode.multiAudio`). **Doble llave**: `encode.multiAudio = true` habilita la función, pero solo actúa si `betaMultiAudio = true`. Con `false`, el audio es **monopista** (comportamiento clásico). Ver [explica-audio.md](explica-audio.md). | — |
 
 Se aplica con `-t` en la codificación de vídeo, en la de audio (incluidos el wav de sincronía y la medición de pico) y en el multiplex final. `TestLimit` (segundos) en el contexto.
 
@@ -258,7 +264,7 @@ Array **opcional** de perfiles que se **añaden** a los de serie en el menú *US
 | Clave | Ejemplo | Uso |
 |---|---|---|
 | `label` | `"Anime 1080p"` | Texto del menú. Si se omite, se genera un resumen automático. |
-| `videoEncoder` | `"libx265"` | `copy` / `hevc_nvenc` / `libx265` / `h264_nvenc` / `libx264`. |
+| `videoEncoder` | `"libx265"` | `copy` / `hevc_nvenc` / `libx265` / `h264_nvenc` / `libx264` / `libsvtav1` (AV1 CPU, validado) / `av1_nvenc` (AV1 GPU, RTX 40+, **`[SIN PROBAR]`**). |
 | `videoProfile` / `videoLevel` | `"main10"` / `"5"` | `-profile:v` / `-level:v`. |
 | `qmin` / `qmax` | `1` / `20` | NVENC. Ausentes = calidad automática. |
 | `crf` | `18` | CPU (libx264/libx265). |

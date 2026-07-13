@@ -70,7 +70,10 @@ Puedes escribir el número o pegar una ruta completa.
    - Si sí, además: **¿Añadir sustituciones manuales?** `[s/N]` → bucle `buscar=reemplazar` (vacío para terminar).
 3. **Sincronización**: `[1]` no · `[2]` offset · `[3]` lineal (2 cues) · `[4]` por tramos · `[5]` por extremos.
    - Según el modo, pide los tiempos de referencia (ver abajo).
-4. **Guardar en** `[<nombre>.es.srt]` (ENTER acepta el sugerido) y **¿con BOM?** `[s/N]`.
+4. **Resumen** del resultado (nº de cues, primera/última). Si hay un **vídeo con el mismo nombre** junto al `.srt`, ofrece **previsualizarlo con ffplay** (el subtítulo ya sincronizado, sin guardar aún).
+5. **¿Guardar?** → **Guardar en** `[<nombre>.es.srt]` (ENTER acepta el sugerido) y **¿con BOM?** `[s/N]`.
+
+> **Tolerante a errores:** ninguna pregunta aborta el asistente. Si tecleas un número de cue inexistente o un tiempo mal escrito, **avisa y vuelve a preguntar** (no se pierde el trabajo).
 
 ```mermaid
 flowchart TD

@@ -57,7 +57,13 @@ function New-TestProfile([string]$enc) {
         'copy'       { New-CvProfile -VideoEncoder 'copy' -AudioEncoder 'copy' }
     }
 }
-$expectedVCodec = @{ hevc_nvenc='hevc'; libx265='hevc'; h264_nvenc='h264'; libx264='h264'; copy=$null }[$Encoder]
+$expectedVCodec = @{
+    hevc_nvenc = 'hevc'
+    libx265    = 'hevc'
+    h264_nvenc = 'h264'
+    libx264    = 'h264'
+    copy       = $null
+}[$Encoder]
 
 # --- Fixtures y lo que se espera de cada salida ---
 #   subCount     : nº de subtitulos esperados en la salida
@@ -67,24 +73,102 @@ $expectedVCodec = @{ hevc_nvenc='hevc'; libx265='hevc'; h264_nvenc='h264'; libx2
 #   width        : (opcional) ancho esperado en la salida cuando hay resize
 $expect = [ordered]@{
     # Muestras base (variedad de entrada): recodifican video, 1 audio, 0 subtitulos.
-    'video-1080p-basico.mp4'                 = @{ subCount=0; forcedDefault=$false; audioMin=1; note='base 1080p h264' }
-    'video-1080p-60fps-audio51-und.mp4'      = @{ subCount=0; forcedDefault=$false; audioMin=1; note='60 fps + audio 5.1' }
-    'video-4k-2160p-resize.mp4'              = @{ subCount=0; forcedDefault=$false; audioMin=1; resize='1280:-2'; width=1280; note='RESIZE 4K -> 1280 de ancho' }
-    'entrada-codec-h265.mp4'                 = @{ subCount=0; forcedDefault=$false; audioMin=1; note='entrada HEVC' }
-    'entrada-codec-vp9.mp4'                  = @{ subCount=0; forcedDefault=$false; audioMin=1; note='entrada VP9' }
-    'entrada-contenedor-avi-720p.avi'        = @{ subCount=0; forcedDefault=$false; audioMin=1; note='contenedor AVI' }
-    'entrada-contenedor-mp4-1080p.mp4'       = @{ subCount=0; forcedDefault=$false; audioMin=1; note='contenedor MP4' }
+    'video-1080p-basico.mp4'                 = @{
+        subCount      = 0
+        forcedDefault = $false
+        audioMin      = 1
+        note          = 'base 1080p h264'
+    }
+    'video-1080p-60fps-audio51-und.mp4'      = @{
+        subCount      = 0
+        forcedDefault = $false
+        audioMin      = 1
+        note          = '60 fps + audio 5.1'
+    }
+    'video-4k-2160p-resize.mp4'              = @{
+        subCount      = 0
+        forcedDefault = $false
+        audioMin      = 1
+        resize        = '1280:-2'
+        width         = 1280
+        note          = 'RESIZE 4K -> 1280 de ancho'
+    }
+    'entrada-codec-h265.mp4'                 = @{
+        subCount      = 0
+        forcedDefault = $false
+        audioMin      = 1
+        note          = 'entrada HEVC'
+    }
+    'entrada-codec-vp9.mp4'                  = @{
+        subCount      = 0
+        forcedDefault = $false
+        audioMin      = 1
+        note          = 'entrada VP9'
+    }
+    'entrada-contenedor-avi-720p.avi'        = @{
+        subCount      = 0
+        forcedDefault = $false
+        audioMin      = 1
+        note          = 'contenedor AVI'
+    }
+    'entrada-contenedor-mp4-1080p.mp4'       = @{
+        subCount      = 0
+        forcedDefault = $false
+        audioMin      = 1
+        note          = 'contenedor MP4'
+    }
     # Fixtures multipista (seleccion de audio/subtitulos).
-    'subs-forzado-predefinido.mkv'           = @{ subCount=1; forcedDefault=$true;  audioMin=1; note='forzado+predefinido conserva default' }
-    'audio-y-subs-multiidioma.mkv'           = @{ subCount=2; forcedDefault=$true;  audioMin=1; note='spa: forzado (1o) + completo' }
-    'subs-varios-completos-espanol-menu.mkv' = @{ subCount=3; forcedDefault=$true;  audioMin=1; note='spa: forzado (1o) + 2 completos (se conservan todos)' }
-    'audio-espanol-estereo-y-51.mkv'         = @{ subCount=0; forcedDefault=$false; audioMin=1; note='audio spa 5.1 seleccionado' }
-    'audio-sin-espanol-fallback.mkv'         = @{ subCount=0; forcedDefault=$false; audioMin=1; note='sin spa -> audio default' }
-    'subs-sin-espanol-descartar.mkv'         = @{ subCount=0; forcedDefault=$false; audioMin=1; note='subs no preferidos -> ninguno' }
-    'pistas-orden-aleatorio.mkv'             = @{ subCount=1; forcedDefault=$true;  audioMin=1; note='orden sub/audio/video/audio/sub' }
+    'subs-forzado-predefinido.mkv'           = @{
+        subCount      = 1
+        forcedDefault = $true
+        audioMin      = 1
+        note          = 'forzado+predefinido conserva default'
+    }
+    'audio-y-subs-multiidioma.mkv'           = @{
+        subCount      = 2
+        forcedDefault = $true
+        audioMin      = 1
+        note          = 'spa: forzado (1o) + completo'
+    }
+    'subs-varios-completos-espanol-menu.mkv' = @{
+        subCount      = 3
+        forcedDefault = $true
+        audioMin      = 1
+        note          = 'spa: forzado (1o) + 2 completos (se conservan todos)'
+    }
+    'audio-espanol-estereo-y-51.mkv'         = @{
+        subCount      = 0
+        forcedDefault = $false
+        audioMin      = 1
+        note          = 'audio spa 5.1 seleccionado'
+    }
+    'audio-sin-espanol-fallback.mkv'         = @{
+        subCount      = 0
+        forcedDefault = $false
+        audioMin      = 1
+        note          = 'sin spa -> audio default'
+    }
+    'subs-sin-espanol-descartar.mkv'         = @{
+        subCount      = 0
+        forcedDefault = $false
+        audioMin      = 1
+        note          = 'subs no preferidos -> ninguno'
+    }
+    'pistas-orden-aleatorio.mkv'             = @{
+        subCount      = 1
+        forcedDefault = $true
+        audioMin      = 1
+        note          = 'orden sub/audio/video/audio/sub'
+    }
     # Varias pistas de VIDEO: se elige la 1a real (640x480); width verifica que se codifico esa
     # pista (no la 2a de 320x240) via el mapeo 0:<index> congelado en el job.
-    'pistas-video-multiple.mkv'              = @{ subCount=0; forcedDefault=$false; audioMin=1; width=640; note='2 pistas de video -> elige la 1a (640x480)' }
+    'pistas-video-multiple.mkv'              = @{
+        subCount      = 0
+        forcedDefault = $false
+        audioMin      = 1
+        width         = 640
+        note          = '2 pistas de video -> elige la 1a (640x480)'
+    }
 }
 
 $fixtures = @($expect.Keys | Where-Object { Test-Path -LiteralPath (Join-Path $PSScriptRoot $_) })
@@ -156,8 +240,20 @@ try {
             profile        = $prof
             ffmpegVersion  = $ctx.FFmpegVersion
             aacgainVersion = $ctx.AacGainVersion
-            video          = @{ skip = $vSkip; index = $vIdx; crop = ''; resize = [string]$exp['resize']; anim = $false }
-            audio          = @{ skip = $aSkip; index = $aIdx; is51 = [bool]($aSel -and $aSel.Is51); sync = 0; lang = $(if ($aSel) { "$($aSel.Language)" } else { '' }) }
+            video          = @{
+                skip   = $vSkip
+                index  = $vIdx
+                crop   = ''
+                resize = [string]$exp['resize']
+                anim   = $false
+            }
+            audio          = @{
+                skip  = $aSkip
+                index = $aIdx
+                is51  = [bool]($aSel -and $aSel.Is51)
+                sync  = 0
+                lang  = $(if ($aSel) { "$($aSel.Language)" } else { '' })
+            }
             subtitles      = @($subSel)
         }
         Write-CvJob -Context $ctx -Name $name -Job $job
@@ -193,7 +289,11 @@ try {
         $errs = @()
 
         if (-not (Test-Path -LiteralPath $out)) {
-            $results += [pscustomobject]@{ Fixture=$fx; Estado='FAIL'; Detalle='no se genero la salida' }
+            $results += [pscustomobject]@{
+                Fixture = $fx
+                Estado  = 'FAIL'
+                Detalle = 'no se genero la salida'
+            }
             continue
         }
         $oi = Get-MediaInfo -Context $ctx -File $out
@@ -230,16 +330,25 @@ try {
         #    Incluye la ausencia del DURATION por pista que quita mkvpropedit --tags all:.
         foreach ($s in $oi.streams) {
             if ($s.PSObject.Properties['tags'] -and $s.tags) {
-                $dirty = @($s.tags.PSObject.Properties.Name | Where-Object { $_ -notin @('language','title') })
+                $keepTags = @('language', 'title')
+                $dirty = @($s.tags.PSObject.Properties.Name | Where-Object { $_ -notin $keepTags })
                 if ($dirty.Count -gt 0) { $errs += ("tags[{0}]={1}" -f $s.codec_type, ($dirty -join ',')) }
             }
         }
 
         if ($errs.Count -eq 0) {
             $res = if ($vs.Count) { "{0} {1}x{2}" -f $vs[0].codec_name, $vs[0].width, $vs[0].height } else { '-' }
-            $results += [pscustomobject]@{ Fixture=$fx; Estado='PASS'; Detalle=("v={0} a={1} s={2}  {3}" -f $res, $as.Count, $ss.Count, $exp.note) }
+            $results += [pscustomobject]@{
+                Fixture = $fx
+                Estado  = 'PASS'
+                Detalle = ("v={0} a={1} s={2}  {3}" -f $res, $as.Count, $ss.Count, $exp.note)
+            }
         } else {
-            $results += [pscustomobject]@{ Fixture=$fx; Estado='FAIL'; Detalle=($errs -join '; ') }
+            $results += [pscustomobject]@{
+                Fixture = $fx
+                Estado  = 'FAIL'
+                Detalle = ($errs -join '; ')
+            }
         }
     }
 }

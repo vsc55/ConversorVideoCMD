@@ -5,7 +5,7 @@
 
 function Get-CvVersion {
     <# Version del proyecto (fuente unica; la usan Convert.ps1 y setup.ps1). #>
-    '4.4.0'
+    '4.5.0'
 }
 
 function Get-CvAppName {
@@ -158,8 +158,11 @@ function New-CvContext {
         PreviewSeconds = [Math]::Max(0, [int]$cfg.preview.seconds)
         AudioLangs     = @($cfg.languages.audio)
         SubLangs       = @($cfg.languages.subtitle)
-        # debug: desde config.json o creando el marcador 'debug_on' (cualquiera lo activa).
-        Debug          = ([bool]$cfg.behavior.debug -or (Test-Path (Join-Path $Root 'debug_on')))
+        # debug: desde config.json (seccion 'debug') o creando el marcador 'debug_on' (cualquiera lo
+        # activa). DebugPausePerCommand: en debug, pedir ENTER antes de cada comando de ffmpeg (lo usa
+        # Exec); solo aplica si Debug esta activo.
+        Debug          = ([bool]$cfg.debug.enabled -or (Test-Path (Join-Path $Root 'debug_on')))
+        DebugPausePerCommand = [bool]$cfg.debug.pausePerCommand
         # cleanTemps/separateWindow salen de config.json; los marcadores 'keep_temp' y
         # 'same_window' los desactivan sobre la marcha sin editar el json.
         CleanTemps     = ([bool]$cfg.behavior.cleanTemps     -and -not (Test-Path (Join-Path $Root 'keep_temp')))
@@ -186,20 +189,18 @@ function New-CvContext {
         TestLimit      = $(if (([bool]$cfg.test.enabled) -or (Test-Path (Join-Path $Root 'test_on'))) {
                               [int]([Math]::Max(1, [int]$cfg.test.minutes) * 60)
                           } else { 0 })
-        # BETA: sincronia con el filtro 'adelay' en una pasada (combinada con el volumen), sin WAV
-        # intermedio. Config test.syncAdelay. Lo consume Invoke-AudioRun.
-        SyncAdelay     = [bool]$cfg.test.syncAdelay
+        # Sincronia con el filtro 'adelay' en una pasada (combinada con el volumen), sin WAV intermedio.
+        # $true (por defecto) = adelay; $false = metodo clasico (WAV). Config encode.syncAdelay. Lo
+        # consume Invoke-AudioRun.
+        SyncAdelay     = [bool]$cfg.encode.syncAdelay
         # BETA: activador del downmix 'dialogue' (voz reforzada). Doble llave: DownmixMode='dialogue'
         # fija el modo, pero solo refuerza la voz si BetaDownmix. Config test.betaDownmix; lo usa
         # Invoke-AudioRun junto con DownmixMode.
         BetaDownmix    = [bool]$cfg.test.betaDownmix
-        # BETA: multipista de audio (conservar varias pistas del idioma preferido + elegir la default).
-        # Doble llave: MultiAudio (encode.multiAudio) habilita la funcion, pero solo actua si
-        # BetaMultiAudio (test.betaMultiAudio). Effectivo = MultiAudio -and BetaMultiAudio. Lo consumen
-        # Invoke-AudioAsk (seleccion) y el worker/Multiplex (varias pistas). Al promocionar: quitar
-        # BetaMultiAudio y dejar MultiAudio como toggle.
+        # Multipista de audio (conservar varias pistas del idioma preferido + elegir la default).
+        # Toggle encode.multiAudio ($true por defecto). Lo consumen Invoke-AudioAsk (seleccion) y el
+        # worker/Multiplex (varias pistas). Con $false = monopista (elige una).
         MultiAudio     = [bool]$cfg.encode.multiAudio
-        BetaMultiAudio = [bool]$cfg.test.betaMultiAudio
         # Conservar el titulo del audio de origen en la salida (false = titulo en blanco). Lo aplica
         # Invoke-Multiplex leyendo el titulo del origen por el indice de cada pista.
         AudioKeepTitle = [bool]$cfg.encode.audioKeepTitle
@@ -365,7 +366,12 @@ function Get-CvTimeParts {
     $h = [math]::Floor($ms / 3600000); $ms -= $h * 3600000
     $m = [math]::Floor($ms / 60000);   $ms -= $m * 60000
     $s = [math]::Floor($ms / 1000);    $ms -= $s * 1000
-    @{ H = [int]$h; M = [int]$m; S = [int]$s; MS = [int]$ms }
+    @{
+        H  = [int]$h
+        M  = [int]$m
+        S  = [int]$s
+        MS = [int]$ms
+    }
 }
 
 

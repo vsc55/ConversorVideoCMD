@@ -12,7 +12,10 @@ function Resolve-CvMuxInputIndex {
     #>
     param([int]$TempAudioCount, [bool]$IsEncode)
     $orig = 1 + $TempAudioCount
-    [pscustomobject]@{ Orig = $orig; Chap = $(if ($IsEncode) { $orig } else { 0 }) }
+    [pscustomobject]@{
+        Orig = $orig
+        Chap = $(if ($IsEncode) { $orig } else { 0 })
+    }
 }
 
 function Invoke-Multiplex {

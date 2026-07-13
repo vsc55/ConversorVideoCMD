@@ -53,7 +53,10 @@ function Split-CvSubtitlesByRole {
     $pref = @($Subs)
     $flagged = @($pref | Where-Object { Test-SubForced $_ })
     if ($flagged.Count -gt 0) {
-        return @{ Forced = $flagged; Complete = @($pref | Where-Object { -not (Test-SubForced $_) }) }
+        return @{
+            Forced   = $flagged
+            Complete = @($pref | Where-Object { -not (Test-SubForced $_) })
+        }
     }
     if ($pref.Count -ge 2) {
         $counts = @{}
@@ -63,11 +66,17 @@ function Split-CvSubtitlesByRole {
             $max = ($known | Measure-Object -Maximum).Maximum
             if ($max -gt 0) {
                 $f = @($pref | Where-Object { $counts[[int]$_.index] -ge 0 -and $counts[[int]$_.index] -lt ($max * 0.5) })
-                return @{ Forced = $f; Complete = @($pref | Where-Object { $f -notcontains $_ }) }
+                return @{
+                    Forced   = $f
+                    Complete = @($pref | Where-Object { $f -notcontains $_ })
+                }
             }
         }
     }
-    return @{ Forced = @(); Complete = $pref }
+    return @{
+        Forced   = @()
+        Complete = $pref
+    }
 }
 
 function Show-SubtitlePreview {

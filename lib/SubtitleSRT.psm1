@@ -3,8 +3,9 @@
     de texto y re-sincronizacion. (Distinto de Subtitle.psm1, que trata las PISTAS de subtitulo dentro
     de un video via ffprobe.)
 
-    Logica PURA reutilizable (sin UI): la consume FixSyncSub.ps1 y queda disponible para futuras
-    funciones del conversor (p. ej. arreglar/re-sincronizar un .srt antes de multiplexarlo).
+    Dos bloques: (1) logica PURA (sin UI) y (2) helpers INTERACTIVOS para asistentes (usan Console/Log).
+    Los consume FixSyncSub.ps1 y quedan disponibles para futuras funciones del conversor (p. ej.
+    arreglar/re-sincronizar un .srt antes de multiplexarlo).
     El modelo de sincronizacion es lineal: t' = A * t + B (A = escala/deriva, B = desplazamiento en s).
 #>
 
@@ -95,7 +96,10 @@ function Repair-CvSrtOcr {
         }
         return $w
     })
-    @{ Text = $out; Changed = @($changed) }
+    @{
+        Text    = $out
+        Changed = @($changed)
+    }
 }
 
 function Repair-CvSrtSpacing {
@@ -104,7 +108,10 @@ function Repair-CvSrtSpacing {
     $op1 = [char]0xA1; $op2 = [char]0xBF
     $n = ([regex]::Matches($Text, "[$op1$op2] ")).Count
     $out = $Text.Replace("$op1 ", "$op1").Replace("$op2 ", "$op2")
-    @{ Text = $out; Count = $n }
+    @{
+        Text  = $out
+        Count = $n
+    }
 }
 
 function Get-CvSrtLinearFit {
@@ -112,7 +119,10 @@ function Get-CvSrtLinearFit {
     param([double]$Srt1, [double]$Real1, [double]$Srt2, [double]$Real2)
     if ($Srt1 -eq $Srt2) { return $null }
     $a = ($Real2 - $Real1) / ($Srt2 - $Srt1)
-    @{ A = $a; B = ($Real1 - $a * $Srt1) }
+    @{
+        A = $a
+        B = ($Real1 - $a * $Srt1)
+    }
 }
 
 function Invoke-CvSrtResync {
@@ -131,6 +141,70 @@ function Invoke-CvSrtResync {
         ($lines -join "`r`n").TrimEnd()
     }
     ($out -join "`r`n`r`n")
+}
+
+# =================================================================================================
+# Helpers INTERACTIVOS (para asistentes tipo FixSyncSub). Dependen de Console (Read-CvLine/Read-CvInt/
+# Select-FromList) y Log (Write-CvLog); re-preguntan hasta un valor valido (no abortan).
+# =================================================================================================
+
+function Read-CvSrtTime {
+    <# Tiempo (h:mm:ss.mmm / mm:ss / seg, admite +/-); re-pregunta si no es valido. -AllowEmpty -> $null. #>
+    param([string]$Prompt, [switch]$AllowEmpty)
+    while ($true) {
+        $s = (Read-CvLine -Prompt $Prompt).Trim()
+        if ($s -eq '' -and $AllowEmpty) { return $null }
+        $v = ConvertTo-CvSrtSeconds $s
+        if ($null -ne $v) { return $v }
+        Write-CvLog 'SUB' '[AVISO] - tiempo no valido (usa h:mm:ss.mmm o segundos)' -Indent 5
+    }
+}
+
+function Read-CvSrtCueNum {
+    <# Numero de cue que EXISTA en $Blocks; re-pregunta si no. -AllowEmpty -> $null (ENTER). #>
+    param([string[]]$Blocks, [string]$Prompt, [switch]$AllowEmpty)
+    while ($true) {
+        $n = Read-CvInt -Prompt $Prompt -AllowEmpty:$AllowEmpty
+        if ($null -eq $n) { return $null }
+        if ($null -ne (Get-CvSrtCueStart -Blocks $Blocks -Num $n)) { return $n }
+        Write-CvLog 'SUB' ("[AVISO] - no existe la cue {0} en el subtitulo" -f $n) -Indent 5
+    }
+}
+
+function Read-CvSrtAnchor {
+    <# Lee un ANCLA de sincronizacion (nº de cue + tiempo real) y la escribe en las refs $Srt/$Real. #>
+    param([string[]]$Blocks, [string]$Label, [ref]$Srt, [ref]$Real)
+    $n = Read-CvSrtCueNum -Blocks $Blocks -Prompt ("    {0}: numero de cue" -f $Label)
+    $cur = Get-CvSrtCueStart -Blocks $Blocks -Num $n
+    Write-CvLog 'SUB' ("cue {0} esta ahora en {1}" -f $n, (ConvertTo-CvSrtStamp $cur)) -Indent 5
+    $rt = Read-CvSrtTime -Prompt '      tiempo REAL en el video (h:mm:ss.mmm)'
+    $Srt.Value = $cur; $Real.Value = $rt
+}
+
+function Find-CvSrtVideo {
+    <# Video (mkv/mp4/...) en $Dir cuyo nombre coincide con el del .srt (o su stem sin sufijo de idioma). $null si ninguno. #>
+    param([string]$Dir, [string]$SrtPath)
+    $b = [IO.Path]::GetFileNameWithoutExtension($SrtPath)   # 'peli.es' o 'peli'
+    $stem = $b -replace '\.[A-Za-z]{2,3}$', ''              # quita sufijo de idioma (.es/.eng)
+    $vids = @(Get-CvFiles -Dir $Dir -Filters '*.mkv', '*.mp4', '*.avi', '*.mov', '*.m4v', '*.webm' -Exact |
+        Where-Object { $n = [IO.Path]::GetFileNameWithoutExtension($_.Name); $n -eq $b -or $n -eq $stem })
+    if ($vids.Count -ge 1) { return $vids[0].FullName }
+    return $null
+}
+
+function Select-CvSrtFile {
+    <# Elige un .srt: lista los de $Dir (recursivo) con Select-FromList; si no hay, pide una ruta a mano. #>
+    param([Parameter(Mandatory)][string]$Dir)
+    if (-not (Test-Path -LiteralPath $Dir)) { return (Read-CvLine -Prompt '  Ruta del .srt').Trim('"') }
+    $subs = @(Get-CvFiles -Dir $Dir -Filters '*.srt' -Recurse -Exact)
+    if ($subs.Count -eq 0) {
+        Write-CvLog 'SUB' ("[AVISO] - No hay .srt en {0}" -f $Dir) -Indent 3
+        return (Read-CvLine -Prompt '  Ruta del .srt').Trim('"')
+    }
+    $rels = $subs | ForEach-Object { $_.FullName.Substring($Dir.Length).TrimStart('\') }
+    $sel = Select-FromList -Title ("Subtitulos (.srt) en {0}" -f $Dir) -Options $rels -NoneLabel 'otra ruta (escribir)'
+    if ([string]::IsNullOrEmpty($sel)) { return (Read-CvLine -Prompt '  Ruta del .srt').Trim('"') }
+    Join-Path $Dir $sel
 }
 
 Export-ModuleMember -Function *

@@ -33,7 +33,7 @@ Recopilación de fallos **reales** que ya nos han mordido (con su corrección) y
 
 - **`loudnorm` es ~4,5× más lento que `peak`** (medido: ~63 s vs ~14 s sobre 5 min). No asumir que "una pasada" = rápido.
 - **`aacgain` solo procesa AAC/MP3 en MP4** (`.m4a`). Con otro códec de salida (`.mka`) no aplica → se usa `peak`.
-- **`adelay` cuantiza a milisegundos ENTEROS.** La sincronía BETA (`test.syncAdelay`) usa `adelay=<ms>:all=1` con `<ms> = [int][math]::Round($Sync*1000)`, mientras que el método clásico (WAV `aevalsrc`) usa segundos exactos → pueden diferir hasta ~0,5 ms. Inaudible para A/V (tolerancia ~decenas de ms), pero es la única discrepancia sistemática entre ambos métodos.
+- **`adelay` cuantiza a milisegundos ENTEROS.** La sincronía por defecto (`encode.syncAdelay`) usa `adelay=<ms>:all=1` con `<ms> = [int][math]::Round($Sync*1000)`, mientras que el método clásico (WAV `aevalsrc`, `encode.syncAdelay: false`) usa segundos exactos → pueden diferir hasta ~0,5 ms. Inaudible para A/V (tolerancia ~decenas de ms), pero es la única discrepancia sistemática entre ambos métodos.
 
 ## Consola / rendering (fuentes y foco)
 

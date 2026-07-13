@@ -1,39 +1,8 @@
 # TODO (versión PowerShell)
 
-## Validar la sincronía BETA `adelay` con un archivo real (🧪 beta → estable)
+## ✅ Sincronía `adelay` — PROMOCIONADA (13/07/2026)
 
-**Estado:** 🧪 SE MANTIENE EN BETA. Validado (11/07/2026) con un vídeo real (vídeo A; pista spa eac3 6ch, desfase real **0,005 s**): beta ≡ clásico a nivel de muestra. PERO ese desfase es muy pequeño (≈media muestra de redondeo), así que **antes de promocionar se quiere repetir con un archivo de MAYOR desfase** para confirmar que la cuantización de `adelay` a ms enteros no introduce nada apreciable frente al clásico (que usa segundos exactos). Buscar un archivo con `start_time`/pts de audio grande (p. ej. decenas o cientos de ms) y repetir la medición PCM de abajo.
-
-**Resultado (ffmpeg 7.1.1, medido a nivel PCM s16le 44,1 kHz, aislando el silencio inicial):**
-- beta (`adelay=5:all=1`): **220** muestras insertadas = **4,989 ms**.
-- clásico (`aevalsrc d=0.005 + concat`): **221** muestras = **5,011 ms**.
-- diferencia: **1 muestra = 0,023 ms** (5 ms = 220,5 muestras; uno redondea a 220 y el otro a 221). Inaudible.
-- **Matiz sistemático:** `adelay` solo acepta **ms enteros** (`[int][math]::Round(Sync*1000)`), mientras que el clásico usa segundos exactos en `aevalsrc` → para retardos con fracción de ms pueden diferir hasta ~0,5 ms. Irrelevante para sincronía A/V (tolerancia ~decenas de ms), pero es la única discrepancia real. Si algún día se quisiera precisión sub-ms, `adelay` admite `delays` en muestras con `adelay=...S` o se mide en ms con más cifras.
-
-**Contexto original (por qué estaba bloqueado):** faltaba un archivo con desfase real (`start_time`/pts del audio > 0); ahora sí lo hay.
-
-**Qué es:** modo beta `test.syncAdelay` que aplica el silencio de sincronía con el filtro
-`adelay=<ms>:all=1` **en una sola pasada** (encadenado con la normalización de volumen), en vez
-del método clásico (WAV `silencio + pista` y luego codificar). Código en `Invoke-AudioRun`
-(`lib/Audio.psm1`), flag `test.syncAdelay` (`lib/Config.psm1`) → `SyncAdelay` (`lib/Context.psm1`).
-Todo marcado con comentarios `BETA`; doc en `docs/explica-audio.md` §3.
-
-**Ya verificado (con audio sintético):** códec AAC + silencio inicial correcto + volumen
-normalizado, los tres a la vez, misma duración que el clásico (ffmpeg 7.1.1). **Falta:** confirmar
-la **alineación A/V real** con un archivo desfasado de verdad.
-
-**Cómo validar cuando haya archivo** (yo, al retomar):
-1. Detectar el desfase: `Get-AudioInitDelay` (o `ffprobe -select_streams a:0 -show_entries stream=start_time`). Si es 0, el archivo NO sirve como caso de prueba.
-2. Codificar el audio por los **dos** caminos con el mismo `-Index`/`-Sync` y perfil:
-   - clásico: `test.syncAdelay=false`
-   - beta: `test.syncAdelay=true`
-3. Comparar las dos salidas `.m4a`: duración, `silencedetect` (silencio inicial) y el **primer instante de audio real**; idealmente coinciden al milisegundo.
-4. (Opcional) Multiplexar con el vídeo en ambos modos y comprobar el arranque del audio frente al vídeo.
-
-**Criterio de éxito:** beta ≡ clásico → **promocionar** (hacerlo el método por defecto o sacar el
-flag de `test`). Si discrepa → se queda en beta y se anota qué falla.
-
-**Prompt listo para pedírmelo:** ver `TODO.txt` (versión copiar/pegar con la ruta del archivo).
+**Estado:** ✅ VALIDADA y promocionada. El silencio de sincronía con `adelay=<ms>:all=1` en **una sola pasada** (encadenado con el volumen) es ahora el **método por defecto**: `encode.syncAdelay = true` (antes la beta `test.syncAdelay`). Se conservan **los dos modos**: `true` (adelay, por defecto) y `false` (clásico WAV). Comprobado a nivel PCM (11/07: 220 vs 221 muestras para 5 ms, diff 0,023 ms, inaudible) y en uso real. Único matiz: `adelay` cuantiza a ms enteros (documentado en `docs/ref-gotchas.md`). Config `encode.syncAdelay` → `Context.SyncAdelay` → rama en `Invoke-AudioRun`.
 
 ---
 
@@ -55,18 +24,24 @@ flag de `test`). Si discrepa → se queda en beta y se anota qué falla.
 
 ---
 
-## Audio multipista (conservar varias pistas del idioma preferido) — 🧪 beta → estable
+## ✅ Audio multipista (conservar varias pistas del idioma preferido) — PROMOCIONADA (13/07/2026)
 
-**Estado:** 🧪 IMPLEMENTADO en **v4.4.0 como BETA** (doble llave `encode.multiAudio` + `test.betaMultiAudio`). Con 2+ pistas del idioma preferido se conservan varias y se elige la predeterminada; menú `Select-AudioMulti` (prompt único, `*`=default, preview), un temporal por pista `<name>_aN.*`, multiplex con la predeterminada primero (`-disposition:a:0 default`), idioma + título por pista (para distinguir mismas-idioma); modo `copy` también conserva el set. Job `audio.tracks[]` (compat con `audio.index` antiguo). Verificado E2E sobre fixture 2 pistas spa + tests unitarios + batería 15/15.
+**Estado:** ✅ VALIDADA y promocionada. Se retira la doble llave: la multipista la gobierna solo el toggle **`encode.multiAudio`** (por defecto `true`); eliminado el flag beta `test.betaMultiAudio` y las marcas `[beta]`. Con 2+ pistas del idioma preferido se conservan varias y se elige la predeterminada (menú `Select-AudioMulti`, un temporal por pista `<name>_aN.*`, multiplex con la predeterminada primero, idioma + título por pista; `copy` también conserva el set). Verificado E2E + tests unitarios + batería. **Mejora futura opcional:** extender a **varios idiomas** (hoy solo lista las del idioma preferido).
 
-**Qué falta para promocionar:**
-1. **Validar con archivos reales** variados (varias pistas del mismo idioma: principal + comentarios; mezclas de canales distintos 5.1/2.0) que la selección/orden/default y los títulos salen correctos en reproductores reales (VLC, Plex, TV).
-2. Revisar la **sincronía por pista** con material que tenga desfases distintos por pista.
-3. Confirmar el comportamiento en **copy** (varias pistas copiadas) en un contenedor real grande.
+---
 
-**Decisión:** si convence → promocionar (quitar `test.betaMultiAudio` y las marcas `[beta]`; dejar `encode.multiAudio` como toggle). Posible mejora futura: extender a **varios idiomas** (hoy solo lista las del idioma preferido).
+## Probar AV1 por GPU `av1_nvenc` en hardware compatible (`[SIN PROBAR]`)
 
-**Archivos:** `lib/MediaInfo.psm1` (`Select-CvDefaultAudio`), `lib/Audio.psm1` (`Select-AudioMulti`, `Invoke-AudioAsk`/`Invoke-AudioRun -Pos`), `lib/Job.psm1` (`Get-CvJobAudioTracks`/`Get-CvAudioTempPath`), `lib/Multiplex.psm1` (mapeo N pistas), `Convert.ps1` (worker), `docs/explica-audio.md`.
+**Estado:** ⚠️ SIN PROBAR (ya NO es beta). El codec **AV1** llegó en v4.5.0 con dos encoders: `libsvtav1` (CPU, **validado**) y `av1_nvenc` (GPU). Se retiró el flag beta `test.betaAv1` (y `Get-CvBetaEncoders`/`Context.BetaAv1`): `av1_nvenc` **aparece siempre** en el menú `ENCODER DE VIDEO`, etiquetado **`[SIN PROBAR]`**, porque no se ha podido validar — requiere **NVIDIA RTX 40+/Ada** y la GPU de pruebas (GTX 1070) no lo soporta (`No capable devices found`). En esa GPU, la validación por GPU (`Test-CvGpuEncoder`) además lo marca `[NO SOPORTADO]` y lo salta.
+
+**Qué falta:**
+1. En una GPU **RTX 40+ (Ada o superior)** con driver reciente: crear un perfil con `av1_nvenc` y **codificar un archivo real** (8 y 10 bits, con y sin tone-mapping HDR→SDR), confirmando salida `av1` correcta y reproducible.
+2. Revisar el control de tasa por GPU (`-qmin/-qmax`/multipass) y el `-pix_fmt` (`p010le` en `main10`).
+3. Contrastar calidad/velocidad frente a `libsvtav1` (CPU) y `hevc_nvenc`.
+
+**Decisión:** si va bien → quitar la etiqueta `[SIN PROBAR]` de su fila en `Get-CvVideoEncoders`. La validación por GPU (`Test-CvGpuEncoder`) seguirá protegiendo a quien no tenga hardware compatible.
+
+**Archivos:** `lib/Profile.psm1` (`Get-CvVideoEncoders`, `Get-CvCodecOptions`, `Get-VideoArgs` rama `av1_nvenc`), `lib/Tools.psm1` (validación GPU), `docs/ref-perfiles.md`.
 
 ---
 

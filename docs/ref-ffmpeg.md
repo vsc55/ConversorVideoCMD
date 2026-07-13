@@ -12,7 +12,7 @@ Glosario de **todas** las opciones, filtros y flags de ffmpeg/ffprobe/ffplay que
 | `-y` | Sobrescribe la salida sin preguntar. | En todas las de escritura. |
 | `-loglevel [flags+]nivel` / `-v` | Nivel de log: `quiet`(-8) nada, `error`(16) errores, `info`(32, def), … | `-loglevel error` en las previews; `-v quiet`/`-v error` en ffprobe. |
 | `-nostats` | Desactiva la línea de progreso/estadísticas periódica en `stderr`. | En el modo progreso inline (`Invoke-ToolProgress`), para no ensuciar el `stderr` que se captura. |
-| `-progress <url>` | Escribe el progreso **legible por máquina** (bloques `clave=valor`: `out_time_us`, `speed`, `progress=continue\|end`, …) a esa URL. | `-progress pipe:1` (a `stdout`): se parsea para pintar `% + ETA + velocidad` en la consola (`behavior.progress`). |
+| `-progress <url>` | Escribe el progreso **legible por máquina** (bloques `clave=valor`: `out_time_us`, `speed`, `bitrate`, `stream_0_0_q`, `progress=continue\|end`, …) a esa URL. | `-progress pipe:1` (a `stdout`): se parsea para pintar `% + ETA + velocidad + bitrate` (y `q` en vídeo) en la consola (`behavior.progress`). |
 | `-threads N` | Nº de hilos del codec (AVOption `threads`); `0`/`auto` = automático. | `-threads <encode.threads>` (0 = todos los núcleos). |
 | `-f fmt` | Fuerza el formato de contenedor de entrada/salida. | `-f matroska` (mux/audio intermedio), `-f null` (análisis: cropdetect/volumedetect). |
 | `-i <fichero>` | Fichero de entrada. | La fuente. |
@@ -87,7 +87,7 @@ Glosario de **todas** las opciones, filtros y flags de ffmpeg/ffprobe/ffplay que
 | `volume=<expr>dB:precision=fixed` | `salida = volume × entrada` (recorta al máximo). `precision=fixed` = punto fijo de 8 bits (limita la entrada a U8/S16/S32). | Aplicar la ganancia calculada (método `peak`). |
 | `volumedetect` | Sin parámetros; al final imprime `mean_volume` (RMS) y `max_volume` (por muestra), en dB relativos al PCM máximo. | Medir el pico (`max_volume`) para la normalización `peak`. |
 | `loudnorm=I=..:TP=..:LRA=..` | Normalización de sonoridad **EBU R128**. `I` (integrated, def -24, rango -70..-5), `LRA` (rango de sonoridad, def 7, 1..50), `TP` (true peak máx, def -2, -9..0). Simple o doble pasada. | Método de volumen `loudnorm` (una pasada). |
-| `adelay=<ms>:all=1` | Retrasa canales de audio rellenando con silencio; `delays` en **milisegundos** (sufijo `s` = segundos, `S` = muestras). `all=1` aplica el último retardo a **todos** los canales. | Sincronía en una pasada (**BETA** `test.syncAdelay`): prepende el silencio inicial. |
+| `adelay=<ms>:all=1` | Retrasa canales de audio rellenando con silencio; `delays` en **milisegundos** (sufijo `s` = segundos, `S` = muestras). `all=1` aplica el último retardo a **todos** los canales. | Sincronía en una pasada (por defecto, `encode.syncAdelay`): prepende el silencio inicial. |
 | `aformat=channel_layouts=<cl>` | Restringe el formato de salida (channel layouts / sample fmts / rates); el framework negocia para minimizar conversiones. | Fijar el layout en la ruta de sincronía por WAV. |
 | `aevalsrc=0:d=<s>:sample_rate=<hz>:channel_layout=<cl>` | Genera audio por expresión (aquí `0` = silencio). `d`/`duration` (duración), `sample_rate` (def 44100), `channel_layout`. | Generar el **silencio inicial** (sincronía clásica por WAV). |
 | `concat=n=2:v=0:a=1` | Concatena segmentos de audio/vídeo (todos empiezan en 0). `n` segmentos (def 2), `v` streams de vídeo (def 1), `a` de audio (def 0). | Unir `silencio + pista` en la sincronía clásica. |

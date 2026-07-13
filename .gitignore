@@ -18,3 +18,4 @@
 /logs/*
 /Original/*.srt
 /Original/*.sub
+/config.*json

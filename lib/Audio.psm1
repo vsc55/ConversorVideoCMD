@@ -65,7 +65,10 @@ function Resolve-CvVolumeMethod {
     if ($m -notin (Get-CvVolumeMethods)) { $m = "$((Get-CvConfigDefaults).volume.method)" }
     $downgraded = $false
     if ($m -eq 'aacgain' -and "$Codec".ToLower() -ne 'aac') { $m = 'peak'; $downgraded = $true }
-    [pscustomobject]@{ Method = $m; AacgainDowngraded = $downgraded }
+    [pscustomobject]@{
+        Method            = $m
+        AacgainDowngraded = $downgraded
+    }
 }
 
 function Get-CvAdelayFilter {
@@ -167,7 +170,7 @@ function Select-AudioInteractive {
 
 function Select-AudioMulti {
     <#
-        [BETA multipista] Cuando hay 2+ pistas del idioma preferido: lista SOLO esas, deja
+        [multipista] Cuando hay 2+ pistas del idioma preferido: lista SOLO esas, deja
         REPRODUCIR cada una ('P N'=video+audio, 'A N'=solo audio) y elige en UN prompt CUALES
         conservar y CUAL predeterminada. La default se marca con '*' (ej '*3 5' = conservar 3 y 5,
         default = 3). Sin '*', la default es la preseleccionada si esta en el set, si no la 1a
@@ -204,7 +207,7 @@ function Select-AudioMulti {
             ("  {0}ej: {1}-> conserva la 1 y la 3, predeterminada = 3" -f '- Marca la PREDETERMINADA con *.'.PadRight($cw), '*3 1'.PadRight(6)),
             "  - [ENTER] = solo la preseleccionada (*)   -   T = todas   -   'P N'/'A N' = previsualizar (video / solo audio)"
         )
-        Show-Menu -Title "CONSERVAR PISTAS DE AUDIO (idioma preferido) [beta]   [* = predeterminada]:" -Lines ($lines + $hint) -Indent 3
+        Show-Menu -Title "CONSERVAR PISTAS DE AUDIO (idioma preferido)   [* = predeterminada]:" -Lines ($lines + $hint) -Indent 3
         $a = (Read-CvMenuLine ("   [AUDIO] - Pistas a conservar (* = predeterminada) [{0}]" -f ('*{0}' -f $DefaultIndex)) $to).Trim()
 
         # Reproducir para revisar.
@@ -344,8 +347,8 @@ function Select-AudioFallback {
 function Invoke-AudioAsk {
     <#
         Devuelve @{ Skip; Tracks=[{Index,Is51,Sync,Lang,Default}]; Manual }. La pista DEFAULT va PRIMERO
-        en Tracks. Monopista (por defecto): Tracks tiene 1 elemento. Multipista [BETA] (encode.multiAudio
-        + test.betaMultiAudio, y 2+ pistas del idioma preferido): se eligen varias y cual default.
+        en Tracks. Monopista (encode.multiAudio=$false o <2 pistas del idioma): Tracks tiene 1 elemento.
+        Multipista (encode.multiAudio=$true —por defecto— y 2+ pistas del idioma): se eligen varias y cual default.
         En copy (Skip=$true) las Tracks NO se recodifican: el multiplex las copia (o, si Tracks esta
         vacio, cae al comportamiento clasico 0:a:0).
     #>
@@ -367,8 +370,8 @@ function Invoke-AudioAsk {
     }
 
     $prefTracks  = @($aud | Where-Object { Test-CvLanguage (Get-Tag $_ 'language') $Context.AudioLangs })
-    # Multipista [BETA]: doble llave (MultiAudio + BetaMultiAudio) y 2+ pistas del idioma preferido.
-    $doMulti = ($Context.MultiAudio -and $Context.BetaMultiAudio -and $prefTracks.Count -ge 2)
+    # Multipista: toggle MultiAudio (encode.multiAudio) y 2+ pistas del idioma preferido.
+    $doMulti = ($Context.MultiAudio -and $prefTracks.Count -ge 2)
 
     # copy SIN multipista -> comportamiento clasico: no se elige nada; el multiplex copia 0:a:0.
     if ($isCopy -and -not $doMulti) {
@@ -382,7 +385,7 @@ function Invoke-AudioAsk {
     if ($doMulti) {
         # MULTIPISTA (beta): conservar varias del idioma preferido + elegir la predeterminada.
         $preDef = Select-CvDefaultAudio $prefTracks
-        Write-CvLog 'AUDIO' ("[BETA] - {0} pistas en el idioma preferido; elige cuales conservar y la predeterminada." -f $prefTracks.Count) -Indent 3
+        Write-CvLog 'AUDIO' ("[INFO] - {0} pistas en el idioma preferido; elige cuales conservar y la predeterminada." -f $prefTracks.Count) -Indent 3
         $sels = @(Select-AudioMulti -Context $Context -File $file -AllStreams $aud -PrefStreams $prefTracks -DefaultIndex ([int]$preDef.index) -Duration $adur)
         $res.Manual = $true
     }
@@ -481,7 +484,11 @@ function Invoke-AudioRun {
     $codec  = "$($Prof.AudioCodec)".ToLower(); if (-not $codec) { $codec = 'aac' }
     $outM4a = if ($codec -eq 'aac') { $atmp.M4a } else { $atmp.Mka }
     # Limpiar CUALQUIER temporal de audio previo de ESTA pos (m4a y mka) para no dejar el que no toca.
-    foreach ($old in @($atmp.M4a, $atmp.Mka)) {
+    $oldTemps = @(
+        $atmp.M4a
+        $atmp.Mka
+    )
+    foreach ($old in $oldTemps) {
         if (Test-Path -LiteralPath $old) { Remove-Item -Force -LiteralPath $old -ErrorAction SilentlyContinue }
     }
 
@@ -520,19 +527,19 @@ function Invoke-AudioRun {
         else                   { Write-CvInfoStep $Context 'AUDIO' 'Downmix 5.1 -> estereo (estandar de ffmpeg; downmixMode=dialogue + test.betaDownmix para reforzar la voz)' }
     }
 
-    # Fuente + sincronia:
-    #  - CLASICO (por defecto): se genera un WAV (silencio + pista) y luego se codifica ese WAV.
-    #  - BETA (test.syncAdelay): el retardo se aplica con el filtro 'adelay' en la MISMA pasada de
+    # Fuente + sincronia (encode.syncAdelay elige el metodo):
+    #  - ADELAY (por defecto): el retardo se aplica con el filtro 'adelay' en la MISMA pasada de
     #    codificacion (encadenado con el volumen), sin WAV intermedio.
+    #  - CLASICO (syncAdelay=$false): se genera un WAV (silencio + pista) y luego se codifica ese WAV.
     $sourceInput = $null   # args de -i para medir y para codificar
     $mapPre      = @()     # -map (+ -vn/-sn...) cuando NO hay filtro
     $aLabel      = ''      # etiqueta de la pista de audio en el filtro
-    $syncFilter  = ''      # filtro de retardo (solo modo adelay beta)
+    $syncFilter  = ''      # filtro de retardo (solo modo adelay)
     $fromWav     = $false  # $true = la fuente es el WAV ya recortado (clasico con sincronia)
 
     if ($Sync -gt 0 -and $Context.SyncAdelay) {
-        # BETA: retardo en una pasada con adelay (ms), sin WAV.
-        Write-CvInfoStep $Context 'AUDIO' ("Sincronia [beta adelay]: retardo de {0}s en una pasada" -f $Sync)
+        # ADELAY: retardo en una pasada con adelay (ms), sin WAV.
+        Write-CvInfoStep $Context 'AUDIO' ("Sincronia (adelay): retardo de {0}s en una pasada" -f $Sync)
         $sourceInput = @('-i',$File)
         $mapPre      = @('-map',"0:$Index",'-vn','-sn','-map_chapters','-1')
         $aLabel      = "0:$Index"

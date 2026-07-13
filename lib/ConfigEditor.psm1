@@ -29,17 +29,27 @@ function Edit-Scalar {
         $def = if ($Default) { 1 } else { 2 }   # marca el DEFAULT de fabrica (no el actual)
         $p = Select-FromList -Title ("{0} (actual: {1})" -f $Key, "$Current".ToLower()) -Options @('true','false') -NoneLabel 'cancelar (dejar actual)' -DefaultIndex $def
         if ($p -eq '') { return @{ changed = $false } }
-        return @{ changed = $true; value = ($p -eq 'true') }
+        return @{
+            changed = $true
+            value   = ($p -eq 'true')
+        }
     }
     # Selectores especiales por nombre de clave.
-    if ($Key -in @('background','foreground')) {
+    $colorKeys = @(
+        'background'
+        'foreground'
+    )
+    if ($Key -in $colorKeys) {
         $colors = [enum]::GetNames([System.ConsoleColor])
         $def = [array]::IndexOf($colors, "$Default") + 1
         if ($def -lt 1) { $def = [array]::IndexOf($colors, "$Current") + 1 }
         if ($def -lt 1) { $def = 1 }
         $p = Select-FromList -Title ("{0} (actual: {1})" -f $Key, $Current) -Options $colors -NoneLabel 'cancelar (dejar actual)' -DefaultIndex $def
         if ($p -eq '') { return @{ changed = $false } }
-        return @{ changed = $true; value = "$p" }
+        return @{
+            changed = $true
+            value   = "$p"
+        }
     }
     if ($Key -eq 'method') {
         $opts = @(Get-CvVolumeMethods)
@@ -48,7 +58,10 @@ function Edit-Scalar {
         if ($def -lt 1) { $def = 1 }
         $p = Select-FromList -Title ("method (actual: {0})" -f $Current) -Options $opts -NoneLabel 'cancelar (dejar actual)' -DefaultIndex $def
         if ($p -eq '') { return @{ changed = $false } }
-        return @{ changed = $true; value = "$p" }
+        return @{
+            changed = $true
+            value   = "$p"
+        }
     }
 
     # Numero / texto libre: sin menu; se muestra actual y default, ENTER = dejar actual.
@@ -56,13 +69,26 @@ function Edit-Scalar {
     $ans = (Read-Host ("   {0}  (actual: {1}{2})  nuevo valor [ENTER=cancelar]" -f $Key, $Current, $defTxt)).Trim()
     if ($ans -eq '') { return @{ changed = $false } }
     if ($Kind -eq 'number') {
-        if ($ans -match '^-?\d+$') { return @{ changed = $true; value = [long]$ans } }
+        if ($ans -match '^-?\d+$') {
+            return @{
+                changed = $true
+                value   = [long]$ans
+            }
+        }
         $d = 0.0
-        if ([double]::TryParse($ans, [System.Globalization.NumberStyles]::Float, $inv, [ref]$d)) { return @{ changed = $true; value = $d } }
+        if ([double]::TryParse($ans, [System.Globalization.NumberStyles]::Float, $inv, [ref]$d)) {
+            return @{
+                changed = $true
+                value   = $d
+            }
+        }
         Write-Host '   Numero no valido.' -ForegroundColor Yellow
         return @{ changed = $false }
     }
-    return @{ changed = $true; value = $ans }
+    return @{
+        changed = $true
+        value   = $ans
+    }
 }
 
 function Edit-Array {
@@ -97,7 +123,10 @@ function Edit-Array {
             if ($nv -ne '') { $items[$i] = $nv; $changed = $true }
         }
     }
-    return @{ changed = $changed; value = @($items) }
+    return @{
+        changed = $changed
+        value   = @($items)
+    }
 }
 
 function Edit-Node {
@@ -109,7 +138,9 @@ function Edit-Node {
     param($Node, [string]$Path, [string]$CfgName = 'config.json')
     while ($true) {
         Clear-Host
-        $keys = @(Get-CvNodeKeys $Node)
+        # 'gpuCache' (raiz) es cache de maquina que gestiona la sonda de GPU (Initialize-CvGpuCaps),
+        # no configuracion editable: no se muestra en el editor (pero se conserva en el fichero).
+        $keys = @(Get-CvNodeKeys $Node | Where-Object { -not ($Path -eq '' -and $_ -eq 'gpuCache') })
         $opts = @(); $descs = @()
         foreach ($k in $keys) {
             $v = Get-CvNodeVal $Node $k

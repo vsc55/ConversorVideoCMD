@@ -111,7 +111,7 @@ ffmpeg -hide_banner -y -i <file> -filter_complex \
 
 > Nota: se referencia `[0:<i>]` (índice concreto), no `[0:a]` (que sería la primera pista y podría no ser la seleccionada). Si hay **downmix con voz reforzada** (5.1→estéreo, `downmixMode=dialogue`), el `aformat` se sustituye por el filtro `pan=stereo|c0=<center>*c2+<front>*c0+<surround>*c4|c1=…` (sube el central, baja surrounds; ver [explica-audio.md](explica-audio.md)).
 >
-> **Alternativa BETA (`test.syncAdelay`):** en vez del WAV, el retardo se aplica en la **misma pasada** de recodificación con `adelay=<ms>:all=1` encadenado con el volumen (sin temporal `_concat.wav`). `<ms>` = `round(<sync>·1000)` (milisegundos enteros).
+> **Método por defecto (`encode.syncAdelay: true`):** en vez del WAV de arriba, el retardo se aplica en la **misma pasada** de recodificación con `adelay=<ms>:all=1` encadenado con el volumen (sin temporal `_concat.wav`). `<ms>` = `round(<sync>·1000)` (milisegundos enteros). El WAV `_concat.wav` de arriba es el método **clásico** (`encode.syncAdelay: false`).
 
 ---
 
@@ -291,9 +291,9 @@ mkvpropedit.exe --version # regex: mkvpropedit v(\d+\.\d+)
 
 Los pasos largos (recodificar **vídeo**/**audio**) se ejecutan según `behavior.progress`:
 
-- **`progress = true` (por defecto):** ffmpeg corre **inline** (sin ventana, `CreateNoWindow`) con `-nostats -progress pipe:1`; se lee su salida de progreso y se pinta una línea viva `- <acción>...  42%  ETA 03:12  1.8x` (`Invoke-ToolProgress`). El `stderr` de ffmpeg se **captura**; si el proceso **falla** (código ≠ 0) se muestran sus últimas líneas y se guarda **completo** en `logs\error_ffmpeg-video|audio_<nombre>_<fecha>_<pid>.log` (`Save-CvToolError`/`Show-CvToolError`).
+- **`progress = true` (por defecto):** ffmpeg corre **inline** (sin ventana, `CreateNoWindow`) con `-nostats -progress pipe:1`; se lee su salida de progreso y se pinta una línea viva `- <acción>...  42%  ETA 03:12  1.8x  1234.5kbits/s  q28` (`Invoke-ToolProgress`): porcentaje, ETA, velocidad, **bitrate** de salida (audio y vídeo) y, en **vídeo**, el **cuantizador `q`** (`-ShowQ`). El `stderr` de ffmpeg se **captura**; si el proceso **falla** (código ≠ 0) se muestran sus últimas líneas y se guarda **completo** en `logs\error_ffmpeg-video|audio_<nombre>_<fecha>_<pid>.log` (`Save-CvToolError`/`Show-CvToolError`).
 - **`progress = false`:** ffmpeg va en una **ventana aparte minimizada sin foco** (`Invoke-ToolShow`, `CvProc::RunMinimizedNoActivate`), y en la consola solo se ve el `✓` al terminar. (Las **previews** ffplay sí van en primer plano con foco, ver §3.)
 
 ## Modo debug
 
-Con `behavior.debug = true` o el marcador `debug_on`, antes de cada ejecución se **imprime el comando completo** y se pide ENTER para continuar; además las codificaciones van a la ventana principal (no inline con progreso ni en ventana aparte), para ver todo el log de ffmpeg.
+Con `debug.enabled = true` o el marcador `debug_on`, las codificaciones van a la ventana principal (no inline con progreso ni en ventana aparte), para ver todo el log de ffmpeg, y antes de cada ejecución se **imprime el comando completo**. Además, si `debug.pausePerCommand = true` (por defecto) se pide **ENTER** para continuar antes de cada comando; con `debug.pausePerCommand = false` se ejecuta sin pausar (log corrido).

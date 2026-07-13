@@ -29,9 +29,16 @@ function Get-VideoStreams {
         y codecs de imagen: mjpeg/png/bmp/gif/webp), que ffprobe lista como codec_type=video.
     #>
     param([Parameter(Mandatory)]$Info)
+    $imageCodecs = @(
+        'mjpeg'
+        'png'
+        'bmp'
+        'gif'
+        'webp'
+    )
     @($Info.streams | Where-Object {
         $_.codec_type -eq 'video' -and
-        $_.codec_name -notin @('mjpeg','png','bmp','gif','webp') -and
+        $_.codec_name -notin $imageCodecs -and
         -not ($_.disposition -and $_.disposition.attached_pic -eq 1)
     })
 }
@@ -49,9 +56,13 @@ function Test-CvHdr {
         -Index, comprueba ESA pista (por indice absoluto); si no, la primera de video real.
     #>
     param([Parameter(Mandatory)]$Info, [int]$Index = -1)
+    $hdrTransfers = @(
+        'smpte2084'
+        'arib-std-b67'
+    )
     $s = if ($Index -ge 0) { @($Info.streams | Where-Object { [int]$_.index -eq $Index })[0] } else { Get-VideoStream -Info $Info }
     if (-not $s) { return $false }
-    return ("$($s.color_transfer)".ToLower() -in @('smpte2084','arib-std-b67'))
+    return ("$($s.color_transfer)".ToLower() -in $hdrTransfers)
 }
 
 function Get-VideoStreamPos {
@@ -106,9 +117,18 @@ function Select-CvBestAudio {
     #>
     param([Parameter(Mandatory)]$Streams)
     @($Streams) | Sort-Object `
-        @{ Expression = { [int]$_.channels }; Descending = $true }, `
-        @{ Expression = { Get-CvAudioCodecRank $_.codec_name }; Descending = $true }, `
-        @{ Expression = { $b = Get-CvAudioBitrate $_; if ($null -ne $b) { $b } else { [int64]-1 } }; Descending = $true } |
+        @{
+            Expression = { [int]$_.channels }
+            Descending = $true
+        }, `
+        @{
+            Expression = { Get-CvAudioCodecRank $_.codec_name }
+            Descending = $true
+        }, `
+        @{
+            Expression = { $b = Get-CvAudioBitrate $_; if ($null -ne $b) { $b } else { [int64]-1 } }
+            Descending = $true
+        } |
         Select-Object -First 1
 }
 

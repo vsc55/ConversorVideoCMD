@@ -343,6 +343,21 @@ function Read-YesNo {
     return ($a -match '^[SsYy]')
 }
 
+function Read-CvInt {
+    <#
+        Lee un ENTERO por teclado y RE-PREGUNTA si lo tecleado no es un numero (no aborta). Con
+        -AllowEmpty, ENTER (vacio) devuelve $null (opcional). Reutiliza Read-CvLine (con soporte de ESC/
+        timeout). Util para asistentes que piden numeros (nº de cue, indices, etc.).
+    #>
+    param([string]$Prompt, [switch]$AllowEmpty)
+    while ($true) {
+        $s = (Read-CvLine -Prompt $Prompt).Trim()
+        if ($s -eq '' -and $AllowEmpty) { return $null }
+        if ($s -match '^\d+$') { return [int]$s }
+        Write-Host '  Numero no valido.' -ForegroundColor Yellow
+    }
+}
+
 
 function Show-CvHeader {
     <# Cabecera al arrancar: nombre de la app + version (y subtitulo opcional). #>
@@ -372,9 +387,38 @@ function Show-Menu {
     # titulo (p. ej. el menu principal, que ya tiene cabecera) no hay subrayado, solo la lista.
     if ($Title) { Write-Host ($pad + ("  {0}" -f $Title)); Write-Host $sep }
     foreach ($l in $Lines) {
-        if ($l -eq '') { Write-Host '' } else { Write-Host ($pad + ("    {0}" -f $l)) }
+        if ($l -eq '') { Write-Host ''; continue }
+        $line = $pad + ("    {0}" -f $l)
+        # Resaltar el marcador '[NO SOPORTADO]' dentro de una opcion (p. ej. un encoder por GPU que
+        # esta GPU no admite). Se pinta como BADGE amarillo (mismo helper que los avisos): resalta
+        # aunque el texto de la consola ya sea amarillo (console.foreground) y sus caps evitan que el
+        # fondo se "estire" hasta el margen al redimensionar la ventana.
+        $mk = '[NO SOPORTADO]'
+        $at = $line.IndexOf($mk)
+        if ($at -ge 0) {
+            Write-Host $line.Substring(0, $at) -NoNewline
+            Write-CvBadge -Text ($mk.Trim('[]'))
+            Write-Host $line.Substring($at + $mk.Length)
+        } else {
+            Write-Host $line
+        }
     }
     Write-Host $sep
+}
+
+function Write-CvOptionUnsupported {
+    <#
+        Aviso ESTANDAR y REUTILIZABLE (badge amarillo [AVISO]) para cuando la opcion elegida en un
+        menu no es valida/soportada en este equipo, y hay que volver a elegir. Sirve para CUALQUIER
+        opcion (no solo encoders): el llamador pasa que se eligio, el motivo y una sugerencia opcional.
+          -Option: valor elegido (p. ej. 'av1_nvenc').
+          -Reason: por que no se puede (p. ej. 'tu GPU no lo soporta').
+          -Hint:   sugerencia opcional de que elegir en su lugar.
+    #>
+    param([Parameter(Mandatory)][string]$Option, [Parameter(Mandatory)][string]$Reason, [string]$Hint = '')
+    $msg = "[AVISO] - '{0}' no disponible en este equipo: {1}." -f $Option, $Reason
+    if ($Hint) { $msg = "$msg $Hint" }
+    Write-CvLog 'GLOBAL' $msg
 }
 
 function Show-CvBox {
@@ -412,6 +456,17 @@ function Show-CvBox {
     foreach ($r in $rows) { Write-Host $r @col }
 }
 
+
+function Get-CvMenuNumWidth {
+    <#
+        Fuente unica del ANCHO (en digitos) para alinear a la derecha los indices de un listado
+        numerado, de modo que TODAS las etiquetas empiecen en la misma columna aunque haya indices
+        de 1 y de 2+ cifras (' 1.' … '10.'). Se le pasa el nº de opciones o el mayor indice mostrado.
+        Lo usan Select-FromList, Select-Profile (perfiles) y el menu de grupos de bordes (Video).
+    #>
+    param([int]$Count)
+    ("$([math]::Max(1, $Count))").Length
+}
 
 function Select-FromList {
     <#
@@ -482,8 +537,8 @@ function Select-FromList {
     $noneEsc = if ($AllowCancel) { '' } else { ' / ESC' }
     $noneNum = if ($NoneKey) { '0 / {0}{1}' -f $NoneKey.ToUpper(), $noneEsc } else { '0{0}' -f $noneEsc }
     # Ancho del NUMERO (dígitos del mayor: 13 -> 2), para alinear a la derecha los indices de 1 y 2
-    # cifras y que TODAS las etiquetas empiecen en la misma columna ('1.' vs '10.').
-    $numW    = ("$($numbered.Count)").Length
+    # cifras y que TODAS las etiquetas empiecen en la misma columna ('1.' vs '10.'). Fuente unica.
+    $numW    = Get-CvMenuNumWidth $numbered.Count
     $leftNum = @(); $descNum = @()
     for ($i = 0; $i -lt $numbered.Count; $i++) { $leftNum += ('{0}. {1}' -f (("$($i + 1)").PadLeft($numW)), $numbered[$i].Val); $descNum += $numbered[$i].Txt }
     $leftNone = if ($hasNone) { '{0}. {1}' -f $noneNum.PadLeft($numW), $noneLbl } else { '' }

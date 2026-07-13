@@ -8,7 +8,7 @@
 
       VIDEO   : tone-mapping HDR->SDR [GPU], resize, tune animation, multipass [GPU], forceFps=false, copy
       AUDIO   : loudnorm, aacgain, codecs no-AAC (ac3/eac3/flac/opus/mp3), downmix estandar y dialogue,
-                sincronia (adelay beta + WAV clasico), no-upmix, copy
+                sincronia (adelay + WAV clasico), no-upmix, copy
       MULTIPLEX: multipista (default primero), capitulos conservados, adjuntos conservados
       MODO    : pruebas (-t / TestLimit)
 
@@ -109,7 +109,12 @@ try {
         $ctx.TonemapHdr = 'auto'; $ctx.VolumeMethod = 'peak'; $ctx.SyncAdelay = $false; $ctx.BetaDownmix = $false
         $ctx.DownmixMode = 'default'; $ctx.AudioChannels = 2; $ctx.ForceFps = $true; $ctx.Multipass = 'off'
         $ctx.TestLimit = 0; $ctx.AudioKeepTitle = $false
-        $ctx.Attachments = [pscustomobject]@{ Keep = $false; Fonts = $false; Covers = $false; Other = $false }
+        $ctx.Attachments = [pscustomobject]@{
+            Keep   = $false
+            Fonts  = $false
+            Covers = $false
+            Other  = $false
+        }
     }
     # Limpia temporales/salidas entre casos (Proceso y Convertido).
     function Clear-Work { Get-ChildItem -LiteralPath $ctx.Proceso, $ctx.Convertido -File -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue }
@@ -177,6 +182,14 @@ try {
     Assert-True 'tune animation: encode OK' $ok
     Assert-Eq 'tune animation: salida h264' 'h264' "$((Get-V (Get-Info (Get-CvTempPaths -Context $ctx -Name 'anim').Video)).codec_name)"
 
+    # AV1 por CPU (libsvtav1) - no necesita GPU
+    Reset-Ctx; Clear-Work
+    $f = New-In -Name 'av1.mkv'
+    $prof = New-CvProfile -VideoEncoder 'libsvtav1' -Crf 50
+    $ok = Invoke-VideoRun -Context $ctx -Prof $prof -File $f -Crop '' -Resize '' -Anim $false -Index 0 -Hdr $false -Duration (Get-Dur $f)
+    Assert-True 'libsvtav1: encode OK' $ok
+    Assert-Eq 'libsvtav1: salida av1' 'av1' "$((Get-V (Get-Info (Get-CvTempPaths -Context $ctx -Name 'av1').Video)).codec_name)"
+
     # multipass NVENC (GPU)
     Reset-Ctx; Clear-Work
     if ($gpu) {
@@ -232,7 +245,13 @@ try {
 
     # codecs de audio no-AAC
     Reset-Ctx
-    $codecMap = @{ ac3 = 'ac3'; eac3 = 'eac3'; flac = 'flac'; libopus = 'opus'; libmp3lame = 'mp3' }
+    $codecMap = @{
+        ac3        = 'ac3'
+        eac3       = 'eac3'
+        flac       = 'flac'
+        libopus    = 'opus'
+        libmp3lame = 'mp3'
+    }
     foreach ($c in 'ac3','eac3','flac','libopus','libmp3lame') {
         Reset-Ctx; Clear-Work
         $f = New-In -Name ("cod-$c.mkv")
@@ -254,14 +273,14 @@ try {
         if ($o) { Assert-Eq ("downmix ${lbl}: 5.1->2ch") 2 ([int](Get-A (Get-Info $o)).channels) }
     }
 
-    # sincronia: adelay (beta) y WAV clasico -> el audio se alarga ~Sync
+    # sincronia: adelay (por defecto) y WAV clasico -> el audio se alarga ~Sync
     foreach ($ade in $false, $true) {
         Reset-Ctx; Clear-Work
         $ctx.SyncAdelay = $ade
         $f = New-In -Name ("sync-$ade.mkv") -Dur 2
         $prof = New-CvProfile -AudioEncoder 'aac_coder' -AudioBitrate '128k'
         $o = Invoke-AudioRun -Context $ctx -Prof $prof -File $f -Sync 0.5 -Index 1 -Duration (Get-Dur $f) -SourceChannels 2 -Pos 0
-        $lbl = if ($ade) { 'adelay (beta)' } else { 'WAV clasico' }
+        $lbl = if ($ade) { 'adelay' } else { 'WAV clasico' }
         Assert-True ("sync ${lbl}: temporal creado") ($o -and (Test-Path -LiteralPath $o))
         if ($o) { Assert-True ("sync ${lbl}: duracion +~0.5s") ((Get-Dur $o) -ge 2.4) }
     }
@@ -286,8 +305,20 @@ try {
     $o0 = Invoke-AudioRun -Context $ctx -Prof $prof -File $f -Index 1 -Duration (Get-Dur $f) -SourceChannels 2 -Pos 0
     $o1 = Invoke-AudioRun -Context $ctx -Prof $prof -File $f -Index 1 -Duration (Get-Dur $f) -SourceChannels 2 -Pos 1
     $tracks = @(
-        [pscustomobject]@{ Source='temp'; File="$o0"; Index=1; Lang='spa'; Default=$true  }
-        [pscustomobject]@{ Source='temp'; File="$o1"; Index=1; Lang='eng'; Default=$false }
+        [pscustomobject]@{
+            Source  = 'temp'
+            File    = "$o0"
+            Index   = 1
+            Lang    = 'spa'
+            Default = $true
+        }
+        [pscustomobject]@{
+            Source  = 'temp'
+            File    = "$o1"
+            Index   = 1
+            Lang    = 'eng'
+            Default = $false
+        }
     )
     $ok = Invoke-Multiplex -Context $ctx -File $f -Info $info -VideoSkipped $true -AudioSkipped $false -AudioTracks $tracks -Subtitles @() -VideoIndex 0
     Assert-True 'multipista: multiplex OK' $ok
@@ -319,14 +350,25 @@ try {
     $prof = New-CvProfile -VideoEncoder 'libx264' -Crf 30 -AudioEncoder 'aac_coder' -AudioBitrate '128k'
     [void](Invoke-VideoRun -Context $ctx -Prof $prof -File $fc -Crop '' -Resize '' -Anim $false -Index 0 -Hdr $false -Duration (Get-Dur $fc))
     $oa = Invoke-AudioRun -Context $ctx -Prof $prof -File $fc -Index 1 -Duration (Get-Dur $fc) -SourceChannels 2 -Pos 0
-    $ok = Invoke-Multiplex -Context $ctx -File $fc -Info $info -VideoSkipped $false -AudioSkipped $false -AudioTracks @([pscustomobject]@{Source='temp';File="$oa";Index=1;Lang='spa';Default=$true}) -Subtitles @() -VideoIndex 0
+    $ok = Invoke-Multiplex -Context $ctx -File $fc -Info $info -VideoSkipped $false -AudioSkipped $false -AudioTracks @([pscustomobject]@{
+        Source  = 'temp'
+        File    = "$oa"
+        Index   = 1
+        Lang    = 'spa'
+        Default = $true
+    }) -Subtitles @() -VideoIndex 0
     Assert-True 'capitulos: multiplex OK' $ok
     Assert-Eq 'capitulos: entrada tiene 2'  2 (Get-CvChapterCount -Context $ctx -File $fc)
     Assert-Eq 'capitulos: 2 conservados'    2 (Get-CvChapterCount -Context $ctx -File (Get-OutputPath $ctx 'caps'))
 
     # adjuntos conservados (fuente) con postprocess.attachments = fonts
     Reset-Ctx; Clear-Work
-    $ctx.Attachments = [pscustomobject]@{ Keep = $true; Fonts = $true; Covers = $true; Other = $false }   # conservar fuentes
+    $ctx.Attachments = [pscustomobject]@{
+        Keep   = $true
+        Fonts  = $true
+        Covers = $true
+        Other  = $false
+    }   # conservar fuentes
     $fontf = Join-Path $ctx.Original 'f.ttf'; Set-Content -LiteralPath $fontf -Value 'dummy-font' -Encoding Ascii
     $fa = Join-Path $ctx.Original 'att.mkv'
     [void](Invoke-FF @('-f','lavfi','-t','2','-i','testsrc2=size=320x240:rate=30','-f','lavfi','-t','2','-i','anullsrc=channel_layout=stereo:sample_rate=48000','-map','0:v','-map','1:a','-c:v','libx264','-pix_fmt','yuv420p','-c:a','aac','-attach',$fontf,'-metadata:s:t:0','mimetype=application/x-truetype-font','-metadata:s:t:0','filename=f.ttf',"$fa"))
@@ -334,7 +376,13 @@ try {
     $prof = New-CvProfile -VideoEncoder 'libx264' -Crf 30 -AudioEncoder 'aac_coder' -AudioBitrate '128k'
     [void](Invoke-VideoRun -Context $ctx -Prof $prof -File $fa -Crop '' -Resize '' -Anim $false -Index 0 -Hdr $false -Duration (Get-Dur $fa))
     $oa = Invoke-AudioRun -Context $ctx -Prof $prof -File $fa -Index 1 -Duration (Get-Dur $fa) -SourceChannels 2 -Pos 0
-    $ok = Invoke-Multiplex -Context $ctx -File $fa -Info $info -VideoSkipped $false -AudioSkipped $false -AudioTracks @([pscustomobject]@{Source='temp';File="$oa";Index=1;Lang='spa';Default=$true}) -Subtitles @() -VideoIndex 0
+    $ok = Invoke-Multiplex -Context $ctx -File $fa -Info $info -VideoSkipped $false -AudioSkipped $false -AudioTracks @([pscustomobject]@{
+        Source  = 'temp'
+        File    = "$oa"
+        Index   = 1
+        Lang    = 'spa'
+        Default = $true
+    }) -Subtitles @() -VideoIndex 0
     Assert-True 'adjuntos: multiplex OK' $ok
     $natt = @(Get-Info (Get-OutputPath $ctx 'att')).streams | Where-Object { $_.codec_type -eq 'attachment' }
     Assert-Eq 'adjuntos: 1 conservado' 1 (@($natt).Count)

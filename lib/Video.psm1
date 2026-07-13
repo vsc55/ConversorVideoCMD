@@ -49,8 +49,16 @@ function Find-CropDetectSamples {
 
     if ($Samples -le 1 -or $VideoDuration -le 0) {
         $c = Find-CropDetect -Context $Context -File $File -Start $Start -Duration $Duration -Index $Index
-        $g = if ($c) { @([pscustomobject]@{ Crop = $c; Count = 1 }) } else { @() }
-        return [pscustomobject]@{ Groups = $g; Samples = 1 }
+        $g = if ($c) {
+            @([pscustomobject]@{
+                Crop  = $c
+                Count = 1
+            })
+        } else { @() }
+        return [pscustomobject]@{
+            Groups  = $g
+            Samples = 1
+        }
     }
 
     $win = [Math]::Max(5, [int]$Duration)                       # cada punto escanea $Duration (no se reparte)
@@ -62,9 +70,15 @@ function Find-CropDetectSamples {
         if ($c) { $crops += $c }
     }
     $groups = @($crops | Group-Object | Sort-Object Count -Descending | ForEach-Object {
-        [pscustomobject]@{ Crop = $_.Name; Count = $_.Count }
+        [pscustomobject]@{
+            Crop  = $_.Name
+            Count = $_.Count
+        }
     })
-    return [pscustomobject]@{ Groups = $groups; Samples = $Samples }
+    return [pscustomobject]@{
+        Groups  = $groups
+        Samples = $Samples
+    }
 }
 
 function Show-Preview {
@@ -158,9 +172,21 @@ function Invoke-CvAnamorphicAsk {
     param([Parameter(Mandatory)]$Context, [int]$Width, [int]$Height, [string]$Sar)
     $dw   = Get-CvDisplayWidth -Width $Width -Sar $Sar
     $cur  = "$($Context.Anamorphic)".ToLower()
-    $num  = @{ '1' = 'keep'; '2' = 'square'; '3' = 'squareheight' }
-    $rev  = @{ 'keep' = '1'; 'square' = '2'; 'squareheight' = '3' }
-    $lbl  = @{ 'keep' = 'mantener SAR'; 'square' = 'cuadrar por ancho'; 'squareheight' = 'cuadrar por alto' }
+    $num = @{
+        '1' = 'keep'
+        '2' = 'square'
+        '3' = 'squareheight'
+    }
+    $rev = @{
+        'keep'         = '1'
+        'square'       = '2'
+        'squareheight' = '3'
+    }
+    $lbl = @{
+        'keep'         = 'mantener SAR'
+        'square'       = 'cuadrar por ancho'
+        'squareheight' = 'cuadrar por alto'
+    }
     $defN = if ($rev.ContainsKey($cur)) { $rev[$cur] } else { '2' }
     Write-CvLog 'VIDEO' ("[ANAMORFICO] - Almacena {0}x{1} pero SE VE a {2}x{1} (SAR {3}); el tamano real no es el que reporta el contenedor." -f $Width, $Height, $dw, $Sar) -Indent 3
     $prompt = "   [VIDEO] [ANAMORFICO] - [1] mantener SAR / [2] cuadrar por ancho / [3] cuadrar por alto  [ENTER={0}={1}]" -f $defN, $lbl[$num[$defN]]
@@ -354,9 +380,18 @@ function Invoke-VideoAsk {
                 if ($autoWin) {
                     $crop = $groups[0].Crop
                 } else {
+                    # Numero alineado a la derecha (Get-CvMenuNumWidth) para que las etiquetas queden
+                    # en columna con indices de 1 y 2+ cifras; 'M'/'R'/'0' se alinean igual.
+                    $numW  = Get-CvMenuNumWidth $groups.Count
                     $lines = @()
-                    for ($gi = 0; $gi -lt $groups.Count; $gi++) { $lines += ("{0}. {1}  ({2} voto(s))" -f ($gi + 1), $groups[$gi].Crop, $groups[$gi].Count) }
-                    Show-Menu -Title 'RECORTES DETECTADOS (elige cual probar) [por votos]:' -Lines ($lines + @('', 'M. Valor manual', 'R. Reescanear (otro tramo)', '0. Sin recorte')) -Indent 3
+                    for ($gi = 0; $gi -lt $groups.Count; $gi++) { $lines += ("{0}. {1}  ({2} voto(s))" -f (("$($gi + 1)").PadLeft($numW)), $groups[$gi].Crop, $groups[$gi].Count) }
+                    $extra = @(
+                        '',
+                        ('{0}. Valor manual'          -f ('M'.PadLeft($numW))),
+                        ('{0}. Reescanear (otro tramo)' -f ('R'.PadLeft($numW))),
+                        ('{0}. Sin recorte'           -f ('0'.PadLeft($numW)))
+                    )
+                    Show-Menu -Title 'RECORTES DETECTADOS (elige cual probar) [por votos]:' -Lines ($lines + $extra) -Indent 3
                     $sel = (Read-Host '   [VIDEO] [BORDE] - Opcion').Trim()
                     if ($sel -match '^0$') { $res.Crop = ''; $done = $true; continue }
                     if ($sel -match '^[Rr]$') {
@@ -449,8 +484,12 @@ function Invoke-VideoAsk {
         else                  { Write-CvLog 'VIDEO' ("[RESIZE] - Escalado a {0}" -f $res.Resize) }
     }
 
-    # ---- Animacion (solo libx264/libx265) ----
-    if ($Prof.VideoEncoder -in @('libx264','libx265')) {
+    # ---- Animacion (solo libx264/libx265; -tune animation) ----
+    $animEncoders = @(
+        'libx264'
+        'libx265'
+    )
+    if ($Prof.VideoEncoder -in $animEncoders) {
         $a = (Read-CvLine -Prompt '   [VIDEO] - Es un video de animacion? (s/N)' -TimeoutSec (Get-CvPromptTimeout $Context 'animation')).Trim()
         $res.Anim = ($a -match '^[SsYy]')
         $res.Manual = $true   # se pregunto por animacion (intervencion manual)
@@ -472,7 +511,7 @@ function Get-VideoArgs {
     # 2-pass de NVENC (-multipass); solo encoders NVENC. El perfil ('Multipass') tiene prioridad;
     # si el perfil no lo fija ('' ), se usa el global 'encode.multipass' (Context.Multipass).
     $mp = if ("$($Prof.Multipass)" -ne '') { "$($Prof.Multipass)".ToLower() } else { "$($Context.Multipass)" }
-    $mpArg = if ($mp -in @('qres','fullres')) { @('-multipass',$mp) } else { @() }
+    $mpArg = if ($mp -in (Get-CvMultipass2Pass)) { @('-multipass',$mp) } else { @() }
 
     switch ($enc) {
         'hevc_nvenc' {
@@ -514,17 +553,47 @@ function Get-VideoArgs {
             if ($Anim) { $a += @('-tune','animation') }
             $a += @('-refs','4') + $fpsArg + @('-movflags','+faststart')
         }
+        'libsvtav1' {
+            # SVT-AV1 (CPU). CRF 0-63 (mayor = menos calidad); preset 0-13 (menor = mas lento/mejor).
+            # 10 bits = yuv420p10le. No usa -profile:v/-level:v ni -refs.
+            $a += @('-c:v','libsvtav1')
+            if ($Prof.VideoProfile -eq 'main10') { $a += @('-pix_fmt','yuv420p10le') } else { $a += @('-pix_fmt','yuv420p') }
+            if ($null -ne $Prof.Crf) { $a += @('-crf',"$($Prof.Crf)") }
+            $a += @('-preset','6') + $fpsArg
+        }
+        'av1_nvenc' {
+            # AV1 por NVENC (GPU NVIDIA RTX 40+). Estructura como los demas NVENC: preset pN, constqp o
+            # qmin/qmax, lookahead y multipass. 10 bits = p010le. AV1 NVENC no usa -tier/-profile:v/-level:v.
+            $a += @('-c:v','av1_nvenc')
+            if ($Prof.VideoProfile -eq 'main10') { $a += @('-pix_fmt','p010le') } else { $a += @('-pix_fmt','yuv420p') }
+            $a += @('-preset','p6')
+            if ($constqp) { $a += @('-rc','constqp','-qp',"$qmax") }
+            else {
+                if ($null -ne $qmin) { $a += @('-qmin',"$qmin") }
+                if ($null -ne $qmax) { $a += @('-qmax',"$qmax") }
+            }
+            $a += @('-rc-lookahead:v','32') + $mpArg + $fpsArg + @('-movflags','+faststart')
+        }
     }
     return ,$a
 }
 
 function Get-CvTonemapFormat {
     <#
-        Pixel format del tone-mapping HDR->SDR: 'p010le' (10 bits) si el perfil es main10 en HEVC
-        (hevc_nvenc/libx265); 'yuv420p' (8 bits) en el resto.
+        Pixel format del tone-mapping HDR->SDR con perfil main10 (10 bits): 'p010le' en los encoders
+        NVENC/HEVC (hevc_nvenc/libx265/av1_nvenc) y 'yuv420p10le' en SVT-AV1 (libsvtav1); 'yuv420p'
+        (8 bits) en el resto.
     #>
     param([string]$VideoProfile, [string]$VideoEncoder)
-    if ("$VideoProfile" -eq 'main10' -and $VideoEncoder -in @('hevc_nvenc','libx265')) { return 'p010le' }
+    $p010Encoders = @(
+        'hevc_nvenc'
+        'libx265'
+        'av1_nvenc'
+    )
+    if ("$VideoProfile" -eq 'main10') {
+        if ($VideoEncoder -in $p010Encoders)  { return 'p010le' }
+        if ($VideoEncoder -eq 'libsvtav1')    { return 'yuv420p10le' }
+    }
     return 'yuv420p'
 }
 
@@ -599,7 +668,7 @@ function Invoke-VideoRun {
     $global:CvLastToolError = $null   # el modo progreso lo rellena; se vuelca al log si ffmpeg falla
     if ($Context.Progress -and -not $Context.Debug -and $Duration -gt 0) {
         $total = if ($Context.TestLimit -gt 0) { [math]::Min([double]$Duration, [double]$Context.TestLimit) } else { [double]$Duration }
-        $code = Invoke-ToolProgress -Exe $Context.FFmpeg -Arguments $ffArgs -Context $Context -Label 'Procesando Video...' -TotalSeconds $total
+        $code = Invoke-ToolProgress -Exe $Context.FFmpeg -Arguments $ffArgs -Context $Context -Label 'Procesando Video...' -TotalSeconds $total -ShowQ
     } else {
         Start-CvStep $Context 'VIDEO' 'Procesando Video...'
         $code = Invoke-ToolShow -Exe $Context.FFmpeg -Arguments $ffArgs -Context $Context

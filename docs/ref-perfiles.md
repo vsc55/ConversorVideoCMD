@@ -42,7 +42,9 @@ La numeración (1..N) se **genera sola** a partir de los grupos de `Get-CvProfil
 - "Q 1–23" = `-qmin 1 -qmax 23`. "Q auto" = sin `qmin`/`qmax` (el encoder decide).
 - **Detección de bordes**: **sí** = escaneo completo con preguntas/preview (antes de escanear te pregunta el nº de muestras, por defecto `border.samples`). **auto** = pre-escaneo rápido que decide solo si hay barras: si son claras las recorta sin preguntar, si no hay las ignora, y si es ambiguo pasa al modo interactivo. Detalle en [explica-deteccion-bordes.md](explica-deteccion-bordes.md).
 - **Resize ≤1920 ancho** (`maxWidth`): reduce a 1920 de ancho **solo si el vídeo es mayor**; no amplía. **1920:-2** (`changeSize`): escala **siempre** al ancho dado (la altura `-2` se calcula automática y **par**). El nº de menú es orientativo (se autogenera): si añades/quitas perfiles, cambia.
-- Todos usan encoder NVENC (GPU) salvo el 1 (copy). Para CPU (libx264/libx265), usar el custom.
+- Todos usan encoder NVENC (GPU) salvo el 1 (copy). Para CPU (libx264/libx265/**libsvtav1** AV1) usar el custom o un perfil de `config.json`. **`av1_nvenc` (AV1 por GPU) aparece etiquetado `[SIN PROBAR]`**: el código está pero no se ha podido validar en hardware compatible (RTX 40+); sigue seleccionable. `libsvtav1` (AV1 por CPU) está validado.
+- **Validación del encoder por GPU**: nada más arrancar (tras cargar config y asegurar ffmpeg, antes de distinguir preparación/worker) se detecta qué encoders por GPU (`*_nvenc`) soporta **esta GPU** —sondeando cada uno con una codificación sintética mínima—. En el menú de encoder del perfil custom, los encoders GPU no soportados se **marcan `[NO SOPORTADO]` en amarillo** (visible antes de elegir). Al elegir un perfil (de serie, de `config.json` o el custom) con un encoder que la GPU no soporta (p. ej. `av1_nvenc` en una GPU anterior a **RTX 40**), se **avisa** (badge amarillo `[AVISO]`) **y se vuelve al menú** para elegir otro, en vez de dejar que ffmpeg falle a mitad de la conversión. El resultado se **cachea en `config.json`** (nodo `gpuCache`, dato de máquina que no aparece en el editor) clavado por **versión de ffmpeg + modelo de GPU**: si no cambian, el arranque es instantáneo; si cambia alguno (o no hay caché), vuelve a sondear (~1-2 s, una vez) y actualiza la caché.
+  - La misma validación se repite en el **WORKER, por cada archivo**: un job ya preparado (o un perfil de `config.json`) que se salta el menú de PREPARAR y trae un encoder no soportado no llega a fallar en ffmpeg — el worker **avisa en ese archivo y lo salta** (sin reintentar).
 
 ## Perfiles propios en `config.json`
 
@@ -65,11 +67,11 @@ La sección `profiles` de `config.json` permite definir perfiles **adicionales**
 
 | Campo | Valores | Uso |
 |---|---|---|
-| `VideoEncoder` | `copy` / `hevc_nvenc` / `libx265` / `h264_nvenc` / `libx264` | Codec de vídeo. |
-| `VideoProfile` | `main10` / `main` / `''` | `-profile:v`. `main10` → `-pix_fmt p010le`. |
-| `VideoLevel` | ej. `5`, `4.1`, `''` | `-level:v`. |
-| `Qmin`, `Qmax` | 0–51 / `null` | NVENC: `-qmin`/`-qmax`. Si `Qmin == Qmax` → `-rc constqp -qp`. Qué son y cómo elegirlos: [explica-control-tasa.md](explica-control-tasa.md). |
-| `Crf` | 0–51 / `null` | CPU (libx264/libx265): `-crf`. Qué es y cómo elegirlo: [explica-control-tasa.md](explica-control-tasa.md). |
+| `VideoEncoder` | `copy` / `hevc_nvenc` / `libx265` / `h264_nvenc` / `libx264` / `libsvtav1` / `av1_nvenc` | Codec de vídeo. `libsvtav1` = AV1 por CPU (SVT-AV1, **validado**); `av1_nvenc` = AV1 por GPU NVIDIA (RTX 40+), etiquetado **`[SIN PROBAR]`** en el menú (sin validar en hardware compatible; el motor lo codifica igual). |
+| `VideoProfile` | `main10` / `main` / `''` | En H.264/H.265, `-profile:v`. En AV1 **no** se pasa `-profile:v`: solo selecciona la profundidad de bits (`main10` = 10 bits). `main10` → `-pix_fmt p010le` (NVENC/HEVC) o `yuv420p10le` (SVT-AV1). |
+| `VideoLevel` | ej. `5`, `4.1`, `''` | `-level:v` (H.264/H.265). **AV1 lo ignora.** |
+| `Qmin`, `Qmax` | 0–51 / `null` | NVENC (incl. `av1_nvenc`): `-qmin`/`-qmax`. Si `Qmin == Qmax` → `-rc constqp -qp`. Qué son y cómo elegirlos: [explica-control-tasa.md](explica-control-tasa.md). |
+| `Crf` | 0–51 (0–63 en AV1) / `null` | CPU (libx264/libx265/**libsvtav1**): `-crf`. Qué es y cómo elegirlo: [explica-control-tasa.md](explica-control-tasa.md). |
 | `DetectBorder` | `false` / `true` / `'auto'` | Detección de bordes por archivo. `false` = nunca; `true` = siempre (escaneo completo interactivo, pregunta nº de muestras y previsualiza); `'auto'` = pre-escaneo rápido que decide (recorta solo si hay barras claras, ignora si no, y escala al interactivo si es ambiguo). Ver [explica-deteccion-bordes.md](explica-deteccion-bordes.md). |
 | `ChangeSize` | ej. `1920:-2`, `''` | `scale=` (altura `-2` = automática manteniendo aspecto **y par**). Escala **siempre**, incluso amplía un vídeo más pequeño. Se usa `-2` y **no** `-1`: `-1` puede dar altura **impar** (más aún combinado con recorte de bordes) y 4:2:0 exige dimensiones pares → en **CPU** (libx264/libx265) abortaría; `-2` redondea a par. |
 | `MaxWidth` | ej. `1920`, `null` | Reescalado **solo hacia abajo**: reduce a ese ancho (manteniendo aspecto) **solo si el vídeo es más ancho**; si ya es ≤ ese valor, no lo toca (no amplía). Se decide en PREPARAR comparando el ancho de origen: si es mayor congela un `scale=<W>:-2`, si no, no reescala. Alternativa a `ChangeSize` (si se ponen ambos, manda `ChangeSize`). |

@@ -148,7 +148,10 @@ function Get-CvConfigDefaults {
                 }
             }
         }
-        languages = [ordered]@{ audio = $langs; subtitle = $langs }
+        languages = [ordered]@{
+            audio    = $langs
+            subtitle = $langs
+        }
         # encode: outputExtension = contenedor de salida; extensions = extensiones de ENTRADA que
         # se procesan de Original\ (sin punto); audioChannels = canales del audio recodificado, tratado
         # como MAXIMO (no hace upmix: si el origen tiene menos canales, se conservan los del origen; 2
@@ -173,10 +176,9 @@ function Get-CvConfigDefaults {
         #   center*central + front*frontal + surround*surround. Para que sea clip-safe (el pico no supere
         #   al del origen) deben sumar <= 1.0; por encima puede recortar. El filtro pan se construye de
         #   estos valores, asi que se pueden afinar sin tocar codigo. Solo se usan con downmixMode=dialogue.
-        # multiAudio (BETA): si $true, cuando hay 2+ pistas del idioma preferido se ofrece conservar
-        #   VARIAS (no solo la mejor) y elegir cual queda como predeterminada. Doble llave mientras sea
-        #   beta: SOLO se activa si ademas test.betaMultiAudio=$true; si no, se comporta como monopista
-        #   (elige una, como siempre). Con 0-1 pistas del idioma preferido no cambia nada.
+        # multiAudio: si $true (por defecto), cuando hay 2+ pistas del idioma preferido se ofrece
+        #   conservar VARIAS (no solo la mejor) y elegir cual queda como predeterminada. Con $false =
+        #   monopista (elige una, como siempre). Con 0-1 pistas del idioma preferido no cambia nada.
         # audioKeepTitle: si $true, la(s) pista(s) de audio de salida CONSERVAN el titulo del origen
         #   (util para distinguir varias del mismo idioma: principal/comentarios/...). Por defecto
         #   $false = titulo en blanco (como el resto de pistas recodificadas).
@@ -187,6 +189,10 @@ function Get-CvConfigDefaults {
         #   ampliar); 'squareheight' = cuadra fijando el ALTO (amplia el ancho al mostrado); 'keep' =
         #   conserva el SAR/DAR tal cual (depende de que el reproductor lo respete). En 'square'/'squareheight'
         #   se elimina el SAR (se ve igual en cualquier reproductor) conservando la proporcion; maxWidth capa.
+        # syncAdelay: metodo del silencio de sincronia audio/video. $true (por defecto) = filtro 'adelay'
+        #   en UNA sola pasada (encadenado con la normalizacion de volumen), sin WAV intermedio. $false =
+        #   metodo clasico (genera un WAV silencio+pista y luego lo codifica). Ambos dan el mismo resultado
+        #   audible; 'adelay' cuantiza a ms enteros (ver docs/ref-gotchas.md). Antes era la beta test.syncAdelay.
         encode    = [ordered]@{
             outputExtension = 'mkv'
             extensions      = @(
@@ -209,13 +215,14 @@ function Get-CvConfigDefaults {
             }
             audioHz         = 44100
             audioChannels   = 2
+            syncAdelay      = $true
             multiAudio      = $true
             audioKeepTitle  = $false
             anamorphic      = 'square'
         }
         # customProfile: valores por DEFECTO del constructor de perfil CUSTOM interactivo (opcion 0
         #   del menu USAR PERFIL). En cada menu, ENTER acepta el valor por defecto (o eliges otro).
-        #   videoEncoder: libx264|h264_nvenc|libx265|hevc_nvenc|copy. videoProfile: main|main10|...
+        #   videoEncoder: libx264|h264_nvenc|libx265|hevc_nvenc|libsvtav1|av1_nvenc|copy. videoProfile: main|main10|...
         #   (segun codec). videoLevel: 4.0|4.1|5.0|... (segun codec). Se ignoran si no aplican al codec.
         #   qmin/qmax: control de tasa por defecto en NVENC. crf: control de tasa por defecto en CPU.
         #     Rango 0-51; -1 (o negativo) = AUTO (sin -qmin/-qmax ni -crf; decide el encoder).
@@ -260,7 +267,10 @@ function Get-CvConfigDefaults {
         #   start = segundo donde empieza (0 = desde el principio). seconds = duracion de la muestra
         #   (0 = SIN limite: reproduce hasta el final o hasta que el usuario cierre con q/ESC). El
         #   comando 'P N <seg>' de los menus fuerza el inicio en ese segundo puntual.
-        preview   = [ordered]@{ start = 0; seconds = 0 }
+        preview   = [ordered]@{
+            start   = 0
+            seconds = 0
+        }
         # volume: metodo de normalizacion. peakTarget = pico objetivo en dBFS del metodo 'peak'
         # (0 = maximo sin recorte; -1 deja margen/headroom contra el clipping inter-sample del AAC).
         volume    = [ordered]@{
@@ -310,7 +320,6 @@ function Get-CvConfigDefaults {
             cleanTemps      = $true
             separateWindow  = $true
             lockCloseButton = $true
-            debug           = $false
             log             = $true
             workers         = 2
             retries         = 2
@@ -328,25 +337,26 @@ function Get-CvConfigDefaults {
             }
             promptTimeoutStopOnType = $true
         }
+        # Depuracion: enabled = mensajes/log detallados (comandos de ffmpeg, pasos internos) en vez de
+        #   la vista compacta; ademas las codificaciones van a la ventana principal (no inline ni en
+        #   ventana aparte), para ver todo el log. Tambien se activa con el marcador 'debug_on'.
+        #   pausePerCommand ($true por defecto): en modo debug, ANTES de cada ejecucion de ffmpeg se
+        #   imprime el comando y se pide ENTER para continuar; con $false se ejecuta sin pausar (util
+        #   para ver el log detallado sin ir confirmando comando a comando).
+        debug     = [ordered]@{
+            enabled         = $false
+            pausePerCommand = $true
+        }
         # Modo pruebas: si 'enabled', cada archivo se codifica solo hasta 'minutes' minutos (el resto
         #   se descarta). Sirve para validar perfiles/ajustes rapido. Tambien se activa con 'test_on'.
-        #   syncAdelay (BETA): si $true, el silencio de sincronia se aplica con el filtro 'adelay' en
-        #   UNA sola pasada (combinado con la normalizacion de volumen), sin el WAV intermedio. Por
-        #   defecto $false = metodo clasico (genera WAV silencio+pista y luego lo codifica).
         #   betaDownmix (BETA): activador del downmix 'dialogue' (voz reforzada). Mientras esa mezcla
         #   sea beta hay doble llave: encode.downmixMode='dialogue' fija el modo, pero SOLO refuerza la
         #   voz si betaDownmix=$true. Con $false (por defecto), aunque downmixMode sea 'dialogue' se usa
         #   el downmix estandar de ffmpeg. Al promocionar la mezcla se retira este flag.
-        #   betaMultiAudio (BETA): activador de la multipista de audio (conservar varias pistas del
-        #   idioma preferido y elegir la predeterminada). Doble llave: encode.multiAudio=$true habilita
-        #   la funcion, pero SOLO actua si betaMultiAudio=$true. Con $false (por defecto) el audio es
-        #   monopista, identico al comportamiento clasico. Al promocionar se retira este flag.
         test      = [ordered]@{
             enabled        = $false
             minutes        = 5
-            syncAdelay     = $false
             betaDownmix    = $false
-            betaMultiAudio = $false
         }
         console   = [ordered]@{
             background       = 'DarkBlue'
@@ -404,7 +414,8 @@ function Get-CvConfigHelp {
         'encode/downmixCoeffs/surround' = 'Peso de los surrounds en el downmix dialogue (el LFE se descarta)'
         'encode/audioHz'        = 'Frecuencia del audio recodificado (Hz); opus fuerza 48000'
         'encode/audioChannels'  = 'Canales de salida (MAXIMO, no hace upmix): 2 = estereo, 6 = 5.1, 8 = 7.1'
-        'encode/multiAudio'     = 'BETA: con 2+ pistas del idioma preferido, conservar varias y elegir la predeterminada (requiere test.betaMultiAudio)'
+        'encode/syncAdelay'     = 'Sincronia: true (por defecto) = adelay en 1 pasada (sin WAV); false = clasico (WAV silencio+pista)'
+        'encode/multiAudio'     = 'Con 2+ pistas del idioma preferido, conservar varias y elegir la predeterminada (false = monopista, solo la mejor)'
         'encode/audioKeepTitle' = 'Conservar el titulo del audio de origen en la salida (false = titulo en blanco)'
 
         'customProfile'             = 'Valores por defecto del constructor de perfil CUSTOM (opcion 0 de USAR PERFIL)'
@@ -454,7 +465,6 @@ function Get-CvConfigHelp {
         'behavior/cleanTemps'               = 'Borrar los temporales de Proceso\ al terminar cada archivo'
         'behavior/separateWindow'           = 'Lanzar cada codificacion en su propia ventana'
         'behavior/lockCloseButton'          = 'Desactivar el boton X mientras hay conversiones en marcha'
-        'behavior/debug'                    = 'Mensajes de depuracion detallados'
         'behavior/log'                      = 'Guardar log (transcript) de la sesion en logs\'
         'behavior/workers'                  = 'Codificaciones en paralelo al terminar PREPARAR (esta + N-1)'
         'behavior/retries'                  = 'Reintentos por archivo cuando la codificacion falla'
@@ -471,12 +481,14 @@ function Get-CvConfigHelp {
         'behavior/promptTimeout/subtitle'   = 'Timeout del menu de subtitulos fallback (-1 = generico; al expirar no conserva ninguno)'
         'behavior/promptTimeoutStopOnType'  = 'Al teclear algo se desactiva el auto (solo ENTER envia); false = clasico (al expirar envia lo tecleado)'
 
+        'debug'                 = 'Depuracion (log detallado; tambien se activa con el marcador debug_on)'
+        'debug/enabled'         = 'Modo debug: log detallado (comandos ffmpeg, pasos internos) y codificacion en la ventana principal'
+        'debug/pausePerCommand' = 'En debug, pedir ENTER antes de cada comando de ffmpeg; false = ejecutar sin pausar'
+
         'test'            = 'Modo pruebas (codificacion parcial para validar ajustes)'
         'test/enabled'    = "Activar modo pruebas: cada archivo solo se codifica hasta 'minutes' min"
         'test/minutes'    = 'Minutos que se codifican por archivo en modo pruebas (>=1)'
-        'test/syncAdelay' = 'BETA: silencio de sincronia con adelay en una sola pasada (sin WAV)'
         'test/betaDownmix'= 'BETA: activa el downmix dialogue (voz reforzada); sin el, dialogue = downmix estandar'
-        'test/betaMultiAudio' = 'BETA: activa la multipista de audio (encode.multiAudio); sin el, el audio es monopista'
 
         'console'             = 'Apariencia de la ventana de consola'
         'console/background'  = 'Color de fondo de la consola'
@@ -638,7 +650,11 @@ function ConvertTo-CvJson {
             $items = @($Node)
             if ($items.Count -eq 0) { return '[]' }
             $allScalar = $true
-            foreach ($it in $items) { if ((Get-CvNodeKind $it) -in @('object','array')) { $allScalar = $false; break } }
+            $nodeKinds = @(
+                'object'
+                'array'
+            )
+            foreach ($it in $items) { if ((Get-CvNodeKind $it) -in $nodeKinds) { $allScalar = $false; break } }
             if ($allScalar) {
                 $vals = foreach ($it in $items) { ConvertTo-CvJson $it 0 }
                 return '[' + ($vals -join ', ') + ']'

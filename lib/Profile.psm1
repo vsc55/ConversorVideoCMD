@@ -38,17 +38,32 @@ function New-CvProfile {
 function Get-CvAudioChannels {
     <# Catalogo de canales de salida para los menus (@{Value;Text}). #>
     @(
-        @{ Value = '2'; Text = 'estereo' }
-        @{ Value = '6'; Text = '5.1' }
-        @{ Value = '8'; Text = '7.1' }
+        @{
+            Value = '2'
+            Text  = 'estereo'
+        }
+        @{
+            Value = '6'
+            Text  = '5.1'
+        }
+        @{
+            Value = '8'
+            Text  = '7.1'
+        }
     )
 }
 
 function Get-CvDownmixModes {
     <# Catalogo de modos de downmix 5.1->estereo para los menus (@{Value;Text}). #>
     @(
-        @{ Value = 'default';  Text = 'estandar de ffmpeg' }
-        @{ Value = 'dialogue'; Text = 'voz reforzada (BETA; requiere test.betaDownmix)' }
+        @{
+            Value = 'default'
+            Text  = 'estandar de ffmpeg'
+        }
+        @{
+            Value = 'dialogue'
+            Text  = 'voz reforzada (BETA; requiere test.betaDownmix)'
+        }
     )
 }
 
@@ -110,11 +125,60 @@ function Get-CvVideoEncoders {
         anadir/quitar/reordenar aqui basta. Value = valor de -VideoEncoder; Text = descripcion.
     #>
     @(
-        @{ Value = 'copy';       Text = 'Copia la pista de video sin recodificar' }
-        @{ Value = 'libx264';    Text = '[h264 - CPU]  muy compatible, mas lento' }
-        @{ Value = 'h264_nvenc'; Text = '[h264 - GPU]  rapido (GPU NVIDIA)' }
-        @{ Value = 'libx265';    Text = '[h265 - CPU]  mejor compresion, mas lento' }
-        @{ Value = 'hevc_nvenc'; Text = '[h265 - GPU]  rapido (GPU NVIDIA)' }
+        @{
+            Value = 'copy'
+            Text  = 'Copia la pista de video sin recodificar'
+        }
+        @{
+            Value = 'libx264'
+            Text  = '[h264 - CPU]  muy compatible, mas lento'
+        }
+        @{
+            Value = 'h264_nvenc'
+            Text  = '[h264 - GPU]  rapido (GPU NVIDIA)'
+        }
+        @{
+            Value = 'libx265'
+            Text  = '[h265 - CPU]  mejor compresion, mas lento'
+        }
+        @{
+            Value = 'hevc_nvenc'
+            Text  = '[h265 - GPU]  rapido (GPU NVIDIA)'
+        }
+        @{
+            Value = 'libsvtav1'
+            Text  = '[AV1  - CPU]  SVT-AV1, la mejor compresion (lento)'
+        }
+        @{
+            Value = 'av1_nvenc'
+            Text  = '[AV1  - GPU]  rapido (GPU NVIDIA RTX 40+) [SIN PROBAR]'
+        }
+    )
+}
+
+function Get-CvCpuEncoders {
+    <# Fuente unica de los encoders de video por CPU (usan CRF, no QP/multipass de NVENC). #>
+    @(
+        'libx264'
+        'libx265'
+        'libsvtav1'
+    )
+}
+
+function Get-CvAv1Encoders {
+    <# Fuente unica de la FAMILIA AV1 (CPU + GPU): comparten opciones de codec (profundidad de bits,
+       sin levels). libsvtav1 (CPU) validado; av1_nvenc (GPU) etiquetado [SIN PROBAR] (sin hardware RTX 40+). #>
+    @(
+        'libsvtav1'
+        'av1_nvenc'
+    )
+}
+
+function Get-CvMultipass2Pass {
+    <# Fuente unica de los modos de multipass NVENC que SI son 2-pass (excluye 'off'). #>
+    @(
+        'qres'
+        'fullres'
     )
 }
 
@@ -125,12 +189,30 @@ function Get-CvVideoSizes {
         Solo informativo: el usuario teclea el tamano; anadir/quitar filas aqui basta.
     #>
     @(
-        @{ Value = '640:360';   Text = '360p  [Mobile]' }
-        @{ Value = '1024:576';  Text = '576p  [PAL Widescreen]' }
-        @{ Value = '1280:720';  Text = '720p  [HD]' }
-        @{ Value = '1920:1080'; Text = '1080p [Full HD]' }
-        @{ Value = '1920:-2';   Text = '1080p [Full HD] (mantiene aspect ratio)' }
-        @{ Value = '3840:2160'; Text = '4K    [UHDTV]' }
+        @{
+            Value = '640:360'
+            Text  = '360p  [Mobile]'
+        }
+        @{
+            Value = '1024:576'
+            Text  = '576p  [PAL Widescreen]'
+        }
+        @{
+            Value = '1280:720'
+            Text  = '720p  [HD]'
+        }
+        @{
+            Value = '1920:1080'
+            Text  = '1080p [Full HD]'
+        }
+        @{
+            Value = '1920:-2'
+            Text  = '1080p [Full HD] (mantiene aspect ratio)'
+        }
+        @{
+            Value = '3840:2160'
+            Text  = '4K    [UHDTV]'
+        }
     )
 }
 
@@ -146,39 +228,123 @@ function Get-CvCodecOptions {
         Devuelve @{ Profiles; Levels }, cada una lista de @{ Value; Text } (formato comun).
     #>
     param([string]$Encoder)
-    if ($Encoder -in @('libx265','hevc_nvenc')) {
+    $h265Family = @(
+        'libx265'
+        'hevc_nvenc'
+    )
+    $av1Family = Get-CvAv1Encoders
+    if ($Encoder -in $h265Family) {
         [pscustomobject]@{
             Profiles = @(
-                @{ Value = 'main';   Text = '8 bits' }
-                @{ Value = 'main10'; Text = '10 bits (mas color, menos banding)' }
+                @{
+                    Value = 'main'
+                    Text  = '8 bits'
+                }
+                @{
+                    Value = 'main10'
+                    Text  = '10 bits (mas color, menos banding)'
+                }
             )
             Levels = @(
-                @{ Value = '4.0'; Text = '~1080p30' }
-                @{ Value = '4.1'; Text = '~1080p60' }
-                @{ Value = '5.0'; Text = '~4K30' }
-                @{ Value = '5.1'; Text = '~4K60' }
-                @{ Value = '5.2'; Text = '~4K120 / 8K limitado' }
-                @{ Value = '6.0'; Text = '~8K30' }
-                @{ Value = '6.1'; Text = '~8K60' }
-                @{ Value = '6.2'; Text = '~8K120' }
+                @{
+                    Value = '4.0'
+                    Text  = '~1080p30'
+                }
+                @{
+                    Value = '4.1'
+                    Text  = '~1080p60'
+                }
+                @{
+                    Value = '5.0'
+                    Text  = '~4K30'
+                }
+                @{
+                    Value = '5.1'
+                    Text  = '~4K60'
+                }
+                @{
+                    Value = '5.2'
+                    Text  = '~4K120 / 8K limitado'
+                }
+                @{
+                    Value = '6.0'
+                    Text  = '~8K30'
+                }
+                @{
+                    Value = '6.1'
+                    Text  = '~8K60'
+                }
+                @{
+                    Value = '6.2'
+                    Text  = '~8K120'
+                }
             )
+        }
+    } elseif ($Encoder -in $av1Family) {
+        # AV1: aqui 'Profiles' solo elige la PROFUNDIDAD de bits (main = 8, main10 = 10; no se pasa
+        # como -profile:v). No hay 'Levels' relevantes (el codificador no los usa), asi que van vacios.
+        [pscustomobject]@{
+            Profiles = @(
+                @{
+                    Value = 'main'
+                    Text  = '8 bits'
+                }
+                @{
+                    Value = 'main10'
+                    Text  = '10 bits (mas color, menos banding)'
+                }
+            )
+            Levels = @()
         }
     } else {
         [pscustomobject]@{
             Profiles = @(
-                @{ Value = 'baseline'; Text = 'basico, sin B-frames (dispositivos antiguos)' }
-                @{ Value = 'main';     Text = 'estandar (SD/broadcast)' }
-                @{ Value = 'high';     Text = '8 bits, el habitual en HD' }
-                @{ Value = 'high10';   Text = '10 bits' }
+                @{
+                    Value = 'baseline'
+                    Text  = 'basico, sin B-frames (dispositivos antiguos)'
+                }
+                @{
+                    Value = 'main'
+                    Text  = 'estandar (SD/broadcast)'
+                }
+                @{
+                    Value = 'high'
+                    Text  = '8 bits, el habitual en HD'
+                }
+                @{
+                    Value = 'high10'
+                    Text  = '10 bits'
+                }
             )
             Levels = @(
-                @{ Value = '3.0'; Text = '~480p (SD)' }
-                @{ Value = '3.1'; Text = '~720p30' }
-                @{ Value = '4.0'; Text = '~1080p30' }
-                @{ Value = '4.1'; Text = '~1080p30 (Blu-ray)' }
-                @{ Value = '4.2'; Text = '~1080p60' }
-                @{ Value = '5.0'; Text = '~1080p72 / 2K' }
-                @{ Value = '5.1'; Text = '~4K30' }
+                @{
+                    Value = '3.0'
+                    Text  = '~480p (SD)'
+                }
+                @{
+                    Value = '3.1'
+                    Text  = '~720p30'
+                }
+                @{
+                    Value = '4.0'
+                    Text  = '~1080p30'
+                }
+                @{
+                    Value = '4.1'
+                    Text  = '~1080p30 (Blu-ray)'
+                }
+                @{
+                    Value = '4.2'
+                    Text  = '~1080p60'
+                }
+                @{
+                    Value = '5.0'
+                    Text  = '~1080p72 / 2K'
+                }
+                @{
+                    Value = '5.1'
+                    Text  = '~4K30'
+                }
             )
         }
     }
@@ -194,24 +360,69 @@ function Get-CvAudioBitrates {
         orientativas (no de la doc de ffmpeg). El menu se muestra DESPUES de elegir el codec.
     #>
     param([string]$Codec = 'aac')
-    if ("$Codec".ToLower() -in @('ac3','eac3')) {
+    $ac3Family = @(
+        'ac3'
+        'eac3'
+    )
+    if ("$Codec".ToLower() -in $ac3Family) {
         @(
-            @{ Value = '192k';   Text = 'estereo / 5.1 basico' }
-            @{ Value = '256k';   Text = '5.1 buena' }
-            @{ Value = '384k';   Text = '5.1 alta (recomendado)' }
-            @{ Value = '448k';   Text = '5.1 muy alta' }
-            @{ Value = '640k';   Text = 'maxima de AC-3' }
-            @{ Value = 'custom'; Text = 'introducir un bitrate a mano (p. ej. 768k)'; Position = 'end' }
+            @{
+                Value = '192k'
+                Text  = 'estereo / 5.1 basico'
+            }
+            @{
+                Value = '256k'
+                Text  = '5.1 buena'
+            }
+            @{
+                Value = '384k'
+                Text  = '5.1 alta (recomendado)'
+            }
+            @{
+                Value = '448k'
+                Text  = '5.1 muy alta'
+            }
+            @{
+                Value = '640k'
+                Text  = 'maxima de AC-3'
+            }
+            @{
+                Value    = 'custom'
+                Text     = 'introducir un bitrate a mano (p. ej. 768k)'
+                Position = 'end'
+            }
         )
     } else {
         @(
-            @{ Value = '96k';    Text = 'estereo bajo' }
-            @{ Value = '128k';   Text = 'estereo basico' }
-            @{ Value = '160k';   Text = 'estereo bueno' }
-            @{ Value = '192k';   Text = 'estereo alta calidad (recomendado)' }
-            @{ Value = '256k';   Text = 'muy alta' }
-            @{ Value = '320k';   Text = 'maxima habitual' }
-            @{ Value = 'custom'; Text = 'introducir un bitrate a mano (p. ej. 224k)'; Position = 'end' }
+            @{
+                Value = '96k'
+                Text  = 'estereo bajo'
+            }
+            @{
+                Value = '128k'
+                Text  = 'estereo basico'
+            }
+            @{
+                Value = '160k'
+                Text  = 'estereo bueno'
+            }
+            @{
+                Value = '192k'
+                Text  = 'estereo alta calidad (recomendado)'
+            }
+            @{
+                Value = '256k'
+                Text  = 'muy alta'
+            }
+            @{
+                Value = '320k'
+                Text  = 'maxima habitual'
+            }
+            @{
+                Value    = 'custom'
+                Text     = 'introducir un bitrate a mano (p. ej. 224k)'
+                Position = 'end'
+            }
         )
     }
 }
@@ -227,13 +438,41 @@ function Get-CvAudioCodecs {
         nombre "bonito" (p. ej. libmp3lame -> MP3) se define UNA sola vez, aqui.
     #>
     @(
-        @{ Value = 'copy';       Short = 'COPY'; Text = 'copiar la pista original (sin recodificar)' }
-        @{ Value = 'aac';        Short = 'AAC';  Text = 'AAC-LC  - muy compatible (por defecto)' }
-        @{ Value = 'ac3';        Short = 'AC3';  Text = 'Dolby Digital (AC-3)  - 5.1 compatible con TV/receptores' }
-        @{ Value = 'eac3';       Short = 'EAC3'; Text = 'Dolby Digital Plus (E-AC-3)  - mejor que AC-3 a igual bitrate' }
-        @{ Value = 'libmp3lame'; Short = 'MP3';  Text = 'MP3  - universal, con perdida' }
-        @{ Value = 'flac';       Short = 'FLAC'; Text = 'FLAC  - sin perdida (ignora el bitrate)' }
-        @{ Value = 'libopus';    Short = 'OPUS'; Text = 'Opus  - muy eficiente (fuerza 48 kHz)' }
+        @{
+            Value = 'copy'
+            Short = 'COPY'
+            Text  = 'copiar la pista original (sin recodificar)'
+        }
+        @{
+            Value = 'aac'
+            Short = 'AAC'
+            Text  = 'AAC-LC  - muy compatible (por defecto)'
+        }
+        @{
+            Value = 'ac3'
+            Short = 'AC3'
+            Text  = 'Dolby Digital (AC-3)  - 5.1 compatible con TV/receptores'
+        }
+        @{
+            Value = 'eac3'
+            Short = 'EAC3'
+            Text  = 'Dolby Digital Plus (E-AC-3)  - mejor que AC-3 a igual bitrate'
+        }
+        @{
+            Value = 'libmp3lame'
+            Short = 'MP3'
+            Text  = 'MP3  - universal, con perdida'
+        }
+        @{
+            Value = 'flac'
+            Short = 'FLAC'
+            Text  = 'FLAC  - sin perdida (ignora el bitrate)'
+        }
+        @{
+            Value = 'libopus'
+            Short = 'OPUS'
+            Text  = 'Opus  - muy eficiente (fuerza 48 kHz)'
+        }
     )
 }
 
@@ -245,9 +484,19 @@ function Get-CvNvencMultipass {
         practica (mas pasadas = mas calidad y mas tiempo). 'off' se usa como opcion 0 en el menu.
     #>
     @(
-        @{ Value = 'off';     Text = 'sin 2-pass (1 sola pasada, lo mas rapido)'; Position = 'first' }
-        @{ Value = 'qres';    Text = '2 pasadas, la 1a a 1/4 de resolucion (mejora calidad; algo mas lento)' }
-        @{ Value = 'fullres'; Text = '2 pasadas, la 1a a resolucion completa (mejor calidad; el mas lento)' }
+        @{
+            Value    = 'off'
+            Text     = 'sin 2-pass (1 sola pasada, lo mas rapido)'
+            Position = 'first'
+        }
+        @{
+            Value = 'qres'
+            Text  = '2 pasadas, la 1a a 1/4 de resolucion (mejora calidad; algo mas lento)'
+        }
+        @{
+            Value = 'fullres'
+            Text  = '2 pasadas, la 1a a resolucion completa (mejor calidad; el mas lento)'
+        }
     )
 }
 
@@ -289,8 +538,18 @@ function Format-CvProfileLabel {
         config.json, para no duplicar la lista del menu y que siempre refleje los valores reales.
     #>
     param([Parameter(Mandatory)]$Prof)
-    $encMap = @{ 'hevc_nvenc' = 'h265[NV]'; 'h264_nvenc' = 'h264[NV]'; 'libx265' = 'h265'; 'libx264' = 'h264' }
-    $profMap = @{ 'main10' = 'M10'; 'main' = 'M' }
+    $encMap = @{
+        'hevc_nvenc' = 'h265[NV]'
+        'h264_nvenc' = 'h264[NV]'
+        'libx265'    = 'h265'
+        'libx264'    = 'h264'
+        'av1_nvenc'  = 'av1[NV]'
+        'libsvtav1'  = 'av1'
+    }
+    $profMap = @{
+        'main10' = 'M10'
+        'main'   = 'M'
+    }
     if ($Prof.VideoEncoder -eq 'copy' -or -not $Prof.VideoEncoder) {
         $v = 'COPY'
     } else {
@@ -302,11 +561,11 @@ function Format-CvProfileLabel {
         }
         if ($Prof.VideoLevel) { $parts += ('L{0}' -f $Prof.VideoLevel) }
         # Control de tasa: CRF (CPU) / Q(min-max) (NVENC) / Q(AUTO) (NVENC sin qmin ni qmax).
-        $isCpu = ($Prof.VideoEncoder -in @('libx264','libx265'))
+        $isCpu = ($Prof.VideoEncoder -in (Get-CvCpuEncoders))
         if ($null -ne $Prof.Crf) { $parts += ('CRF{0}' -f $Prof.Crf) }
         elseif (($null -ne $Prof.Qmin) -or ($null -ne $Prof.Qmax)) { $parts += ('Q({0}-{1})' -f $Prof.Qmin, $Prof.Qmax) }
         elseif (-not $isCpu) { $parts += 'Q(AUTO)' }
-        if ("$($Prof.Multipass)" -in @('qres','fullres')) { $parts += ('2PASS:{0}' -f $Prof.Multipass) }
+        if ("$($Prof.Multipass)" -in (Get-CvMultipass2Pass)) { $parts += ('2PASS:{0}' -f $Prof.Multipass) }
         if ("$($Prof.DetectBorder)".ToLower() -eq 'auto') { $parts += 'AUTO-BORDE' }
         elseif ([bool]$Prof.DetectBorder)                 { $parts += 'DETECT BORDE' }
         if ($Prof.ChangeSize)   { $parts += ('RESIZE {0}' -f $Prof.ChangeSize) }
@@ -360,12 +619,29 @@ function New-CustomProfile {
             # encoder configurado; si no esta en la lista (config erronea), cae a hevc_nvenc y, si
             # ni eso, a la 1a opcion.
             $encList = @(Get-CvVideoEncoders)
+            # Marcar '[NO SOPORTADO]' (Show-Menu lo pinta en amarillo) los encoders por GPU que ESTA
+            # GPU no admite (sondeo cacheado): asi se ve en el propio menu, antes de seleccionar.
+            $encList = @($encList | ForEach-Object {
+                $t = "$($_.Text)"
+                if (-not (Test-CvEncoderSupported -Context $Context -Encoder "$($_.Value)")) { $t = "$t [NO SOPORTADO]" }
+                @{
+                    Value = "$($_.Value)"
+                    Text  = $t
+                }
+            })
             $encVals = @($encList | ForEach-Object { "$($_.Value)" })
             $encDefIdx = 1 + [array]::IndexOf($encVals, "$defEnc")
             if ($encDefIdx -le 0) { $encDefIdx = 1 + [array]::IndexOf($encVals, 'hevc_nvenc') }
             if ($encDefIdx -le 0) { $encDefIdx = 1 }
             $enc = Select-FromList -Title 'ENCODER DE VIDEO:' -Options $encList -NoNone -DefaultIndex $encDefIdx `
                 -CancelLabel 'C / ESC. Cancelar (volver al menu de perfiles)' -AllowCancel
+
+            # Encoder por GPU no soportado por ESTA GPU (p. ej. av1_nvenc en GPUs anteriores a RTX 40):
+            # se avisa y se vuelve al menu del encoder en vez de dejar que ffmpeg falle al codificar.
+            if (-not (Test-CvEncoderSupported -Context $Context -Encoder "$enc")) {
+                Write-CvOptionUnsupported -Option "$enc" -Reason 'tu GPU no lo soporta' -Hint 'Elige otro encoder (para AV1, usa libsvtav1 por CPU).'
+                continue
+            }
 
             $p = New-CvProfile -VideoEncoder $enc
 
@@ -402,10 +678,12 @@ function New-CustomProfile {
                 $lvlDefIdx  = 1 + [array]::IndexOf(@($lvlOpts  | ForEach-Object { "$($_.Value)" }), "$defLvl")
                 if ($lvlDefIdx -le 0) { $lvlDefIdx = 1 }
                 $p.VideoProfile = Select-FromList -Title 'Perfil de codec:' -Options $profOpts -NoNone -DefaultIndex $profDefIdx -AllowCancel
-                $p.VideoLevel   = Select-FromList -Title 'Level (resolucion/fps orientativos):' -Options $lvlOpts -NoNone -DefaultIndex $lvlDefIdx -AllowCancel
+                # AV1 no usa level: si el codec no ofrece niveles, se salta el menu.
+                if ($lvlOpts.Count -gt 0) { $p.VideoLevel = Select-FromList -Title 'Level (resolucion/fps orientativos):' -Options $lvlOpts -NoNone -DefaultIndex $lvlDefIdx -AllowCancel }
+                else { $p.VideoLevel = '' }
 
-                # Control de tasa: CRF (CPU) o qmin/qmax (NVENC). Defaults desde config (customProfile).
-                if ($enc -in @('libx264','libx265')) {
+                # Control de tasa: CRF (CPU: libx264/libx265/libsvtav1) o qmin/qmax (NVENC). Defaults de config.
+                if ($enc -in (Get-CvCpuEncoders)) {
                     $p.Crf = Read-QOrNull '   CRF (calidad 0-51)' $defCrf -Max 51 -AllowCancel
                 } else {
                     $p.Qmin = Read-QOrNull '   QP minimo (0-51)' $defQmin -Max 51 -AllowCancel
@@ -475,34 +753,54 @@ function Select-Profile {
     param([object[]]$Extra = @(), $Context = $null)
     # Perfiles de serie por GRUPOS; se numeran automaticamente 1..N (continuo entre grupos) y el
     # texto del menu se GENERA de sus valores (Format-CvProfileLabel). Entre grupos, linea en blanco.
+    # Se recogen primero las opciones numeradas (numero + etiqueta) y las rupturas de grupo (linea
+    # en blanco); el numero se formatea DESPUES, alineado a la derecha al ancho del mayor indice
+    # mostrado (Get-CvMenuNumWidth), para que TODAS las etiquetas queden en columna con indices de 1
+    # y 2+ cifras (' 1.' … '11.'). Las opciones '0' (Custom) y 'X' (Salir) se alinean igual.
     $groups   = @(Get-CvProfiles)
     $profiles = [ordered]@{}
-    $baseLines = @()
+    $baseItems = @()   # cada uno: @{ Break = $true } (separador) o @{ Num; Label }
     $n = 0
     for ($g = 0; $g -lt $groups.Count; $g++) {
-        if ($g -gt 0) { $baseLines += '' }                       # separador entre grupos
+        if ($g -gt 0) { $baseItems += @{ Break = $true } }       # separador entre grupos
         foreach ($pr in @($groups[$g].Profiles)) {
             $n++
             $profiles["$n"] = $pr
-            $baseLines += ('{0}. {1}' -f $n, (Format-CvProfileLabel -Prof $pr))
+            $baseItems += @{ Num = $n; Label = (Format-CvProfileLabel -Prof $pr) }
         }
     }
     # Perfiles propios de config.json: CONTINUAN la numeracion (N+1, N+2, ...); etiqueta = 'label' o resumen.
-    $extraLines = @()
+    $extraItems = @()
     $base = $n
     for ($i = 0; $i -lt @($Extra).Count; $i++) {
         $obj = @($Extra)[$i]
         if ($null -eq $obj) { continue }
-        $key = "$($base + $i + 1)"
+        $num = $base + $i + 1
         $p   = ConvertTo-CvProfile -Obj $obj
-        $profiles[$key] = $p
+        $profiles["$num"] = $p
         $lbl = "$(Get-CvProfileProp $obj 'label' '')"
         if ([string]::IsNullOrWhiteSpace($lbl)) { $lbl = Format-CvProfileLabel -Prof $p }
-        $extraLines += ('{0}. {1}' -f $key, $lbl)
+        $extraItems += @{ Num = $num; Label = $lbl }
     }
+    # Ancho comun: el mayor indice que se mostrara (incluye los perfiles de config.json).
+    $maxNum = 0
+    foreach ($k in $profiles.Keys) { if ([int]$k -gt $maxNum) { $maxNum = [int]$k } }
+    $numW   = Get-CvMenuNumWidth $maxNum
+    $numFmt = { param($num, $label) '{0}. {1}' -f (("$num").PadLeft($numW)), $label }
+
+    $baseLines = @()
+    foreach ($it in $baseItems) { $baseLines += $(if ($it.Break) { '' } else { & $numFmt $it.Num $it.Label }) }
+    $extraLines = @()
+    foreach ($it in $extraItems) { $extraLines += (& $numFmt $it.Num $it.Label) }
+
     $menuLines = @($baseLines)
     if ($extraLines.Count) { $menuLines += @('', '-- Perfiles de config.json --') + $extraLines }
-    $menuLines += @('', '0. Custom (configuracion personalizada)', '', 'X. Salir')
+    $menuLines += @(
+        '',
+        ('{0}. Custom (configuracion personalizada)' -f ('0'.PadLeft($numW))),
+        '',
+        ('{0}. Salir' -f ('X'.PadLeft($numW)))
+    )
 
     $show = $true
     while ($true) {
@@ -519,7 +817,16 @@ function Select-Profile {
             $show = $true
             continue
         }
-        if ($profiles.Contains($sel)) { return $profiles[$sel] }
+        if ($profiles.Contains($sel)) {
+            $chosen = $profiles[$sel]
+            # Perfil (de serie o de config.json) con encoder por GPU que ESTA GPU no soporta: se
+            # avisa y se vuelve al menu, en vez de dejar que ffmpeg falle luego al codificar.
+            if (-not (Test-CvEncoderSupported -Context $Context -Encoder "$($chosen.VideoEncoder)")) {
+                Write-CvOptionUnsupported -Option "$($chosen.VideoEncoder)" -Reason 'el perfil lo usa y tu GPU no lo soporta' -Hint 'Elige otro perfil (para AV1, uno con libsvtav1 por CPU).'
+                continue
+            }
+            return $chosen
+        }
         Write-Host '   Opcion no valida.' -ForegroundColor Yellow
     }
 }

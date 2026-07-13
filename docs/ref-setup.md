@@ -17,7 +17,7 @@ Agrupado por bloques (**Herramientas / Estado / Compatibilidad / Pruebas / Confi
 | Bloque · Opción | Qué hace |
 |---|---|
 | **Herramientas** · Instalar / gestionar herramientas | Submenú con una entrada por app (ffmpeg, aacgain, mkvtoolnix, sevenzip…) y "Reinstalar TODO". Por app: elige versión (selector ordenado de más nueva a más antigua), borra esa carpeta de versión y la (re)instala; ofrece fijarla como `selected`. Al instalar **ffmpeg** valida NVENC y, si no es compatible, **vuelve a la versión anterior** (ver abajo). Instalación: [ref-herramientas.md](ref-herramientas.md). |
-| **Estado** · Ver estado | Muestra (bajo demanda): **identidad** (versión de ConvertVideo + config en uso, marcando si es alterno `-Config` o no existe); **checklist de directorios**; **versiones de herramientas** instaladas por app/plataforma (o `[NO SOPORTADO]`); **estado de `Proceso\`** (jobs pendientes, bloqueos —con cuántos **caducados/huérfanos**— y temporales); y **trabajo** (nº de vídeos en `Original\` y convertidos `*_fix.<ext>` en `Convertido\`). |
+| **Estado** · Ver estado | Muestra (bajo demanda): **identidad** (versión de ConvertVideo + config en uso, marcando si es alterno `-Config` o no existe); **checklist de directorios**; **versiones de herramientas** instaladas por app/plataforma (o `[NO SOPORTADO]`); **codecs por GPU (NVENC) soportados por la gráfica del sistema** (`h264`/`h265`/`av1_nvenc`) — **comprobación en vivo** (sonda real, **sin usar la caché** `gpuCache` del config, para reflejar el estado actual, p. ej. tras cambiar de GPU/driver); **estado de `Proceso\`** (jobs pendientes, bloqueos —con cuántos **caducados/huérfanos**— y temporales); y **trabajo** (nº de vídeos en `Original\` y convertidos `*_fix.<ext>` en `Convertido\`). |
 | **Compatibilidad** · Comprobar compatibilidad GPU (NVENC) | Prueba NVENC en las versiones de ffmpeg instaladas, **sin reinstalar**. |
 | **Pruebas** · Ejecutar tests unitarios | Lanza `test\unit-tests.ps1` (funciones puras: sin GPU ni ffmpeg, < 1 s) como **proceso hijo** y reporta si todo pasó o falló algún caso. Ver [ref-pruebas.md](ref-pruebas.md). |
 | **Pruebas** · Ejecutar batería de features | Lanza `test\feature-tests.ps1` (E2E; usa ffmpeg; los casos de GPU se **saltan** si no hay NVENC) como proceso hijo. Tarda más (codifica). Ver [ref-pruebas.md](ref-pruebas.md). |
@@ -63,7 +63,7 @@ Lanzadores de depuración incluidos:
 
 | Fichero | Uso |
 |---|---|
-| `config.debug.json` | Override mínimo `{ "behavior": { "debug": true } }` (se fusiona con los defaults). |
+| `config.debug.json` | Override mínimo `{ "debug": { "enabled": true } }` (se fusiona con los defaults). |
 | `Convert-Debug.cmd` | Igual que `Convert.cmd` pero con `-Config config.debug.json`: abre el conversor con el **log detallado** (comandos de ffmpeg y pasos internos) sin tocar tu `config.json`. |
 | `setup-Debug.cmd` | Igual que `setup.cmd` pero con `-Config config.debug.json`: para **editar/gestionar** ese config de depuración. |
 

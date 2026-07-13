@@ -24,6 +24,35 @@ function Get-CvMark {
     else     { return [char]::ConvertFromUtf32(0x00D7) }   # cruz monocroma (x, universal)
 }
 
+function Write-CvBadge {
+    <#
+        Escribe INLINE (sin salto de linea) una etiqueta resaltada tipo badge: interior con fondo de
+        color y unos CAPS a los lados cuyo fondo es el POR DEFECTO, de modo que la celda del borde NO
+        lleva fondo -> evita el bug de la consola de Windows de "estirar" el fondo hasta el margen al
+        redimensionar. Con behavior.asciiMarks usa corchetes '[ ]'; si no, medios bloques (▐ ▌). El
+        llamador decide el salto de linea y lo que va antes/despues. Reutilizado por Write-CvLog
+        (avisos/errores) y por los menus (marcador 'NO SOPORTADO' de una opcion no disponible).
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Text,
+        [System.ConsoleColor]$Fg = [System.ConsoleColor]::Black,
+        [System.ConsoleColor]$Bg = [System.ConsoleColor]::Yellow
+    )
+    $dbg = $Host.UI.RawUI.BackgroundColor
+    $dfg = $Host.UI.RawUI.ForegroundColor
+    if ($script:CvAsciiMarks) {
+        $lb = '['; $rb = ']'
+    } else {
+        $lb = [char]0x2590; $rb = [char]0x258C
+    }
+    # ASCII: corchetes en color normal. Simbolos: medios bloques coloreados como el fondo (se ven
+    # solidos). En ambos casos el cap va con el FONDO POR DEFECTO (la ultima celda no lleva color).
+    $capFg = if ($script:CvAsciiMarks) { $dfg } else { $Bg }
+    Write-Host $lb -NoNewline -ForegroundColor $capFg -BackgroundColor $dbg
+    Write-Host (' ' + $Text + ' ') -NoNewline -ForegroundColor $Fg -BackgroundColor $Bg
+    Write-Host $rb -NoNewline -ForegroundColor $capFg -BackgroundColor $dbg
+}
+
 function Write-CvLog {
     <#
         Log de consola. Las lineas de error/aviso se resaltan con fondo de color y se envuelven
@@ -42,25 +71,13 @@ function Write-CvLog {
         $inner = $Message.Trim()
         $mTok = [regex]::Match($inner, '^(?:\[[^\]]+\]\s*-\s*)+')
         if ($mTok.Success) { $inner = ($mTok.Value -replace '[\[\]]', '') + $inner.Substring($mTok.Value.Length) }
-        # Badge con extremos de MEDIO BLOQUE (▐ ... ▌) coloreados como el fondo: el bloque se ve
-        # como una etiqueta solida con los bordes a media celda. El ultimo caracter (▌) se pinta
-        # con FONDO por defecto, asi la ultima celda de la linea no lleva fondo y no se reproduce
-        # el bug de Windows de que el fondo se "estira" al redimensionar la ventana.
-        $dbg = $Host.UI.RawUI.BackgroundColor
-        $dfg = $Host.UI.RawUI.ForegroundColor
-        if ($Message -match '\[ERR\]') { $bg = 'Red'; $fg = 'White' } else { $bg = 'Yellow'; $fg = 'Black' }
-        if ($script:CvAsciiMarks) {
-            # ASCII: corchetes [ ] en color normal, interior con fondo (ultimo caracter ']' sin fondo).
-            Write-Host ($pad + '[') -NoNewline -ForegroundColor $dfg -BackgroundColor $dbg
-            Write-Host (' ' + $inner + ' ') -NoNewline -ForegroundColor $fg -BackgroundColor $bg
-            Write-Host ']' -ForegroundColor $dfg -BackgroundColor $dbg
-        } else {
-            # Badge con caps de medio bloque (▐ ▌) coloreados como el fondo.
-            $lb = [char]0x2590; $rb = [char]0x258C
-            Write-Host ($pad + $lb) -NoNewline -ForegroundColor $bg -BackgroundColor $dbg
-            Write-Host (' ' + $inner + ' ') -NoNewline -ForegroundColor $fg -BackgroundColor $bg
-            Write-Host $rb -ForegroundColor $bg -BackgroundColor $dbg
-        }
+        # Badge reutilizable (caps sin fondo para no "estirar" el color al redimensionar). ERR = rojo,
+        # el resto (AVISO/WARN/NO SOPORTADO) = amarillo. El pad va antes; el salto de linea, despues.
+        if ($Message -match '\[ERR\]') { $bg = [System.ConsoleColor]::Red; $fg = [System.ConsoleColor]::White }
+        else                           { $bg = [System.ConsoleColor]::Yellow; $fg = [System.ConsoleColor]::Black }
+        if ($pad) { Write-Host $pad -NoNewline }
+        Write-CvBadge -Text $inner -Fg $fg -Bg $bg
+        Write-Host ''
     }
     else {
         Write-Host (('{0}[{1}] ' -f $pad, $Tag) + $Message)

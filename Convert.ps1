@@ -134,6 +134,14 @@ if ($ctx.TestLimit -gt 0) {
     Write-CvLog 'GLOBAL' ("[AVISO] - MODO PRUEBAS: se codifican solo los primeros {0} min de cada archivo (behavior.testMode)" -f [int]($ctx.TestLimit / 60))
 }
 
+# Detectar (con cache en config.json por version de ffmpeg + GPU) que encoders por GPU soporta este
+# equipo. GLOBAL: se hace nada mas cargar config y asegurar ffmpeg, ANTES de distinguir preparacion /
+# worker, para que el cache exista siempre y tanto el menu de perfiles como el worker (validacion por
+# archivo) usen el resultado sin repetir el sondeo. Solo sondea si cambio ffmpeg/GPU o no habia datos.
+# Las ventanas worker en paralelo (-WorkerOnly) NO persisten (leen la cache que dejo la preparacion),
+# para no escribir config.json varias a la vez.
+$null = Initialize-CvGpuCaps -Context $ctx -CfgPath $cfgPath -Persist (-not $WorkerOnly)
+
 function Get-SourceFiles {
     param($Context)
     # -Exact evita el falso positivo del comodin 8.3 de Windows ('*.mp4' casando '.mp4v').
@@ -444,6 +452,22 @@ while ($didAny) {
             # Modo pruebas: resumen COMPLETO de las pistas del origen antes de codificar.
             if ($jctx.TestLimit -gt 0) { Write-SourceSummary -Context $jctx -File $f.FullName -Info $info }
 
+            # Validar el encoder por GPU del job contra ESTA GPU (misma sonda que el menu, pero aqui
+            # PARA CADA PROCESO): asi un job ya creado o un perfil de config.json con un encoder que la
+            # GPU no soporta (p. ej. av1_nvenc en GPUs anteriores a RTX 40) falla YA con un mensaje
+            # claro, en vez del error criptico de ffmpeg a mitad de la codificacion. No se reintenta.
+            $vEnc = "$($prof.VideoEncoder)"
+            if (-not $job.video.skip -and -not (Test-CvEncoderSupported -Context $jctx -Encoder $vEnc)) {
+                Write-CvLog 'WORKER' ("[ERR] - El encoder de video '{0}' no lo soporta la GPU de este equipo; no se codifica. Usa un perfil de CPU (libx264/libx265) o, para AV1, libsvtav1 (CPU)." -f $vEnc)
+                $results[$name] = @{
+                    Status   = 'ERROR'
+                    Reason   = ("encoder '{0}' no soportado por la GPU de este equipo" -f $vEnc)
+                    Attempts = 1
+                    Elapsed  = $null
+                }
+                [void]$skip.Add($name); continue
+            }
+
             # ---------- AUDIO ----------
             if ($jctx.Debug) { Write-Host '' }
             $audioOk = $true
@@ -611,3 +635,12 @@ if ($ctx.LockClose) { Set-CvCloseButton -Enabled $true }
 
 # Cerrar el log de la ejecucion.
 if ($cvLog) { Stop-CvLog }
+
+# Pausa final: mantener la ventana del worker abierta para poder leer el RESUMEN antes de que se
+# cierre (cada ventana en paralelo muestra el suyo). Solo si este worker proceso algo. Mismo patron
+# que el Read-Host de "nº de workers" de PREPARAR: con la entrada redirigida/EOF (baterias de test)
+# devuelve vacio al instante y no bloquea; en una ventana de consola real espera al ENTER.
+if (@($results.Keys).Count -gt 0) {
+    Write-Host ''
+    Read-Host 'ENTER para cerrar esta ventana' | Out-Null
+}

@@ -128,7 +128,7 @@ function Invoke-ToolCapture {
     )
     if ($null -ne $Context) {
         Write-CvDebug -Context $Context -Message ("RUN (analisis) => `"{0}`" {1}" -f $Exe, (ConvertTo-ArgString $Arguments))
-        if ($Context.Debug) { Read-Host '  ...ENTER para ejecutar...' | Out-Null }
+        if ($Context.Debug -and $Context.DebugPausePerCommand) { Read-Host '  ...ENTER para ejecutar...' | Out-Null }
     }
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName               = $Exe
@@ -168,7 +168,7 @@ function Invoke-ToolShow {
         [switch]$Preview
     )
     Write-CvDebug -Context $Context -Message ("RUN => `"{0}`" {1}" -f $Exe, (ConvertTo-ArgString $Arguments))
-    if ($Context.Debug) { Read-Host '  ...ENTER para ejecutar...' | Out-Null }
+    if ($Context.Debug -and $Context.DebugPausePerCommand) { Read-Host '  ...ENTER para ejecutar...' | Out-Null }
 
     # La previsualizacion se queda en la consola principal; solo las codificaciones
     # se mueven a una ventana aparte minimizada.
@@ -243,7 +243,7 @@ function Invoke-ToolProgress {
     <#
         Ejecuta ffmpeg INLINE (sin ventana aparte) capturando su salida '-progress' y mostrando una
         linea de progreso VIVA que se actualiza en el sitio (\r):
-            " - <Label>  42%  ETA 03:12  1.8x"
+            " - <Label>  42%  ETA 03:12  1.8x  1234.5kbits/s  q28"   (bitrate siempre; q solo con -ShowQ)
         Al terminar deja la linea en el estado "abierto" de Start-CvStep (" - <Label>", sin salto)
         para que el llamador la cierre con Stop-CvStep (OK/ERROR segun el codigo/validacion). Devuelve
         el codigo de salida. Inyecta '-nostats -progress pipe:1' (progreso legible por stdout; el resto
@@ -255,7 +255,8 @@ function Invoke-ToolProgress {
         [string[]]$Arguments = @(),
         [Parameter(Mandatory)]$Context,
         [string]$Label = 'Procesando...',
-        [double]$TotalSeconds = 0
+        [double]$TotalSeconds = 0,
+        [switch]$ShowQ            # mostrar el cuantizador (q) del stream: util en video, no en audio
     )
     Write-CvDebug -Context $Context -Message ("RUN (progress) => `"{0}`" {1}" -f $Exe, (ConvertTo-ArgString $Arguments))
 
@@ -278,10 +279,14 @@ function Invoke-ToolProgress {
     $lastLen    = 0        # longitud del ultimo texto pintado (para borrar el sobrante del anterior)
     $speed      = ''
     $outSec     = 0.0
+    $bitrate    = ''      # 'bitrate=' del -progress (p. ej. '1234.5kbits/s' o 'N/A')
+    $qv         = ''      # 'stream_X_X_q=' del -progress (cuantizador del stream; -1 si no aplica)
 
     while ($null -ne ($line = $reader.ReadLine())) {
         if     ($line.StartsWith('out_time_us=')) { $n = 0L; if ([long]::TryParse($line.Substring(12), [ref]$n) -and $n -ge 0) { $outSec = $n / 1000000.0 } }
-        elseif ($line.StartsWith('speed='))       { $speed = $line.Substring(6).Trim() }
+        elseif ($line.StartsWith('speed='))        { $speed = $line.Substring(6).Trim() }
+        elseif ($line.StartsWith('bitrate='))       { $bitrate = $line.Substring(8).Trim() }
+        elseif ($line -match '^stream_\d+_\d+_q=')  { $qv = ($line -split '=', 2)[1].Trim() }
         elseif ($line.StartsWith('progress=')) {
             # Fin de bloque de progreso: renderizar (limitado a cambio de % o cada 2 s, para no
             # inundar el transcript con cientos de lineas).
@@ -298,6 +303,15 @@ function Invoke-ToolProgress {
                 if ($pct -ge 0 -and $hasSpd -and $spd -gt 0) { $parts += ('  ETA {0}' -f (Format-CvEta (($TotalSeconds - $outSec) / $spd))) }
                 if ($hasSpd -and $spd -gt 0) { $parts += ('  {0}x' -f $spd.ToString($inv)) }
                 elseif ($pct -lt 0)          { $parts += ('  {0}' -f (Format-CvEta $outSec)) }   # sin total: tiempo transcurrido
+                # Bitrate (audio y video) y cuantizador q (solo si -ShowQ, p. ej. video). Se omiten
+                # mientras ffmpeg aun no da un valor util ('N/A' al arrancar; q negativo = no aplica).
+                if ($bitrate -and $bitrate -notmatch '(?i)n/?a') { $parts += ('  {0}' -f $bitrate) }
+                if ($ShowQ -and $qv) {
+                    $qn = 0.0
+                    if ([double]::TryParse(($qv -replace '[^0-9.\-]', ''), [System.Globalization.NumberStyles]::Float, $inv, [ref]$qn) -and $qn -ge 0) {
+                        $parts += ('  q{0}' -f [int][math]::Round($qn))
+                    }
+                }
                 $lastLen = Write-CvProgressLine -Text $parts -PrevLen $lastLen
                 $lastPct = $curPct; $lastRender = $sw.Elapsed.TotalSeconds
             }

@@ -47,37 +47,12 @@ foreach ($m in $modules) {
 $sess = Start-CvSession -Root $Root -Config $Config -TitleSuffix ' - FixSyncSub' -Subtitle 'FixSyncSub' -LogPrefix 'FixSyncSub'
 $ctx  = $sess.Context
 
-# ---------- seleccion del .srt ----------
-function Select-SrtFile {
-    param($Context)
-    $dir = "$($Context.Original)"
-    if (-not (Test-Path -LiteralPath $dir)) { return (Read-CvLine -Prompt '  Ruta del .srt').Trim('"') }
-    $subs = @(Get-CvFiles -Dir $dir -Filters '*.srt' -Recurse -Exact)
-    if ($subs.Count -eq 0) {
-        Write-CvLog 'SUB' ("[AVISO] - No hay .srt en {0}" -f $dir) -Indent 3
-        return (Read-CvLine -Prompt '  Ruta del .srt').Trim('"')
-    }
-    $rels = $subs | ForEach-Object { $_.FullName.Substring($dir.Length).TrimStart('\') }
-    $sel = Select-FromList -Title ("Subtitulos (.srt) en {0}" -f $dir) -Options $rels -NoneLabel 'otra ruta (escribir)'
-    if ([string]::IsNullOrEmpty($sel)) { return (Read-CvLine -Prompt '  Ruta del .srt').Trim('"') }
-    Join-Path $dir $sel
-}
-
-# ---------- lectura de una ancla (numero de cue + tiempo real) ----------
-function Read-SrtAnchor {
-    param([string[]]$Blocks, [string]$Label, [ref]$Srt, [ref]$Real)
-    $n = [int](Read-CvLine -Prompt ("    {0}: numero de cue" -f $Label)).Trim()
-    $cur = Get-CvSrtCueStart -Blocks $Blocks -Num $n
-    if ($null -eq $cur) { throw "No encuentro la cue $n" }
-    Write-CvLog 'SUB' ("cue {0} esta ahora en {1}" -f $n, (ConvertTo-CvSrtStamp $cur)) -Indent 5
-    $rt = ConvertTo-CvSrtSeconds (Read-CvLine -Prompt '      tiempo REAL en el video (h:mm:ss.mmm)').Trim()
-    if ($null -eq $rt) { throw 'tiempo no valido' }
-    $Srt.Value = $cur; $Real.Value = $rt
-}
+# Los auxiliares del asistente viven en lib\: Read-CvInt (Console.psm1) y, en SubtitleSRT.psm1,
+# Read-CvSrtTime / Read-CvSrtCueNum / Read-CvSrtAnchor (anclas), Find-CvSrtVideo y Select-CvSrtFile.
 
 # ============================================================
 # 1) Entrada
-if (-not $Path) { $Path = Select-SrtFile -Context $ctx }
+if (-not $Path) { $Path = Select-CvSrtFile -Dir "$($ctx.Original)" }
 $Path = "$Path".Trim('"').Trim()
 if (-not (Test-Path -LiteralPath $Path)) { Write-CvLog 'SUB' ("[ERROR] - No existe: {0}" -f $Path) -Indent 3; exit 1 }
 $Path = (Resolve-Path -LiteralPath $Path).Path
@@ -110,63 +85,77 @@ if (Read-YesNo '  Corregir OCR (l->I en mayusculas) y espaciado (signos invertid
 
 # 3) Sincronizacion
 $syncOpts = @(
-    @{ Value = 'no';       Text = 'no sincronizar' }
-    @{ Value = 'offset';   Text = 'offset constante (adelanta/retrasa todo por igual)' }
-    @{ Value = 'lineal';   Text = 'lineal por 2 cues (escala + desplazamiento)' }
-    @{ Value = 'tramos';   Text = 'por tramos (deja intactas las cues anteriores a N)' }
-    @{ Value = 'extremos'; Text = 'por extremos (primer y ultimo subtitulo)' }
+    @{
+        Value = 'no'
+        Text  = 'no sincronizar'
+    }
+    @{
+        Value = 'offset'
+        Text  = 'offset constante (adelanta/retrasa todo por igual)'
+    }
+    @{
+        Value = 'lineal'
+        Text  = 'lineal por 2 cues (escala + desplazamiento)'
+    }
+    @{
+        Value = 'tramos'
+        Text  = 'por tramos (deja intactas las cues anteriores a N)'
+    }
+    @{
+        Value = 'extremos'
+        Text  = 'por extremos (primer y ultimo subtitulo)'
+    }
 )
 $mode = Select-FromList -Title 'Sincronizacion' -Options $syncOpts -DefaultValue 'no' -NoNone
 
 $A = 1.0; $B = 0.0; $fromCue = 1; $doSync = $true
 switch ($mode) {
     'offset' {
-        $off = ConvertTo-CvSrtSeconds (Read-CvLine -Prompt '    Offset en segundos (+ retrasa, - adelanta), o vacio para darlo por cue').Trim()
-        if ($null -eq $off) { $s1 = 0.0; $r1 = 0.0; Read-SrtAnchor $blocks 'Referencia' ([ref]$s1) ([ref]$r1); $off = $r1 - $s1 }
+        $off = Read-CvSrtTime -Prompt '    Offset en segundos (+ retrasa, - adelanta), o vacio para darlo por cue' -AllowEmpty
+        if ($null -eq $off) { $s1 = 0.0; $r1 = 0.0; Read-CvSrtAnchor $blocks 'Referencia' ([ref]$s1) ([ref]$r1); $off = $r1 - $s1 }
         $A = 1.0; $B = $off
         Write-CvLog 'SUB' ("offset = {0:N3}s" -f $B) -Indent 5
     }
     'lineal' {
-        $s1 = 0.0; $r1 = 0.0; $s2 = 0.0; $r2 = 0.0
-        Read-SrtAnchor $blocks 'Punto 1' ([ref]$s1) ([ref]$r1)
-        Read-SrtAnchor $blocks 'Punto 2' ([ref]$s2) ([ref]$r2)
-        $fit = Get-CvSrtLinearFit $s1 $r1 $s2 $r2
-        if ($null -eq $fit) { throw 'los dos puntos no pueden ser la misma cue' }
+        $s1 = 0.0; $r1 = 0.0; $s2 = 0.0; $r2 = 0.0; $fit = $null
+        Read-CvSrtAnchor $blocks 'Punto 1' ([ref]$s1) ([ref]$r1)
+        while ($null -eq $fit) {
+            Read-CvSrtAnchor $blocks 'Punto 2' ([ref]$s2) ([ref]$r2)
+            $fit = Get-CvSrtLinearFit $s1 $r1 $s2 $r2
+            if ($null -eq $fit) { Write-CvLog 'SUB' '[AVISO] - el punto 2 debe ser una cue distinta del punto 1' -Indent 5 }
+        }
         $A = $fit.A; $B = $fit.B
         Write-CvLog 'SUB' ("A={0:N6}  B={1:N3}s" -f $A, $B) -Indent 5
     }
     'tramos' {
-        $fromCue = [int](Read-CvLine -Prompt '    Aplicar DESDE el cue numero (las anteriores no se tocan)').Trim()
-        $s1 = 0.0; $r1 = 0.0; $s2 = 0.0; $r2 = 0.0
-        Read-SrtAnchor $blocks 'Punto 1 (>= ese cue)' ([ref]$s1) ([ref]$r1)
-        Read-SrtAnchor $blocks 'Punto 2 (>= ese cue)' ([ref]$s2) ([ref]$r2)
-        $fit = Get-CvSrtLinearFit $s1 $r1 $s2 $r2
-        if ($null -eq $fit) { throw 'los dos puntos no pueden ser la misma cue' }
+        $fromCue = Read-CvInt -Prompt '    Aplicar DESDE el cue numero (las anteriores no se tocan)'
+        $s1 = 0.0; $r1 = 0.0; $s2 = 0.0; $r2 = 0.0; $fit = $null
+        Read-CvSrtAnchor $blocks 'Punto 1 (>= ese cue)' ([ref]$s1) ([ref]$r1)
+        while ($null -eq $fit) {
+            Read-CvSrtAnchor $blocks 'Punto 2 (>= ese cue)' ([ref]$s2) ([ref]$r2)
+            $fit = Get-CvSrtLinearFit $s1 $r1 $s2 $r2
+            if ($null -eq $fit) { Write-CvLog 'SUB' '[AVISO] - el punto 2 debe ser una cue distinta del punto 1' -Indent 5 }
+        }
         $A = $fit.A; $B = $fit.B
         Write-CvLog 'SUB' ("desde cue {0}:  A={1:N6}  B={2:N3}s" -f $fromCue, $A, $B) -Indent 5
     }
     'extremos' {
         # Por extremos: primer subtitulo A AJUSTAR (ENTER = el 1o, o empiezas en otro si el principio
         # ya esta bien) y el ULTIMO. Las cues anteriores al de inicio quedan intactas.
-        $startAns = (Read-CvLine -Prompt '    Desde que subtitulo ajustar? (numero, ENTER = el primero)').Trim()
-        if ($startAns -eq '') { $first = $blocks[0] }
-        else {
-            $sc = [int]$startAns
-            $first = $blocks | Where-Object { (Get-CvSrtBlockNum $_) -eq $sc } | Select-Object -First 1
-            if (-not $first) { throw "No encuentro la cue $sc" }
-        }
-        $last = $blocks[-1]
-        $fromCue = Get-CvSrtBlockNum $first
-        $lastNum = Get-CvSrtBlockNum $last
-        $srtF = Get-CvSrtCueStart -Blocks $blocks -Num $fromCue
+        $lastNum = Get-CvSrtBlockNum $blocks[-1]
         $srtL = Get-CvSrtCueStart -Blocks $blocks -Num $lastNum
-        Write-CvLog 'SUB' ("PRIMER subtitulo a ajustar (cue {0}) esta en {1}" -f $fromCue, (ConvertTo-CvSrtStamp $srtF)) -Indent 5
-        $realF = ConvertTo-CvSrtSeconds (Read-CvLine -Prompt '      tiempo REAL de esa cue (h:mm:ss.mmm)').Trim()
-        Write-CvLog 'SUB' ("ULTIMO subtitulo (cue {0}) esta en {1}" -f $lastNum, (ConvertTo-CvSrtStamp $srtL)) -Indent 5
-        $realL = ConvertTo-CvSrtSeconds (Read-CvLine -Prompt '      tiempo REAL del ULTIMO subtitulo (h:mm:ss.mmm)').Trim()
-        if ($null -eq $realF -or $null -eq $realL) { throw 'tiempo no valido' }
-        $fit = Get-CvSrtLinearFit $srtF $realF $srtL $realL
-        if ($null -eq $fit) { throw 'las dos referencias no pueden coincidir' }
+        $fit = $null
+        while ($null -eq $fit) {
+            $sc = Read-CvSrtCueNum -Blocks $blocks -Prompt '    Desde que subtitulo ajustar? (numero, ENTER = el primero)' -AllowEmpty
+            $fromCue = if ($null -eq $sc) { Get-CvSrtBlockNum $blocks[0] } else { $sc }
+            $srtF = Get-CvSrtCueStart -Blocks $blocks -Num $fromCue
+            Write-CvLog 'SUB' ("PRIMER subtitulo a ajustar (cue {0}) esta en {1}" -f $fromCue, (ConvertTo-CvSrtStamp $srtF)) -Indent 5
+            $realF = Read-CvSrtTime -Prompt '      tiempo REAL de esa cue (h:mm:ss.mmm)'
+            Write-CvLog 'SUB' ("ULTIMO subtitulo (cue {0}) esta en {1}" -f $lastNum, (ConvertTo-CvSrtStamp $srtL)) -Indent 5
+            $realL = Read-CvSrtTime -Prompt '      tiempo REAL del ULTIMO subtitulo (h:mm:ss.mmm)'
+            $fit = Get-CvSrtLinearFit $srtF $realF $srtL $realL
+            if ($null -eq $fit) { Write-CvLog 'SUB' '[AVISO] - la cue de inicio no puede ser la ultima; elige una anterior' -Indent 5 }
+        }
         $A = $fit.A; $B = $fit.B
         if ($fromCue -gt 1) { Write-CvLog 'SUB' ("cues 1..{0} sin tocar" -f ($fromCue - 1)) -Indent 5 }
         Write-CvLog 'SUB' ("desde cue {0}:  A={1:N6}  B={2:N3}s" -f $fromCue, $A, $B) -Indent 5
@@ -175,9 +164,31 @@ switch ($mode) {
 }
 if ($doSync) { $text = Invoke-CvSrtResync -Text $text -A $A -B $B -FromCue $fromCue }
 
-# 4) Salida
+# 4) Resumen del resultado
 $dir  = Split-Path -Parent $Path
 $base = [IO.Path]::GetFileNameWithoutExtension($Path)
+$rb = @(Get-CvSrtBlocks $text)
+if ($rb.Count -gt 0) {
+    $fN = Get-CvSrtBlockNum $rb[0]; $lN = Get-CvSrtBlockNum $rb[-1]
+    Write-CvLog 'SUB' ("Resultado: {0} cues. primera (cue {1}) {2}  ...  ultima (cue {3}) {4}" -f `
+        $rb.Count, $fN, (ConvertTo-CvSrtStamp (Get-CvSrtCueStart $rb $fN)), $lN, (ConvertTo-CvSrtStamp (Get-CvSrtCueStart $rb $lN))) -Indent 3
+}
+
+# 5) Previsualizacion opcional con ffplay (si hay un video con el mismo nombre junto al .srt)
+$video = Find-CvSrtVideo -Dir $dir -SrtPath $Path
+if ($video) {
+    while (Read-YesNo ("  Previsualizar con el video ({0})?" -f (Split-Path -Leaf $video)) $false) {
+        $tmp = Join-Path ([IO.Path]::GetTempPath()) 'fixsyncsub-preview.srt'
+        Write-CvSrtText -Text $text -Path $tmp -Bom $false
+        $esc = ($tmp -replace '\\', '/') -replace ':', '\:'   # escape para el filtro subtitles de ffmpeg
+        try { Invoke-CvPreview -Context $ctx -File $video -ExtraArgs @('-vf', "subtitles='$esc'") -Label 'PREVIEW SUBTITULO' }
+        catch { Write-CvLog 'SUB' ("[AVISO] - no se pudo previsualizar: {0}" -f $_.Exception.Message) -Indent 3 }
+        Remove-Item -LiteralPath $tmp -ErrorAction SilentlyContinue
+    }
+}
+
+# 6) Guardar
+if (-not (Read-YesNo '  Guardar el resultado?' $true)) { Write-CvLog 'SUB' 'Cancelado: no se ha guardado nada.' -Indent 3; exit 0 }
 $defOut = Join-Path $dir ("{0}.es.srt" -f $base)
 $outPath = (Read-CvLine -Prompt ("  Guardar en [{0}]" -f $defOut)).Trim()
 if ($outPath -eq '') { $outPath = $defOut } else { $outPath = $outPath.Trim('"') }

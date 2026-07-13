@@ -337,6 +337,31 @@ function Show-Pending {
     Write-CvLog 'SETUP' ("  en Convertido   : {0} convertido(s)" -f $nout)
 }
 
+function Show-GpuStatus {
+    # Codecs por GPU (NVENC) que soporta la grafica de ESTE equipo. Comprobacion EN VIVO: se ignora
+    # la cache de config.json (gpuCache) y se resetea la memoizacion para SONDEAR cada encoder ahora
+    # (util para ver el estado real, p. ej. tras cambiar de GPU o de driver).
+    Write-Host ''
+    Write-CvLog 'SETUP' 'Codecs por GPU (NVENC) soportados por esta grafica (comprobacion en vivo):'
+    $gpu = Get-CvGpuName
+    Write-CvLog 'SETUP' ("  GPU: {0}" -f $(if ($gpu) { $gpu } else { '(no detectada)' }))
+    if ([string]::IsNullOrWhiteSpace("$($ctx.FFmpeg)") -or -not (Test-Path -LiteralPath $ctx.FFmpeg)) {
+        Write-CvLog 'SETUP' '  [AVISO] - ffmpeg no instalado: no se puede comprobar. Instala ffmpeg primero.'
+        return
+    }
+    Reset-CvGpuEncCache                                   # forzar sonda (sin cache)
+    foreach ($e in (Get-CvGpuEncoders)) {
+        $ok = Test-CvGpuEncoder -Context $ctx -Encoder $e
+        # Solo el estado va como BADGE con fondo de color (verde=soportado, rojo=no); el resto de la
+        # linea en color normal. Write-CvBadge escribe inline (el llamador cierra el salto de linea).
+        Write-Host ("[SETUP]   {0} {1,-12} " -f (Get-CvMark $ok), $e) -NoNewline
+        if ($ok) { Write-CvBadge -Text 'soportado'    -Fg Black -Bg Green }
+        else     { Write-CvBadge -Text 'NO soportado' -Fg White -Bg Red }
+        Write-Host ''
+    }
+    Reset-CvGpuEncCache                                   # no dejar la memoizacion "sucia"
+}
+
 function Show-Estado {
     $sep = Get-CvSepLine
     Write-Host $sep
@@ -345,6 +370,7 @@ function Show-Estado {
     Show-Identity
     Show-Dirs
     Show-Status
+    Show-GpuStatus
     Show-ProcesoStatus
     Show-Pending
     Write-Host $sep

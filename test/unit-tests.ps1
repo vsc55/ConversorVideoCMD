@@ -94,6 +94,10 @@ Assert-Eq 'Get-CvDashLine -Width 3'  '---'     (Get-CvDashLine -Width 3)
 Assert-Eq 'Get-CvStarLine -Width 4'  '****'    (Get-CvStarLine -Width 4)
 Assert-Eq 'Get-CvLine char # w6'     '######'  (Get-CvLine -Char '#' -Width 6)
 Assert-Eq 'default = config.sepWidth' (Get-CvConfigDefaults).console.sepWidth (Get-CvSepLine).Length
+Assert-Eq 'MenuNumWidth 9 -> 1'    1 (Get-CvMenuNumWidth 9)
+Assert-Eq 'MenuNumWidth 11 -> 2'   2 (Get-CvMenuNumWidth 11)
+Assert-Eq 'MenuNumWidth 0 -> 1'    1 (Get-CvMenuNumWidth 0)
+Assert-Eq 'MenuNumWidth 100 -> 3'  3 (Get-CvMenuNumWidth 100)
 
 # ================================================================================================
 Write-Host "`nConvertTo-CvPromptTimeouts (Config)" -ForegroundColor Cyan
@@ -101,16 +105,26 @@ $t0 = ConvertTo-CvPromptTimeouts $null
 Assert-Eq 'null -> default=0'        0 $t0['default']
 $t1 = ConvertTo-CvPromptTimeouts 7
 Assert-Eq 'escalar 7 -> default=7'   7 $t1['default']
-$t2 = ConvertTo-CvPromptTimeouts ([ordered]@{ sync = 5; border = 10 })
+$t2 = ConvertTo-CvPromptTimeouts ([ordered]@{
+    sync   = 5
+    border = 10
+})
 Assert-True 'objeto -> anade default'  ($t2.Contains('default'))
 Assert-Eq 'objeto -> sync=5'         5 $t2['sync']
 Assert-Eq 'objeto -> border=10'     10 $t2['border']
-$t3 = ConvertTo-CvPromptTimeouts ([ordered]@{ default = 3; sync = 5 })
+$t3 = ConvertTo-CvPromptTimeouts ([ordered]@{
+    default = 3
+    sync    = 5
+})
 Assert-Eq 'objeto conserva default'  3 $t3['default']
 
 # ================================================================================================
 Write-Host "`nGet-CvPromptTimeout (Console)" -ForegroundColor Cyan
-$fakeCtx = [pscustomobject]@{ PromptTimeouts = [ordered]@{ default = 3; sync = 5; border = -1 } }
+$fakeCtx = [pscustomobject]@{ PromptTimeouts = [ordered]@{
+    default = 3
+    sync    = 5
+    border  = -1
+} }
 Assert-Eq 'tipo explicito (sync=5)'   5 (Get-CvPromptTimeout $fakeCtx 'sync')
 Assert-Eq 'tipo -1 hereda default'    3 (Get-CvPromptTimeout $fakeCtx 'border')
 Assert-Eq 'tipo ausente hereda def'   3 (Get-CvPromptTimeout $fakeCtx 'animation')
@@ -127,6 +141,14 @@ Assert-True 'help promptTimeoutStopOnType' ((Get-CvConfigHelp).Contains('behavio
 Assert-Eq 'encode/anamorphic def square' 'square' (Get-CvConfigDefaultValue 'encode/anamorphic')
 Assert-Eq 'promptTimeout/anamorphic def 10' 10 (Get-CvConfigDefaultValue 'behavior/promptTimeout/anamorphic')
 Assert-True 'help encode/anamorphic' ((Get-CvConfigHelp).Contains('encode/anamorphic'))
+Assert-Eq 'encode/syncAdelay def true'      $true (Get-CvConfigDefaultValue 'encode/syncAdelay')
+Assert-True 'help encode/syncAdelay'        ((Get-CvConfigHelp).Contains('encode/syncAdelay'))
+Assert-Eq 'test.syncAdelay ya no existe'    $null (Get-CvConfigDefaultValue 'test/syncAdelay')
+Assert-Eq 'debug/enabled def false'         $false (Get-CvConfigDefaultValue 'debug/enabled')
+Assert-Eq 'debug/pausePerCommand def true'  $true  (Get-CvConfigDefaultValue 'debug/pausePerCommand')
+Assert-True 'help debug/enabled'         ((Get-CvConfigHelp).Contains('debug/enabled'))
+Assert-True 'help debug/pausePerCommand' ((Get-CvConfigHelp).Contains('debug/pausePerCommand'))
+Assert-Eq 'behavior.debug ya no existe' $null (Get-CvConfigDefaultValue 'behavior/debug')
 Assert-Eq 'ruta inexistente -> null'    $null (Get-CvConfigDefaultValue 'no/existe/aqui')
 
 # ================================================================================================
@@ -145,7 +167,11 @@ $cc = ConvertTo-CvDownmixCoeffs ([pscustomobject]@{ center = 0.6 })
 Assert-Eq 'center dado 0.6'       0.6  $cc.Center
 Assert-Eq 'front ausente -> def'  0.35 $cc.Front
 Assert-Eq 'surround ausente -> def' 0.15 $cc.Surround
-$cc2 = ConvertTo-CvDownmixCoeffs ([pscustomobject]@{ center = 0.4; front = 0.4; surround = 0.2 })
+$cc2 = ConvertTo-CvDownmixCoeffs ([pscustomobject]@{
+    center   = 0.4
+    front    = 0.4
+    surround = 0.2
+})
 Assert-Eq 'todos dados: center'   0.4 $cc2.Center
 Assert-Eq 'todos dados: surround' 0.2 $cc2.Surround
 
@@ -163,20 +189,34 @@ Assert-Eq   'all sin duplicados'       $all.Count ($all | Select-Object -Unique)
 # ================================================================================================
 Write-Host "`nFuentes unicas (Context / Profile)" -ForegroundColor Cyan
 Assert-Eq 'Get-CvAppName' 'ConvertVideo' (Get-CvAppName)
-Assert-Eq 'Get-CvVersion' '4.4.0'        (Get-CvVersion)
+Assert-Eq 'Get-CvVersion' '4.5.0'        (Get-CvVersion)
 Assert-Eq 'perfiles de serie = 11' 11 ((Get-CvProfiles | ForEach-Object { $_.Profiles } | Measure-Object).Count)
 
 # ================================================================================================
-Write-Host "`nMultipista de audio [beta] (Config / Job / MediaInfo)" -ForegroundColor Cyan
+Write-Host "`nMultipista de audio (Config / Job / MediaInfo)" -ForegroundColor Cyan
 Assert-Eq 'encode.multiAudio def true'    $true  (Get-CvConfigDefaultValue 'encode/multiAudio')
-Assert-Eq 'test.betaMultiAudio def false' $false (Get-CvConfigDefaultValue 'test/betaMultiAudio')
 Assert-True 'help encode/multiAudio'   ((Get-CvConfigHelp).Contains('encode/multiAudio'))
-Assert-True 'help test/betaMultiAudio' ((Get-CvConfigHelp).Contains('test/betaMultiAudio'))
+Assert-Eq 'test.betaMultiAudio ya no existe' $null (Get-CvConfigDefaultValue 'test/betaMultiAudio')
+Assert-Eq 'test.betaAv1 ya no existe'  $null (Get-CvConfigDefaultValue 'test/betaAv1')
 
 # Get-CvJobAudioTracks - formato nuevo (multipista): default primero, campos normalizados
 $jobNew = [pscustomobject]@{ skip = $false; tracks = @(
-    [pscustomobject]@{ index = 2; is51 = $true;  sync = 0;   lang = 'spa'; title = '5.1'; default = $true }
-    [pscustomobject]@{ index = 1; is51 = $false; sync = 0.5; lang = 'spa'; title = '2.0'; default = $false }
+    [pscustomobject]@{
+        index   = 2
+        is51    = $true
+        sync    = 0
+        lang    = 'spa'
+        title   = '5.1'
+        default = $true
+    }
+    [pscustomobject]@{
+        index   = 1
+        is51    = $false
+        sync    = 0.5
+        lang    = 'spa'
+        title   = '2.0'
+        default = $false
+    }
 ) }
 $tn = @(Get-CvJobAudioTracks -Audio $jobNew)
 Assert-Eq 'multi: 2 pistas'      2     $tn.Count
@@ -186,7 +226,13 @@ Assert-Eq 'multi: 2a sync=0.5'   0.5   $tn[1].Sync
 Assert-Eq 'multi: 2a lang=spa'   'spa' $tn[1].Lang
 
 # Job ANTIGUO (monopista) -> lista de 1 con default (compat hacia atras)
-$jobOld = [pscustomobject]@{ skip = $false; index = 3; is51 = $true; sync = 0; lang = 'eng' }
+$jobOld = [pscustomobject]@{
+    skip  = $false
+    index = 3
+    is51  = $true
+    sync  = 0
+    lang  = 'eng'
+}
 $toOld = @(Get-CvJobAudioTracks -Audio $jobOld)
 Assert-Eq 'compat: 1 pista'  1     $toOld.Count
 Assert-Eq 'compat: index=3'  3     $toOld[0].Index
@@ -195,16 +241,45 @@ Assert-Eq 'compat: lang=eng' 'eng' $toOld[0].Lang
 
 # Sin ninguna default marcada -> se marca la primera; audio nulo -> lista vacia
 $jobNoDef = [pscustomobject]@{ skip = $false; tracks = @(
-    [pscustomobject]@{ index = 1; is51 = $false; sync = 0; lang = 'spa'; title = ''; default = $false }
-    [pscustomobject]@{ index = 2; is51 = $false; sync = 0; lang = 'spa'; title = ''; default = $false }
+    [pscustomobject]@{
+        index   = 1
+        is51    = $false
+        sync    = 0
+        lang    = 'spa'
+        title   = ''
+        default = $false
+    }
+    [pscustomobject]@{
+        index   = 2
+        is51    = $false
+        sync    = 0
+        lang    = 'spa'
+        title   = ''
+        default = $false
+    }
 ) }
 Assert-Eq 'sin default -> 1a default' $true (@(Get-CvJobAudioTracks -Audio $jobNoDef))[0].Default
 Assert-Eq 'audio null -> 0 pistas'    0     (@(Get-CvJobAudioTracks -Audio $null)).Count
 
 # Select-CvDefaultAudio: gana disposition.default; si ninguna, la de mas canales (mejor calidad)
-$sA = [pscustomobject]@{ index = 1; codec_name = 'aac';  channels = 2; disposition = [pscustomobject]@{ default = 0 } }
-$sB = [pscustomobject]@{ index = 2; codec_name = 'eac3'; channels = 6; disposition = [pscustomobject]@{ default = 1 } }
-$sC = [pscustomobject]@{ index = 3; codec_name = 'aac';  channels = 6; disposition = [pscustomobject]@{ default = 0 } }
+$sA = [pscustomobject]@{
+    index       = 1
+    codec_name  = 'aac'
+    channels    = 2
+    disposition = [pscustomobject]@{ default = 0 }
+}
+$sB = [pscustomobject]@{
+    index       = 2
+    codec_name  = 'eac3'
+    channels    = 6
+    disposition = [pscustomobject]@{ default = 1 }
+}
+$sC = [pscustomobject]@{
+    index       = 3
+    codec_name  = 'aac'
+    channels    = 6
+    disposition = [pscustomobject]@{ default = 0 }
+}
 Assert-Eq 'default marcado gana'      2 (Select-CvDefaultAudio @($sA, $sB)).index
 Assert-Eq 'sin default -> mas canales' 3 (Select-CvDefaultAudio @($sA, $sC)).index
 
@@ -212,9 +287,21 @@ Assert-Eq 'sin default -> mas canales' 3 (Select-CvDefaultAudio @($sA, $sC)).ind
 Assert-Eq 'audioKeepTitle def false' $false (Get-CvConfigDefaultValue 'encode/audioKeepTitle')
 Assert-True 'help encode/audioKeepTitle' ((Get-CvConfigHelp).Contains('encode/audioKeepTitle'))
 $infoT = [pscustomobject]@{ streams = @(
-    [pscustomobject]@{ index = 1; codec_type = 'audio'; tags = [pscustomobject]@{ title = 'Castellano 5.1' } }
-    [pscustomobject]@{ index = 2; codec_type = 'audio'; tags = [pscustomobject]@{ title = 'Comentarios' } }
-    [pscustomobject]@{ index = 3; codec_type = 'audio'; tags = [pscustomobject]@{} }
+    [pscustomobject]@{
+        index      = 1
+        codec_type = 'audio'
+        tags       = [pscustomobject]@{ title = 'Castellano 5.1' }
+    }
+    [pscustomobject]@{
+        index      = 2
+        codec_type = 'audio'
+        tags       = [pscustomobject]@{ title = 'Comentarios' }
+    }
+    [pscustomobject]@{
+        index      = 3
+        codec_type = 'audio'
+        tags       = [pscustomobject]@{}
+    }
 ) }
 Assert-Eq 'keep=false -> blanco'       '' (Resolve-CvAudioTitle -Keep $false -Info $infoT -Index 1)
 Assert-Eq 'keep=true -> titulo origen' 'Castellano 5.1' (Resolve-CvAudioTitle -Keep $true -Info $infoT -Index 1)
@@ -277,7 +364,10 @@ Assert-Eq 'DurationText <1h (bug v4.2.1)' '0:53:56' (Get-DurationText $infoDur)
 Assert-Eq 'DurationText >1h' '1:01:01' (Get-DurationText ([pscustomobject]@{ format = [pscustomobject]@{ duration = '3661' } }))
 Assert-Eq 'DurationText 0 -> ?' '?' (Get-DurationText ([pscustomobject]@{ format = [pscustomobject]@{ duration = '0' } }))
 Assert-Eq 'MediaDuration'   3236 (Get-MediaDuration $infoDur)
-Assert-Eq 'VideoSize'  '1920x1080' (Get-VideoSize ([pscustomobject]@{ width = 1920; height = 1080 }))
+Assert-Eq 'VideoSize'  '1920x1080' (Get-VideoSize ([pscustomobject]@{
+    width  = 1920
+    height = 1080
+}))
 Assert-Eq 'Get-Tag title' 'Hola' (Get-Tag ([pscustomobject]@{ tags = [pscustomobject]@{ title = 'Hola' } }) 'title')
 Assert-Eq 'Get-Tag ausente -> null' $null (Get-Tag ([pscustomobject]@{ tags = [pscustomobject]@{} }) 'title')
 
@@ -330,23 +420,62 @@ Assert-Eq 'bitrate de bit_rate' 640000 (Get-CvAudioBitrate ([pscustomobject]@{ b
 Assert-Eq 'bitrate de tag BPS'  768000 (Get-CvAudioBitrate ([pscustomobject]@{ tags = [pscustomobject]@{ BPS = '768000' } }))
 Assert-Eq 'bitrate ausente -> null' $null (Get-CvAudioBitrate ([pscustomobject]@{}))
 $sBest = @(
-    [pscustomobject]@{ index = 3; codec_name = 'ac3';  channels = 6 }
-    [pscustomobject]@{ index = 2; codec_name = 'eac3'; channels = 6 }
+    [pscustomobject]@{
+        index      = 3
+        codec_name = 'ac3'
+        channels   = 6
+    }
+    [pscustomobject]@{
+        index      = 2
+        codec_name = 'eac3'
+        channels   = 6
+    }
 )
 Assert-Eq 'BestAudio eac3>ac3 (=canales)' 2 (Select-CvBestAudio $sBest).index
 $infoSel = [pscustomobject]@{ streams = @(
-    [pscustomobject]@{ index = 1; codec_type = 'audio'; codec_name = 'aac';  channels = 2; tags = [pscustomobject]@{ language = 'eng' }; disposition = [pscustomobject]@{ default = 1 } }
-    [pscustomobject]@{ index = 2; codec_type = 'audio'; codec_name = 'eac3'; channels = 6; tags = [pscustomobject]@{ language = 'spa' } }
-    [pscustomobject]@{ index = 3; codec_type = 'audio'; codec_name = 'ac3';  channels = 6; tags = [pscustomobject]@{ language = 'spa' } }
+    [pscustomobject]@{
+        index       = 1
+        codec_type  = 'audio'
+        codec_name  = 'aac'
+        channels    = 2
+        tags        = [pscustomobject]@{ language = 'eng' }
+        disposition = [pscustomobject]@{ default = 1 }
+    }
+    [pscustomobject]@{
+        index      = 2
+        codec_type = 'audio'
+        codec_name = 'eac3'
+        channels   = 6
+        tags       = [pscustomobject]@{ language = 'spa' }
+    }
+    [pscustomobject]@{
+        index      = 3
+        codec_type = 'audio'
+        codec_name = 'ac3'
+        channels   = 6
+        tags       = [pscustomobject]@{ language = 'spa' }
+    }
 ) }
 $selA = Select-AudioStream -Info $infoSel -PrefLangs @('spa')
 Assert-Eq 'AudioStream pref spa mejor' 2 $selA.Index
 Assert-Eq 'AudioStream Is51'  $true  $selA.Is51
 Assert-Eq 'AudioStream Lang'  'spa'  $selA.Language
-$asel = ConvertTo-AudioSel ([pscustomobject]@{ index = 2; channels = 6; tags = [pscustomobject]@{ language = 'spa' } })
+$asel = ConvertTo-AudioSel ([pscustomobject]@{
+    index    = 2
+    channels = 6
+    tags     = [pscustomobject]@{ language = 'spa' }
+})
 Assert-Eq 'AudioSel Index' 2 $asel.Index
 Assert-Eq 'AudioSel Is51'  $true $asel.Is51
-Assert-True 'AudioLine contiene idioma/codec' ((Format-CvAudioLine -Stream ([pscustomobject]@{ index = 5; codec_name = 'aac'; channels = 2; tags = [pscustomobject]@{ language = 'spa'; title = 'X' } })) -match 'idioma=spa.*codec=aac')
+Assert-True 'AudioLine contiene idioma/codec' ((Format-CvAudioLine -Stream ([pscustomobject]@{
+    index      = 5
+    codec_name = 'aac'
+    channels   = 2
+    tags       = [pscustomobject]@{
+        language = 'spa'
+        title    = 'X'
+    }
+})) -match 'idioma=spa.*codec=aac')
 $pv = ConvertFrom-CvPlayCommand 'P 2'
 Assert-Eq 'Play P 2 index'    2     $pv.Index
 Assert-Eq 'Play P 2 audioonly' $false $pv.AudioOnly
@@ -364,22 +493,48 @@ Assert-Eq 'SubForced por titulo' $true  (Test-SubForced ([pscustomobject]@{ tags
 Assert-Eq 'SubForced normal'     $false (Test-SubForced ([pscustomobject]@{ tags = [pscustomobject]@{ title = 'Completo' } }))
 Assert-Eq 'SubDefault flag'      $true  (Test-SubDefault ([pscustomobject]@{ disposition = [pscustomobject]@{ default = 1 } }))
 Assert-Eq 'SubDefault no'        $false (Test-SubDefault ([pscustomobject]@{ disposition = [pscustomobject]@{ default = 0 } }))
-$subSel = ConvertTo-SubSel ([pscustomobject]@{ index = 4; codec_name = 'subrip'; tags = [pscustomobject]@{ language = 'spa'; title = 'T' } }) -Forced $true -Default $true
+$subSel = ConvertTo-SubSel ([pscustomobject]@{
+    index      = 4
+    codec_name = 'subrip'
+    tags       = [pscustomobject]@{
+        language = 'spa'
+        title    = 'T'
+    }
+}) -Forced $true -Default $true
 Assert-Eq 'SubSel Index'   4      $subSel.Index
 Assert-Eq 'SubSel Forced'  $true  $subSel.Forced
 Assert-Eq 'SubSel Default' $true  $subSel.Default
 Assert-Eq 'SubSel Lang'    'spa'  $subSel.Lang
 $fSubs = @(
-    [pscustomobject]@{ index = 1; codec_name = 'subrip'; disposition = [pscustomobject]@{ forced = 1 }; tags = [pscustomobject]@{ language = 'spa' } }
-    [pscustomobject]@{ index = 2; codec_name = 'subrip'; disposition = [pscustomobject]@{ forced = 0 }; tags = [pscustomobject]@{ language = 'spa' } }
+    [pscustomobject]@{
+        index       = 1
+        codec_name  = 'subrip'
+        disposition = [pscustomobject]@{ forced = 1 }
+        tags        = [pscustomobject]@{ language = 'spa' }
+    }
+    [pscustomobject]@{
+        index       = 2
+        codec_name  = 'subrip'
+        disposition = [pscustomobject]@{ forced = 0 }
+        tags        = [pscustomobject]@{ language = 'spa' }
+    }
 )
 $roles = Split-CvSubtitlesByRole -Context ([pscustomobject]@{}) -Info ([pscustomobject]@{}) -Subs $fSubs
 Assert-Eq 'Split forzado 1'  1 @($roles.Forced).Count
 Assert-Eq 'Split completo 1' 1 @($roles.Complete).Count
 $infoPos = [pscustomobject]@{ streams = @(
-    [pscustomobject]@{ index = 0; codec_type = 'video' }
-    [pscustomobject]@{ index = 1; codec_type = 'subtitle' }
-    [pscustomobject]@{ index = 2; codec_type = 'subtitle' }
+    [pscustomobject]@{
+        index      = 0
+        codec_type = 'video'
+    }
+    [pscustomobject]@{
+        index      = 1
+        codec_type = 'subtitle'
+    }
+    [pscustomobject]@{
+        index      = 2
+        codec_type = 'subtitle'
+    }
 ) }
 Assert-Eq 'SubStreamPos idx2 -> 1' 1 (Get-SubtitleStreamPos -Info $infoPos -Index 2)
 
@@ -418,6 +573,13 @@ Assert-True 'resync offset cue2 65s' ($rs -match '00:01:05,000')
 $rt = Invoke-CvSrtResync -Text $srtDemo -A 1 -B 5 -FromCue 2
 Assert-True 'resync tramos cue1 intacta' ($rt -match '00:00:10,000')
 Assert-True 'resync tramos cue2 movida'  ($rt -match '00:01:05,000')
+# Find-CvSrtVideo: localiza el video que acompana al .srt (mismo nombre / stem sin idioma)
+$vdir = Join-Path ([IO.Path]::GetTempPath()) ("cvsrt-" + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Force -Path $vdir | Out-Null
+'x' | Set-Content -LiteralPath (Join-Path $vdir 'peli.mkv') -Encoding Ascii
+Assert-True 'FindVideo por stem (.es.srt)' ((Find-CvSrtVideo -Dir $vdir -SrtPath (Join-Path $vdir 'peli.es.srt')) -like '*peli.mkv')
+Assert-Eq   'FindVideo sin match -> null' $null (Find-CvSrtVideo -Dir $vdir -SrtPath (Join-Path $vdir 'otra.srt'))
+Remove-Item -LiteralPath $vdir -Recurse -Force -ErrorAction SilentlyContinue
 
 # ================================================================================================
 Write-Host "`nPerfiles" -ForegroundColor Cyan
@@ -428,12 +590,30 @@ Assert-Eq 'New-CvProfile bitrate def'      '192k'      $np.AudioBitrate
 Assert-Eq 'ProfileProp presente'  'v' (Get-CvProfileProp ([pscustomobject]@{ k = 'v' }) 'k' 'def')
 Assert-Eq 'ProfileProp ausente'   'def' (Get-CvProfileProp ([pscustomobject]@{ k = 'v' }) 'z' 'def')
 Assert-Eq 'ProfileProp null obj'  'def' (Get-CvProfileProp $null 'k' 'def')
-$cp = ConvertTo-CvProfile ([pscustomobject]@{ videoEncoder = 'hevc_nvenc'; qmin = 1; qmax = 23; detectBorder = 'auto' })
+$cp = ConvertTo-CvProfile ([pscustomobject]@{
+    videoEncoder = 'hevc_nvenc'
+    qmin         = 1
+    qmax         = 23
+    detectBorder = 'auto'
+})
 Assert-Eq 'ConvertTo-CvProfile encoder' 'hevc_nvenc' $cp.VideoEncoder
 Assert-Eq 'ConvertTo-CvProfile detectBorder auto' 'auto' $cp.DetectBorder
 Assert-Eq 'Label NVENC' 'A: 192K, V: h265[NV]/M10/L5/Q(1-23)' (Format-CvProfileLabel $np)
 Assert-Eq 'Label copy' 'A: COPY, V: COPY' (Format-CvProfileLabel (New-CvProfile -VideoEncoder 'copy' -AudioEncoder 'copy'))
-Assert-Eq 'catalogo encoders = 5' 5 (Get-CvVideoEncoders).Count
+Assert-Eq 'catalogo encoders = 7' 7 (Get-CvVideoEncoders).Count
+Assert-True 'encoders incluye libsvtav1' (@(Get-CvVideoEncoders | ForEach-Object { $_.Value }) -contains 'libsvtav1')
+Assert-True 'encoders incluye av1_nvenc'  (@(Get-CvVideoEncoders | ForEach-Object { $_.Value }) -contains 'av1_nvenc')
+Assert-Eq 'codecOptions av1 sin levels' 0 (@((Get-CvCodecOptions -Encoder 'libsvtav1').Levels)).Count
+Assert-True 'label av1 CPU (CRF)' ((Format-CvProfileLabel (New-CvProfile -VideoEncoder 'libsvtav1' -Crf 30)) -match 'av1.*CRF30')
+Assert-Eq   'CpuEncoders = 3'      3 (@(Get-CvCpuEncoders)).Count
+Assert-True 'CpuEncoders svtav1'   (@(Get-CvCpuEncoders) -contains 'libsvtav1')
+Assert-Eq   'Multipass2Pass = 2'   2 (@(Get-CvMultipass2Pass)).Count
+Assert-Eq   'Av1Encoders = 2'      2 (@(Get-CvAv1Encoders)).Count
+Assert-True 'Av1Encoders svtav1'   (@(Get-CvAv1Encoders) -contains 'libsvtav1')
+Assert-True 'Av1Encoders nvenc'    (@(Get-CvAv1Encoders) -contains 'av1_nvenc')
+Assert-True 'ningun encoder [BETA]' ((@(Get-CvVideoEncoders | Where-Object { $_.Text -match '\[BETA\]' })).Count -eq 0)
+Assert-True 'av1_nvenc [SIN PROBAR]' ((@(Get-CvVideoEncoders | Where-Object { $_.Value -eq 'av1_nvenc' })[0].Text) -match '\[SIN PROBAR\]')
+Assert-True 'libsvtav1 sin etiqueta' ((@(Get-CvVideoEncoders | Where-Object { $_.Value -eq 'libsvtav1' })[0].Text) -notmatch '\[(BETA|SIN PROBAR)\]')
 Assert-True 'encoders incluye hevc_nvenc' (@(Get-CvVideoEncoders | ForEach-Object { $_.Value }) -contains 'hevc_nvenc')
 Assert-True 'codecs incluye flac' (@(Get-CvAudioCodecs | ForEach-Object { $_.Value }) -contains 'flac')
 Assert-True 'codecOptions hevc main10' (@((Get-CvCodecOptions 'hevc_nvenc').Profiles | ForEach-Object { $_.Value }) -contains 'main10')
@@ -441,7 +621,11 @@ Assert-True 'bitrates ac3 hasta 640k' (@(Get-CvAudioBitrates 'ac3' | ForEach-Obj
 
 # ================================================================================================
 Write-Host "`nVideo args / Config" -ForegroundColor Cyan
-$ctxV = [pscustomobject]@{ Fps = '23.976'; ForceFps = $true; Multipass = 'off' }
+$ctxV = [pscustomobject]@{
+    Fps       = '23.976'
+    ForceFps  = $true
+    Multipass = 'off'
+}
 $vaN = (Get-VideoArgs -Context $ctxV -Prof $np)
 Assert-True 'VideoArgs hevc_nvenc' ($vaN -contains 'hevc_nvenc')
 Assert-True 'VideoArgs p010le (main10)' ($vaN -contains 'p010le')
@@ -451,16 +635,39 @@ $vaCqp = (Get-VideoArgs -Context $ctxV -Prof (New-CvProfile -VideoEncoder 'hevc_
 Assert-True 'VideoArgs constqp (qmin=qmax)' (($vaCqp -join ' ') -match 'constqp')
 $vaX = (Get-VideoArgs -Context $ctxV -Prof (New-CvProfile -VideoEncoder 'libx264' -Crf 23) -Anim $true)
 Assert-True 'VideoArgs libx264 crf'  (($vaX -contains '-crf') -and ($vaX -contains '23'))
+$vaSvt = (Get-VideoArgs -Context $ctxV -Prof (New-CvProfile -VideoEncoder 'libsvtav1' -VideoProfile 'main10' -Crf 30))
+Assert-True 'VideoArgs libsvtav1 crf'    (($vaSvt -contains '-c:v') -and ($vaSvt -contains 'libsvtav1') -and ($vaSvt -contains '-crf') -and ($vaSvt -contains '30'))
+Assert-True 'VideoArgs libsvtav1 10-bit' ($vaSvt -contains 'yuv420p10le')
+$vaAv1 = (Get-VideoArgs -Context $ctxV -Prof (New-CvProfile -VideoEncoder 'av1_nvenc' -Qmin 20 -Qmax 20))
+Assert-True 'VideoArgs av1_nvenc'        (($vaAv1 -contains 'av1_nvenc') -and ($vaAv1 -contains 'constqp'))
 Assert-True 'VideoArgs tune animation' (($vaX -join ' ') -match 'tune animation')
-$vaNoFps = (Get-VideoArgs -Context ([pscustomobject]@{ Fps = '23.976'; ForceFps = $false; Multipass = 'off' }) -Prof $np)
+$vaNoFps = (Get-VideoArgs -Context ([pscustomobject]@{
+    Fps       = '23.976'
+    ForceFps  = $false
+    Multipass = 'off'
+}) -Prof $np)
 Assert-Eq 'VideoArgs sin -r (forceFps=false)' $false ($vaNoFps -contains '-r')
-$defM = [ordered]@{ a = 1; sub = [ordered]@{ x = 1; y = 2 } }
-Merge-CvConfig -Default $defM -Override ([pscustomobject]@{ a = 9; sub = [pscustomobject]@{ y = 5 }; nuevo = 'z' })
+$defM = [ordered]@{
+    a   = 1
+    sub = [ordered]@{
+        x = 1
+        y = 2
+    }
+}
+Merge-CvConfig -Default $defM -Override ([pscustomobject]@{
+    a     = 9
+    sub   = [pscustomobject]@{ y = 5 }
+    nuevo = 'z'
+})
 Assert-Eq 'Merge escalar sobreescrito' 9   $defM.a
 Assert-Eq 'Merge subclave conservada'  1   $defM.sub.x
 Assert-Eq 'Merge subclave sobreescrita' 5  $defM.sub.y
 Assert-Eq 'Merge clave nueva'          'z' $defM.nuevo
-$json = ConvertTo-CvJson ([ordered]@{ a = 1; b = $true; c = 'x' })
+$json = ConvertTo-CvJson ([ordered]@{
+    a = 1
+    b = $true
+    c = 'x'
+})
 Assert-True 'Json numero'  ($json -match '"a": 1')
 Assert-True 'Json bool'    ($json -match '"b": true')
 Assert-True 'Json string'  ($json -match '"c": "x"')
@@ -469,17 +676,40 @@ Assert-Eq   'HelpFor desconocido' '' (Get-CvHelpFor 'no/existe')
 
 # ================================================================================================
 Write-Host "`nJob / Tools / Attachment" -ForegroundColor Cyan
-$ctxJ = [pscustomobject]@{ Proceso = 'D:\P'; Convertido = 'D:\C'; OutExt = 'mkv' }
+$ctxJ = [pscustomobject]@{
+    Proceso    = 'D:\P'
+    Convertido = 'D:\C'
+    OutExt     = 'mkv'
+}
 Assert-Eq 'JobPath'    'D:\P\Peli.job.json' (Get-CvJobPath $ctxJ 'Peli')
 Assert-Eq 'OutputPath' 'D:\C\Peli_fix.mkv'  (Get-OutputPath $ctxJ 'Peli')
 Assert-True 'TempPaths .mkv' ((Get-CvTempPaths -Context $ctxJ -Name 'Peli').Video -like '*Peli.mkv')
 Assert-Eq 'platform 64'    'x64' (ConvertTo-CvPlatform 'amd64')
 Assert-Eq 'platform win32' 'x86' (ConvertTo-CvPlatform 'win32')
 Assert-Eq 'platform i386'  'x86' (ConvertTo-CvPlatform 'i386')
-Assert-True 'Get-CvPlatform x64/x86' ((Get-CvPlatform) -in @('x64','x86'))
-Assert-Eq 'Attachment font'  'font'  (Get-AttachmentKind ([pscustomobject]@{ codec_name = 'ttf';   tags = [pscustomobject]@{ mimetype = 'application/x-truetype-font'; filename = 'arial.ttf' } }))
-Assert-Eq 'Attachment cover' 'cover' (Get-AttachmentKind ([pscustomobject]@{ codec_name = 'mjpeg'; tags = [pscustomobject]@{ mimetype = 'image/jpeg'; filename = 'cover.jpg' } }))
-Assert-Eq 'Attachment other' 'other' (Get-AttachmentKind ([pscustomobject]@{ codec_name = 'bin';   tags = [pscustomobject]@{ mimetype = 'application/octet-stream'; filename = 'x.bin' } }))
+$platsOk = @('x64', 'x86')
+Assert-True 'Get-CvPlatform x64/x86' ((Get-CvPlatform) -in $platsOk)
+Assert-Eq 'Attachment font'  'font'  (Get-AttachmentKind ([pscustomobject]@{
+    codec_name = 'ttf'
+    tags       = [pscustomobject]@{
+        mimetype = 'application/x-truetype-font'
+        filename = 'arial.ttf'
+    }
+}))
+Assert-Eq 'Attachment cover' 'cover' (Get-AttachmentKind ([pscustomobject]@{
+    codec_name = 'mjpeg'
+    tags       = [pscustomobject]@{
+        mimetype = 'image/jpeg'
+        filename = 'cover.jpg'
+    }
+}))
+Assert-Eq 'Attachment other' 'other' (Get-AttachmentKind ([pscustomobject]@{
+    codec_name = 'bin'
+    tags       = [pscustomobject]@{
+        mimetype = 'application/octet-stream'
+        filename = 'x.bin'
+    }
+}))
 Assert-True 'NvencCause extrae' (((Get-CvNvencCause "ruido`n[hevc_nvenc @ 0x1] No capable devices found`nmas ruido") -join ' ') -match 'No capable devices')
 Assert-True 'NvencCause vacio -> mensaje' (@(Get-CvNvencCause '').Count -ge 1)
 
@@ -501,7 +731,11 @@ Assert-Eq 'downmixmode perfil gana' 'dialogue' (Resolve-CvDownmixMode 'dialogue'
 Assert-Eq 'downmixmode vacio->global' 'dialogue' (Resolve-CvDownmixMode '' 'dialogue')
 Assert-Eq 'downmixmode lower' 'default' (Resolve-CvDownmixMode 'DEFAULT' 'dialogue')
 # Get-CvDownmixPan (string exacto, locale-safe)
-Assert-Eq 'pan downmix' 'pan=stereo|c0=0.5*c2+0.35*c0+0.15*c4|c1=0.5*c2+0.35*c1+0.15*c5' (Get-CvDownmixPan -Coeffs ([pscustomobject]@{ Center = 0.5; Front = 0.35; Surround = 0.15 }))
+Assert-Eq 'pan downmix' 'pan=stereo|c0=0.5*c2+0.35*c0+0.15*c4|c1=0.5*c2+0.35*c1+0.15*c5' (Get-CvDownmixPan -Coeffs ([pscustomobject]@{
+    Center   = 0.5
+    Front    = 0.35
+    Surround = 0.15
+}))
 # Resolve-CvVolumeMethod
 Assert-Eq 'vol peak/aac' 'peak' (Resolve-CvVolumeMethod -Method 'peak' -Codec 'aac').Method
 Assert-Eq 'vol aacgain/aac ok' 'aacgain' (Resolve-CvVolumeMethod -Method 'aacgain' -Codec 'aac').Method
@@ -517,6 +751,8 @@ Assert-Eq 'adelay redondeo' 'adelay=1:all=1'  (Get-CvAdelayFilter 0.0011)
 # Get-CvTonemapFormat
 Assert-Eq 'tonemap main10 hevc -> p010le' 'p010le'  (Get-CvTonemapFormat -VideoProfile 'main10' -VideoEncoder 'hevc_nvenc')
 Assert-Eq 'tonemap main10 x264 -> yuv420p' 'yuv420p' (Get-CvTonemapFormat -VideoProfile 'main10' -VideoEncoder 'libx264')
+Assert-Eq 'tonemap main10 av1_nvenc -> p010le'   'p010le'      (Get-CvTonemapFormat -VideoProfile 'main10' -VideoEncoder 'av1_nvenc')
+Assert-Eq 'tonemap main10 libsvtav1 -> 420p10le' 'yuv420p10le' (Get-CvTonemapFormat -VideoProfile 'main10' -VideoEncoder 'libsvtav1')
 Assert-Eq 'tonemap main hevc -> yuv420p'   'yuv420p' (Get-CvTonemapFormat -VideoProfile 'main' -VideoEncoder 'hevc_nvenc')
 # Get-CvVideoFilterChain (orden crop->scale->tonemap)
 $fc1 = Get-CvVideoFilterChain -Crop '1920:800:0:140'
@@ -548,6 +784,32 @@ Assert-Eq 'excluye mas nuevas'          @('7.1.1','6.0') (Get-CvNvencFallbackCan
 Assert-Eq 'solo mas nuevas -> vacio'    @()             (Get-CvNvencFallbackCandidates -Failed '8.1.2' -Available @('8.1.2','8.1.3'))
 Assert-Eq 'sin catalogo -> vacio'       @()             (Get-CvNvencFallbackCandidates -Failed '8.1.2' -Available @())
 Assert-Eq 'orden desc'                  @('7.1.1','6.0','5.0') (Get-CvNvencFallbackCandidates -Failed '8.0' -Available @('5.0','7.1.1','6.0'))
+
+Write-Host "`nSoporte de encoders por GPU (Tools / Profile)" -ForegroundColor Cyan
+Reset-CvGpuEncCache
+Assert-Eq   'GpuEncoders = 3'          3 (@(Get-CvGpuEncoders)).Count
+Assert-True 'GpuEncoders av1_nvenc'    (@(Get-CvGpuEncoders) -contains 'av1_nvenc')
+Assert-True 'GpuEncoders hevc_nvenc'   (@(Get-CvGpuEncoders) -contains 'hevc_nvenc')
+# CPU / copy: siempre soportados (no se prueba la GPU).
+Assert-True 'Supported libx264'        (Test-CvEncoderSupported -Context $null -Encoder 'libx264')
+Assert-True 'Supported libsvtav1'      (Test-CvEncoderSupported -Context $null -Encoder 'libsvtav1')
+Assert-True 'Supported copy'           (Test-CvEncoderSupported -Context $null -Encoder 'copy')
+# GPU con contexto nulo -> no bloquea (true).
+Assert-True 'GPU ctx nulo -> true'     (Test-CvEncoderSupported -Context $null -Encoder 'av1_nvenc')
+# GPU con ffmpeg no resoluble -> no bloquea (true), sin tocar la GPU.
+$fakeFf = [pscustomobject]@{ FFmpeg = 'Z:\no\existe\ffmpeg.exe' }
+Assert-True 'GPU sin ffmpeg -> true'   (Test-CvGpuEncoder -Context $fakeFf -Encoder 'av1_nvenc')
+# Cache persistente de la sonda (Read/Save-CvGpuCache): clavada por version de ffmpeg + GPU.
+$gpuTmp = Join-Path $env:TEMP ("cv-ut-gpucache-{0}.json" -f ([guid]::NewGuid().ToString('N').Substring(0,8)))
+Set-Content -Path $gpuTmp -Value '{}'
+Save-CvGpuCache -CfgPath $gpuTmp -Ffmpeg '7.1.1' -Gpu 'GPU-X' -Encoders ([ordered]@{ h264_nvenc = $true; hevc_nvenc = $true; av1_nvenc = $false })
+$rc = Read-CvGpuCache -CfgPath $gpuTmp -Ffmpeg '7.1.1' -Gpu 'GPU-X'
+Assert-True 'GpuCache round-trip h264'         ([bool](Get-CvNodeVal $rc 'h264_nvenc'))
+Assert-Eq   'GpuCache round-trip av1'    $false ([bool](Get-CvNodeVal $rc 'av1_nvenc'))
+Assert-True 'GpuCache ffmpeg distinto -> null'  ($null -eq (Read-CvGpuCache -CfgPath $gpuTmp -Ffmpeg '8.0'   -Gpu 'GPU-X'))
+Assert-True 'GpuCache gpu distinta -> null'     ($null -eq (Read-CvGpuCache -CfgPath $gpuTmp -Ffmpeg '7.1.1' -Gpu 'GPU-Y'))
+Assert-True 'GpuName es string'                 ((Get-CvGpuName) -is [string])
+Remove-Item $gpuTmp -Force -ErrorAction SilentlyContinue
 
 # ================================================================================================
 $total = $script:pass + $script:fail

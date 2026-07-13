@@ -145,7 +145,14 @@ function Remove-CvTemps {
     #>
     param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)][string]$Name)
     $tmp = Get-CvTempPaths -Context $Context -Name $Name
-    foreach ($p in @($tmp.Video, $tmp.Audio, $tmp.AudioMka, $tmp.SyncWav, $tmp.JobTmp)) {
+    $tmpFiles = @(
+        $tmp.Video
+        $tmp.Audio
+        $tmp.AudioMka
+        $tmp.SyncWav
+        $tmp.JobTmp
+    )
+    foreach ($p in $tmpFiles) {
         if (Test-Path -LiteralPath $p) { Remove-Item -Force -LiteralPath $p -ErrorAction SilentlyContinue }
     }
     # Temporales POR-PISTA de la multipista (<name>_aN.m4a/.mka/_aN_concat.wav). Regex ESTRICTA (solo

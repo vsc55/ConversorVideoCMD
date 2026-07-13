@@ -43,15 +43,15 @@ flowchart TD
 
 Ejemplo (dos pistas 5.1 en español): `eac3 768k` gana a `ac3 640k` por códec (E-AC-3 > AC-3), aunque el bitrate sea parecido.
 
-### Multipista de audio (conservar varias) 🧪 BETA
+### Multipista de audio (conservar varias)
 
-Por defecto se conserva **una** pista. Con la multipista activada se pueden conservar **varias** del idioma preferido (p. ej. principal + comentarios) y elegir la **predeterminada**. Es simétrico con los subtítulos.
+Por defecto se conserva **una** pista. Con la multipista (`encode.multiAudio = true`, por defecto) se pueden conservar **varias** del idioma preferido (p. ej. principal + comentarios) y elegir la **predeterminada**. Es simétrico con los subtítulos.
 
-**Doble llave (mientras es beta):** `encode.multiAudio = true` (por defecto) habilita la función, pero **solo actúa si además `test.betaMultiAudio = true`**. Con el flag desactivado el audio es monopista (comportamiento clásico). Solo se dispara con **2+ pistas del idioma preferido**.
+**Toggle:** `encode.multiAudio` — `true` (por defecto) habilita conservar varias; `false` = monopista (elige una, comportamiento clásico). Solo se dispara con **2+ pistas del idioma preferido**.
 
 ```mermaid
 flowchart TD
-    A["2+ pistas del idioma preferido<br/>y multiAudio + betaMultiAudio"] --> B["Select-AudioMulti: lista SOLO las del idioma preferido<br/>+ preseleccion default (Select-CvDefaultAudio)"]
+    A["2+ pistas del idioma preferido<br/>y encode.multiAudio = true"] --> B["Select-AudioMulti: lista SOLO las del idioma preferido<br/>+ preseleccion default (Select-CvDefaultAudio)"]
     B --> C["Un prompt: indices a conservar; * marca la predeterminada<br/>(ENTER = solo la *, T = todas, P/A = reproducir)"]
     C --> D["Sincronia preguntada POR pista conservada"]
     D --> E["tracks[] en el job (predeterminada primero)"]
@@ -160,25 +160,19 @@ Detalles:
 
 Comandos exactos: [ref-comandos.md](ref-comandos.md) (§4 detección, §5 WAV).
 
-### Modo de sincronía: clásico (WAV) vs `adelay` — 🧪 BETA
+### Modo de sincronía: `adelay` (por defecto) vs clásico (WAV)
 
-Hay **dos** formas de aplicar el silencio, elegibles con **`test.syncAdelay`** en `config.json`:
+Hay **dos** formas de aplicar el silencio, elegibles con **`encode.syncAdelay`** en `config.json`:
 
-| | Clásico (por defecto) | `adelay` — **BETA** (`test.syncAdelay: true`) |
+| | `adelay` — **por defecto** (`encode.syncAdelay: true`) | Clásico (`encode.syncAdelay: false`) |
 |---|---|---|
-| Cómo | 2 pasos: genera un WAV `silencio + pista` y luego lo codifica | 1 paso: filtro `adelay=<ms>:all=1` **encadenado con el volumen** en el mismo encode |
-| Procesos ffmpeg | 2 (WAV + AAC) | **1** |
-| Temporal `_concat.wav` | sí | **no** |
-| Estado | estable | **experimental** |
+| Cómo | 1 paso: filtro `adelay=<ms>:all=1` **encadenado con el volumen** en el mismo encode | 2 pasos: genera un WAV `silencio + pista` y luego lo codifica |
+| Procesos ffmpeg | **1** | 2 (WAV + AAC) |
+| Temporal `_concat.wav` | **no** | sí |
 
-En modo `adelay`, la cadena de filtros combina retardo + volumen en una sola pasada, p. ej.: `[0:<i>]adelay=<ms>:all=1,volume=<g>dB[a]` (o `,loudnorm=...` según `volume.method`).
+En modo `adelay`, la cadena de filtros combina retardo + volumen en una sola pasada, p. ej.: `[0:<i>]adelay=<ms>:all=1,volume=<g>dB[a]` (o `,loudnorm=...` según `volume.method`). Es el **método por defecto** desde la validación (ambos dan el mismo resultado audible; `adelay` cuantiza a **ms enteros** — ver [ref-gotchas.md](ref-gotchas.md)).
 
-> **🧪 BETA — controlado para retirar/promover.** La opción vive en:
-> - Config: **`test.syncAdelay`** (`lib/Config.psm1`) · Contexto: **`SyncAdelay`** (`lib/Context.psm1`).
-> - Lógica: rama `if ($Sync -gt 0 -and $Context.SyncAdelay)` en **`Invoke-AudioRun`** (`lib/Audio.psm1`), marcada con comentarios `BETA`.
-> - Verificado (ffmpeg 7.1.1): produce la misma duración y silencio inicial que el clásico (5 s + 2 s → 7 s). Falta rodaje en más casos reales de A/V antes de hacerlo el método por defecto.
->
-> Para **promover** a estable: hacerlo el comportamiento único (o mover el flag fuera de `test`). Para **retirar**: quitar `test.syncAdelay`, `SyncAdelay` y la rama `adelay` de `Invoke-AudioRun` (los `grep "adelay"`/`"SyncAdelay"` localizan todo).
+> **Implementación.** Config: **`encode.syncAdelay`** (`lib/Config.psm1`) · Contexto: **`SyncAdelay`** (`lib/Context.psm1`). Lógica: rama `if ($Sync -gt 0 -and $Context.SyncAdelay)` en **`Invoke-AudioRun`** (`lib/Audio.psm1`); la rama `else` es el clásico (WAV). Verificado (ffmpeg 7.1.1) y en uso real: misma duración y silencio inicial que el clásico.
 
 ## 4. Canales y códec de la pista de salida
 
