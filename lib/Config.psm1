@@ -193,6 +193,22 @@ function Get-CvConfigDefaults {
         #   en UNA sola pasada (encadenado con la normalizacion de volumen), sin WAV intermedio. $false =
         #   metodo clasico (genera un WAV silencio+pista y luego lo codifica). Ambos dan el mismo resultado
         #   audible; 'adelay' cuantiza a ms enteros (ver docs/ref-gotchas.md). Antes era la beta test.syncAdelay.
+        # autoGpuOnly / autoMaxCodec: filtros del perfil 'Auto' (opcion A del menu, que elige solo el mejor
+        #   encoder soportado). autoGpuOnly ($false por defecto): si $true, Auto solo considera encoders por
+        #   GPU (NVENC); si el equipo no tiene GPU compatible cae a CPU con aviso. autoMaxCodec (''=sin tope
+        #   por defecto): limita hasta que CODEC sube Auto: 'h264' | 'h265' | 'av1'. Ej: con 'h265', aunque
+        #   la GPU soporte AV1, Auto no pasa de H.265. Auto escala av1 > h265 > h264, GPU antes que CPU.
+        # audioSyncThreshold: detecta un posible AUDIO ADELANTADO comparando cuánto ACABA el audio
+        #   antes que el vídeo (con inicios alineados). Si la diferencia supera este umbral en segundos,
+        #   PREPARAR avisa y PREGUNTA cuánto retardo aplicar (por defecto el valor detectado; se puede
+        #   previsualizar original vs corregido). 0 = desactiva la detección. Timeout de la pregunta:
+        #   behavior.promptTimeout.audioSync (15 s). OJO: un audio con cola legítimamente más corta
+        #   puede dar un falso positivo; por eso PREGUNTA (y ofrece preview) en vez de aplicarlo a ciegas.
+        # qualityCheck: control de calidad de la SALIDA frente al origen tras codificar. 'off' (por
+        #   defecto) = no medir; 'ssim' o 'vmaf' = medir esa metrica. Es una pasada extra de ffmpeg que
+        #   decodifica AMBOS videos enteros -> LENTO en pelis largas (ssim ~5-9x realtime; vmaf muchisimo
+        #   mas, ~0,06x = puede tardar horas), por eso viene desactivado por defecto. El resultado se
+        #   registra ([QC]). No se mide en 'copy'. vmaf requiere que el ffmpeg tenga libvmaf; si no, avisa.
         encode    = [ordered]@{
             outputExtension = 'mkv'
             extensions      = @(
@@ -219,6 +235,10 @@ function Get-CvConfigDefaults {
             multiAudio      = $true
             audioKeepTitle  = $false
             anamorphic      = 'square'
+            audioSyncThreshold = 2.0
+            autoGpuOnly     = $false
+            autoMaxCodec    = ''
+            qualityCheck    = 'off'
         }
         # customProfile: valores por DEFECTO del constructor de perfil CUSTOM interactivo (opcion 0
         #   del menu USAR PERFIL). En cada menu, ENTER acepta el valor por defecto (o eliges otro).
@@ -331,6 +351,7 @@ function Get-CvConfigDefaults {
                 border     = 10
                 animation  = 10
                 anamorphic = 10
+                audioSync  = 15
                 video      = -1
                 audio      = -1
                 subtitle   = -1
@@ -417,6 +438,10 @@ function Get-CvConfigHelp {
         'encode/syncAdelay'     = 'Sincronia: true (por defecto) = adelay en 1 pasada (sin WAV); false = clasico (WAV silencio+pista)'
         'encode/multiAudio'     = 'Con 2+ pistas del idioma preferido, conservar varias y elegir la predeterminada (false = monopista, solo la mejor)'
         'encode/audioKeepTitle' = 'Conservar el titulo del audio de origen en la salida (false = titulo en blanco)'
+        'encode/autoGpuOnly'    = 'Perfil Auto: si true, solo considera encoders por GPU (NVENC); false = permite CPU'
+        'encode/autoMaxCodec'   = 'Perfil Auto: tope de codec ("" sin tope | h264 | h265 | av1); Auto no sube de ahi'
+        'encode/qualityCheck'   = 'Medir calidad de la salida vs origen tras codificar: off | ssim | vmaf (pasada extra, mas lento)'
+        'encode/audioSyncThreshold' = 'Detectar audio adelantado si acaba N s antes que el video (0 = off); PREPARAR pregunta el retardo'
 
         'customProfile'             = 'Valores por defecto del constructor de perfil CUSTOM (opcion 0 de USAR PERFIL)'
         'customProfile/videoEncoder'= 'Codec de video: libx264|h264_nvenc|libx265|hevc_nvenc|copy'
@@ -476,6 +501,7 @@ function Get-CvConfigHelp {
         'behavior/promptTimeout/border'     = 'Timeout de la pregunta de bordes (-1 = usar el generico)'
         'behavior/promptTimeout/animation'  = 'Timeout de la pregunta de animacion (-1 = usar el generico)'
         'behavior/promptTimeout/anamorphic' = 'Timeout de la pregunta de video anamorfico (-1 = generico; toma el modo configurado)'
+        'behavior/promptTimeout/audioSync' = 'Timeout de la pregunta de audio adelantado (-1 = generico; al expirar aplica el retardo detectado)'
         'behavior/promptTimeout/video'      = 'Timeout del menu de seleccion de pista de video (-1 = generico; toma la preseleccionada)'
         'behavior/promptTimeout/audio'      = 'Timeout del menu de seleccion de pista de audio (-1 = generico; toma la preseleccionada)'
         'behavior/promptTimeout/subtitle'   = 'Timeout del menu de subtitulos fallback (-1 = generico; al expirar no conserva ninguno)'

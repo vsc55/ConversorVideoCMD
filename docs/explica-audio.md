@@ -124,6 +124,16 @@ Si `pts_time = d > 0`, se avisa (`[SYNC] - El audio empieza d s más tarde que e
 
 El valor elegido se **congela** en el job (`audio.sync`); que haya habido pregunta marca el archivo como *selección manual* (`[AVISO]`).
 
+### Caso 2: audio ADELANTADO (acaba antes que el vídeo)
+
+Hay un segundo desfase que **no** tiene retardo inicial (audio y vídeo empiezan en `pts 0`) pero el audio va **adelantado de forma constante**: el sonido llega antes que la imagen. Se "esconde" porque los `start_time` son 0; la pista es que el **audio ACABA varios segundos antes que el vídeo** (el vídeo trae ~N s de más al inicio —logo/intro— que el audio no incluye, así que todo el audio queda N s adelantado).
+
+- **Detección** (`Resolve-CvAudioAhead`): compara el último `pts` del vídeo con el de la pista de audio (leídos baratos por índice cerca del final, `Get-CvStreamEndPts`). Si `fin_vídeo − fin_audio ≥ encode.audioSyncThreshold` (por defecto **2 s**), se sugiere retrasar el audio esa diferencia.
+- **Pregunta** (fase PREPARAR): `[SYNC] - El audio acaba N s antes que el vídeo: parece ADELANTADO ~N s`. Default = `N`; `0` = nada; **`P` = previsualizar** dos clips cortos (`Show-CvSyncPreview`): el **original** (se oye el desfase) y el **corregido** (audio retrasado `N` s; el clip corregido toma el vídeo desde `T` y el audio desde `T−N`). Auto-acepta el valor detectado a los `promptTimeout.audioSync` s (15).
+- **Aplicación**: el retardo elegido va a `audio.sync` y el worker lo aplica con `adelay` (igual que el caso 1).
+
+> **Ojo con los falsos positivos:** un audio con **cola legítimamente más corta** (créditos con música que acaba antes, etc.) también "acaba antes" sin estar desfasado. Por eso NO se aplica a ciegas: se **pregunta** y se ofrece el **preview** para confirmar de oído/vista. Sube `audioSyncThreshold` (o ponlo a `0`) si te da falsos positivos.
+
 ### Aplicación (fase WORKER)
 
 En `Invoke-AudioRun`, si `sync > 0` **no** se recodifica la pista directamente: primero se genera un **WAV** = `silencio(d)` **+** `pista`, concatenados, y ese WAV pasa a ser la fuente del encode (medición de volumen incluida). Si `sync = 0`, se codifica la pista tal cual.

@@ -91,6 +91,87 @@ function Get-AudioInitDelay {
     return 0.0
 }
 
+function Get-CvStreamEndPts {
+    <#
+        pts_time del ULTIMO paquete de un stream, leyendo solo cerca del final (barato, por indice).
+        $Stream = especificador ffprobe ('v:0' o el indice absoluto '1'). $Duration = duracion del
+        contenedor (para saber desde donde leer). Devuelve 0 si no se puede leer.
+    #>
+    param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)][string]$File, [Parameter(Mandatory)][string]$Stream, [double]$Duration = 0)
+    $from = [int][Math]::Max(0, $Duration - 40)
+    $r = Invoke-ToolCapture -Exe $Context.FFprobe -Arguments @(
+        '-v', 'error'
+        '-select_streams', $Stream
+        '-show_entries', 'packet=pts_time'
+        '-read_intervals', ("{0}%+45" -f $from)
+        '-of', 'csv=p=0'
+        $File
+    ) -Context $Context
+    $vals = @("$($r.StdOut)" -split "`r?`n" | ForEach-Object { ConvertTo-InvDouble ($_.Trim()) } | Where-Object { $null -ne $_ })
+    if ($vals.Count) { return ($vals | Measure-Object -Maximum).Maximum }
+    return 0.0
+}
+
+function Resolve-CvAudioAhead {
+    <#
+        Detecta un AUDIO ADELANTADO por la cola: si el audio ACABA >= $Threshold segundos ANTES que el
+        video (con inicios alineados), el audio va adelantado ~esa diferencia y habria que RETRASARLO.
+        Devuelve el retardo sugerido (redondeado a centesimas) o 0 si no aplica (umbral 0, datos
+        invalidos, o el audio no acaba suficientemente antes). PURA (sin ffmpeg): se le pasan los fines.
+    #>
+    param([double]$VideoEnd, [double]$AudioEnd, [double]$Threshold)
+    if ($Threshold -le 0 -or $VideoEnd -le 0 -or $AudioEnd -le 0) { return 0.0 }
+    $diff = $VideoEnd - $AudioEnd
+    if ($diff -ge $Threshold) { return [Math]::Round($diff, 2) }
+    return 0.0
+}
+
+function Show-CvSyncPreview {
+    <#
+        Previsualiza el desfase de audio A/B: genera dos clips cortos alrededor de $At y los reproduce
+        con ffplay: (1) ORIGINAL (audio tal cual, se ve el desfase) y (2) CORREGIDO (audio retrasado
+        $Delay s, sincronizado). El clip corregido toma el video desde $At y el audio desde $At-$Delay
+        (porque el audio va $Delay adelantado). Fail-soft: si algo falla, avisa y sigue. $Index = indice
+        absoluto de la pista de audio en el fichero.
+    #>
+    param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)][string]$File, [int]$Index, [double]$Delay, [double]$At = 0, [int]$Seconds = 20)
+    $ff = "$($Context.FFmpeg)"
+    if ([string]::IsNullOrWhiteSpace($ff) -or -not (Test-Path -LiteralPath $ff)) { Write-CvLog 'AUDIO' '[SYNC] - No se puede previsualizar (ffmpeg no disponible).' -Indent 3; return }
+    $tmp  = [System.IO.Path]::GetTempPath()
+    $tag  = [guid]::NewGuid().ToString('N').Substring(0, 8)
+    $orig = Join-Path $tmp ("cv-syncprev-orig-{0}.mkv" -f $tag)
+    $corr = Join-Path $tmp ("cv-syncprev-corr-{0}.mkv" -f $tag)
+    $audioAt = [Math]::Max(0.0, $At - $Delay)
+    try {
+        # Clip ORIGINAL (video + su audio, tal cual = desfasado).
+        [void](Invoke-ToolCapture -Exe $ff -Arguments @(
+            '-hide_banner', '-y', '-ss', (Format-CvNumber $At), '-t', "$Seconds", '-i', $File,
+            '-map', '0:v:0', '-map', "0:$Index", '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23',
+            '-c:a', 'aac', '-b:a', '128k', $orig
+        ) -Context $Context)
+        # Clip CORREGIDO: video desde $At, audio desde $At-$Delay (dos entradas del mismo fichero).
+        [void](Invoke-ToolCapture -Exe $ff -Arguments @(
+            '-hide_banner', '-y',
+            '-ss', (Format-CvNumber $At), '-t', "$Seconds", '-i', $File,
+            '-ss', (Format-CvNumber $audioAt), '-t', "$Seconds", '-i', $File,
+            '-map', '0:v:0', '-map', "1:$Index", '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23',
+            '-c:a', 'aac', '-b:a', '128k', $corr
+        ) -Context $Context)
+        if (Test-Path -LiteralPath $orig) {
+            Write-CvLog 'AUDIO' ("[SYNC] - Preview 1/2: ORIGINAL (desde {0}s; el audio va adelantado)" -f [int]$At) -Indent 3
+            Invoke-CvPreview -Context $Context -File $orig -Label 'SYNC original'
+        }
+        if (Test-Path -LiteralPath $corr) {
+            Write-CvLog 'AUDIO' ("[SYNC] - Preview 2/2: CORREGIDO (audio retrasado {0}s)" -f (Format-CvNumber $Delay)) -Indent 3
+            Invoke-CvPreview -Context $Context -File $corr -Label 'SYNC corregido'
+        }
+    } catch {
+        Write-CvLog 'AUDIO' ("[SYNC] - No se pudo previsualizar: {0}" -f $_.Exception.Message) -Indent 3
+    } finally {
+        foreach ($c in @($orig, $corr)) { if (Test-Path -LiteralPath $c) { Remove-Item -LiteralPath $c -Force -ErrorAction SilentlyContinue } }
+    }
+}
+
 function Show-AudioPreview {
     <#
         Reproduce una pista de audio concreta con FFplay para revisarla (por defecto desde el
@@ -418,23 +499,50 @@ function Invoke-AudioAsk {
     }
 
     # ---- Sincronia audio/video POR PISTA (solo si se recodifica; en copy no aplica) ----
+    # Fin del video (barato, por indice): sirve para detectar un audio ADELANTADO (acaba antes que el
+    # video con inicios alineados). Solo si esta activa la deteccion (encode.audioSyncThreshold > 0).
+    $videoEnd = 0.0
+    if (-not $isCopy -and $Context.AudioSyncThreshold -gt 0) {
+        $videoEnd = Get-CvStreamEndPts -Context $Context -File $file -Stream 'v:0' -Duration $adur
+    }
     $tracks = @()
     foreach ($s in $sels) {
         $lang = if ($s.Language) { "$($s.Language)" } else { 'und' }
         $sync = 0.0
         if (-not $isCopy) {
             $delay = Get-AudioInitDelay -Context $Context -File $file -Index $s.Index
+            $lbl = if ($sels.Count -gt 1) { (" (pista {0}, {1})" -f $s.Index, $lang) } else { '' }
             if ($delay -gt 0) {
-                # Indentado bajo la linea del archivo para agrupar la pregunta con su archivo.
-                $lbl = if ($sels.Count -gt 1) { (" (pista {0}, {1})" -f $s.Index, $lang) } else { '' }
+                # CASO 1: el audio EMPIEZA mas tarde -> silencio inicial (indentado bajo el archivo).
                 Write-CvLog 'AUDIO' ("[SYNC] - El audio empieza {0}s mas tarde que el video{1}" -f $delay, $lbl) -Indent 3
                 $ans = (Read-CvLine -Prompt ("   [AUDIO] - [SYNC] - Silencio a anadir al inicio en seg [{0}] (ENTER=usar / 0=ninguno)" -f $delay) -TimeoutSec (Get-CvPromptTimeout $Context 'sync')).Trim()
                 $res.Manual = $true   # se pregunto por el silencio de sincronia
                 if ($ans -eq '') { $sync = $delay }
                 else { $v = ConvertTo-InvDouble $ans; if ($null -ne $v) { $sync = $v } }
                 Write-Host ''
-            } elseif ($Context.Debug) {
-                Write-CvLog 'AUDIO' ("[SYNC] - Audio y video inician a la vez [OK] (pista {0})" -f $s.Index)
+            }
+            else {
+                # CASO 2: el audio ACABA antes que el video (inicios alineados) -> parece ADELANTADO; se
+                # sugiere retrasarlo esa diferencia. Se PREGUNTA (default = detectado, con preview A/B).
+                $audioEnd = if ($videoEnd -gt 0) { Get-CvStreamEndPts -Context $Context -File $file -Stream "$($s.Index)" -Duration $adur } else { 0.0 }
+                $ahead = Resolve-CvAudioAhead -VideoEnd $videoEnd -AudioEnd $audioEnd -Threshold $Context.AudioSyncThreshold
+                if ($ahead -gt 0) {
+                    Write-CvLog 'AUDIO' ("[SYNC] - El audio acaba {0}s antes que el video{1}: parece ADELANTADO ~{0}s (verificar con preview)." -f $ahead, $lbl) -Indent 3
+                    $prevAt = [Math]::Max($ahead + 5, [Math]::Min($adur * 0.15, [Math]::Max(0, $adur - 60)))
+                    $decided = $false
+                    while (-not $decided) {
+                        $ans = (Read-CvLine -Prompt ("   [AUDIO] - [SYNC] - Retardo a anadir al audio en seg [{0}] (ENTER=usar / 0=ninguno / P=previsualizar)" -f $ahead) -TimeoutSec (Get-CvPromptTimeout $Context 'audioSync')).Trim()
+                        $res.Manual = $true
+                        if ($ans -match '^[Pp]$') { Show-CvSyncPreview -Context $Context -File $file -Index ([int]$s.Index) -Delay $ahead -At $prevAt; continue }
+                        if ($ans -eq '') { $sync = $ahead; $decided = $true }
+                        elseif ($ans -eq '0') { $sync = 0.0; $decided = $true }
+                        else { $v = ConvertTo-InvDouble $ans; if ($null -ne $v) { $sync = $v; $decided = $true } }
+                    }
+                    Write-Host ''
+                }
+                elseif ($Context.Debug) {
+                    Write-CvLog 'AUDIO' ("[SYNC] - Audio y video alineados [OK] (pista {0})" -f $s.Index)
+                }
             }
         }
         $tracks += [pscustomobject]@{

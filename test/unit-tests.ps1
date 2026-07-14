@@ -143,6 +143,15 @@ Assert-Eq 'promptTimeout/anamorphic def 10' 10 (Get-CvConfigDefaultValue 'behavi
 Assert-True 'help encode/anamorphic' ((Get-CvConfigHelp).Contains('encode/anamorphic'))
 Assert-Eq 'encode/syncAdelay def true'      $true (Get-CvConfigDefaultValue 'encode/syncAdelay')
 Assert-True 'help encode/syncAdelay'        ((Get-CvConfigHelp).Contains('encode/syncAdelay'))
+Assert-Eq 'encode/autoGpuOnly def false'    $false (Get-CvConfigDefaultValue 'encode/autoGpuOnly')
+Assert-Eq 'encode/autoMaxCodec def vacio'   ''     (Get-CvConfigDefaultValue 'encode/autoMaxCodec')
+Assert-True 'help encode/autoGpuOnly'       ((Get-CvConfigHelp).Contains('encode/autoGpuOnly'))
+Assert-True 'help encode/autoMaxCodec'      ((Get-CvConfigHelp).Contains('encode/autoMaxCodec'))
+Assert-Eq 'encode/qualityCheck def off'     'off' (Get-CvConfigDefaultValue 'encode/qualityCheck')
+Assert-True 'help encode/qualityCheck'      ((Get-CvConfigHelp).Contains('encode/qualityCheck'))
+Assert-Eq 'encode/audioSyncThreshold def 2' 2.0 (Get-CvConfigDefaultValue 'encode/audioSyncThreshold')
+Assert-Eq 'promptTimeout/audioSync def 15'  15  (Get-CvConfigDefaultValue 'behavior/promptTimeout/audioSync')
+Assert-True 'help encode/audioSyncThreshold' ((Get-CvConfigHelp).Contains('encode/audioSyncThreshold'))
 Assert-Eq 'test.syncAdelay ya no existe'    $null (Get-CvConfigDefaultValue 'test/syncAdelay')
 Assert-Eq 'debug/enabled def false'         $false (Get-CvConfigDefaultValue 'debug/enabled')
 Assert-Eq 'debug/pausePerCommand def true'  $true  (Get-CvConfigDefaultValue 'debug/pausePerCommand')
@@ -608,6 +617,17 @@ Assert-True 'label av1 CPU (CRF)' ((Format-CvProfileLabel (New-CvProfile -VideoE
 Assert-Eq   'CpuEncoders = 3'      3 (@(Get-CvCpuEncoders)).Count
 Assert-True 'CpuEncoders svtav1'   (@(Get-CvCpuEncoders) -contains 'libsvtav1')
 Assert-Eq   'Multipass2Pass = 2'   2 (@(Get-CvMultipass2Pass)).Count
+Assert-Eq   'AutoPriority = 6'     6 (@(Get-CvAutoEncoderPriority)).Count
+Assert-Eq   'AutoPriority 1o av1'  'av1_nvenc' (@(Get-CvAutoEncoderPriority)[0].Value)
+Assert-True 'CodecRank av1>h265>h264' (((Get-CvCodecRank 'av1') -gt (Get-CvCodecRank 'h265')) -and ((Get-CvCodecRank 'h265') -gt (Get-CvCodecRank 'h264')))
+# Filtros de Resolve (Context nulo => la sonda considera todo soportado; se prueban tope y gpuOnly):
+Assert-Eq   'Resolve sin tope -> av1'    'av1_nvenc'  (Resolve-CvAutoEncoder -Context $null)
+Assert-Eq   'Resolve tope h265 -> hevc'  'hevc_nvenc' (Resolve-CvAutoEncoder -Context $null -MaxCodec 'h265')
+Assert-Eq   'Resolve tope h264 -> h264'  'h264_nvenc' (Resolve-CvAutoEncoder -Context $null -MaxCodec 'h264')
+Assert-Eq   'Resolve gpuOnly+h265'       'hevc_nvenc' (Resolve-CvAutoEncoder -Context $null -GpuOnly $true -MaxCodec 'h265')
+$autoP = New-CvAutoProfile -Context $null
+Assert-Eq   'AutoProfile main10'   'main10' $autoP.VideoProfile
+Assert-True 'AutoProfile con tasa' (($null -ne $autoP.Qmax) -or ($null -ne $autoP.Crf))
 Assert-Eq   'Av1Encoders = 2'      2 (@(Get-CvAv1Encoders)).Count
 Assert-True 'Av1Encoders svtav1'   (@(Get-CvAv1Encoders) -contains 'libsvtav1')
 Assert-True 'Av1Encoders nvenc'    (@(Get-CvAv1Encoders) -contains 'av1_nvenc')
@@ -647,6 +667,13 @@ $vaNoFps = (Get-VideoArgs -Context ([pscustomobject]@{
     Multipass = 'off'
 }) -Prof $np)
 Assert-Eq 'VideoArgs sin -r (forceFps=false)' $false ($vaNoFps -contains '-r')
+# Control de calidad (SSIM/VMAF): filtro -lavfi y parseo de la puntuacion.
+Assert-True 'QualityLavfi ssim'    ((Get-CvQualityLavfi -Metric 'ssim') -match 'scale2ref.*\bssim$')
+Assert-True 'QualityLavfi vmaf'    ((Get-CvQualityLavfi -Metric 'vmaf') -match 'libvmaf$')
+Assert-True 'QualityLavfi sin fps' ((Get-CvQualityLavfi -Metric 'ssim') -notmatch '\bfps=')
+Assert-Eq 'QualityScore ssim' 0.987654 (Get-CvQualityScore -Metric 'ssim' -Text '[Parsed_ssim_0 @ 0x1] SSIM Y:0.99 U:0.98 V:0.98 All:0.987654 (18.4dB)')
+Assert-Eq 'QualityScore vmaf' 95.12    (Get-CvQualityScore -Metric 'vmaf' -Text '[libvmaf @ 0x1] VMAF score: 95.12')
+Assert-True 'QualityScore invalido -> null' ($null -eq (Get-CvQualityScore -Metric 'ssim' -Text 'sin datos'))
 $defM = [ordered]@{
     a   = 1
     sub = [ordered]@{
@@ -748,6 +775,11 @@ Assert-True 'vol invalido -> valido' ((Resolve-CvVolumeMethod -Method 'xxx' -Cod
 Assert-Eq 'adelay 5s'     'adelay=5000:all=1' (Get-CvAdelayFilter 5.0)
 Assert-Eq 'adelay 0.005s' 'adelay=5:all=1'    (Get-CvAdelayFilter 0.005)
 Assert-Eq 'adelay redondeo' 'adelay=1:all=1'  (Get-CvAdelayFilter 0.0011)
+# Resolve-CvAudioAhead (audio adelantado = acaba antes que el video)
+Assert-Eq 'audioAhead 5.1s'        5.1  (Resolve-CvAudioAhead -VideoEnd 5726.22 -AudioEnd 5721.12 -Threshold 2.0)
+Assert-Eq 'audioAhead bajo umbral' 0.0  (Resolve-CvAudioAhead -VideoEnd 5726.0 -AudioEnd 5725.5 -Threshold 2.0)
+Assert-Eq 'audioAhead umbral 0'    0.0  (Resolve-CvAudioAhead -VideoEnd 5726.0 -AudioEnd 5700.0 -Threshold 0)
+Assert-Eq 'audioAhead sin datos'   0.0  (Resolve-CvAudioAhead -VideoEnd 0 -AudioEnd 0 -Threshold 2.0)
 # Get-CvTonemapFormat
 Assert-Eq 'tonemap main10 hevc -> p010le' 'p010le'  (Get-CvTonemapFormat -VideoProfile 'main10' -VideoEncoder 'hevc_nvenc')
 Assert-Eq 'tonemap main10 x264 -> yuv420p' 'yuv420p' (Get-CvTonemapFormat -VideoProfile 'main10' -VideoEncoder 'libx264')

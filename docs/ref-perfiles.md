@@ -38,6 +38,7 @@ La numeración (1..N) se **genera sola** a partir de los grupos de `Get-CvProfil
 | **11** | 192k AAC | h264_nvenc, L5, Q 1–23 | no | no |
 | **12, 13, …** | — | **Perfiles propios de `config.json`** (si hay) | — | — |
 | **0** | — | **Custom** (interactivo) | — | — |
+| **A** | 192k AAC | **Auto** — mejor encoder del equipo (ver abajo) | no | no |
 
 - "Q 1–23" = `-qmin 1 -qmax 23`. "Q auto" = sin `qmin`/`qmax` (el encoder decide).
 - **Detección de bordes**: **sí** = escaneo completo con preguntas/preview (antes de escanear te pregunta el nº de muestras, por defecto `border.samples`). **auto** = pre-escaneo rápido que decide solo si hay barras: si son claras las recorta sin preguntar, si no hay las ignora, y si es ambiguo pasa al modo interactivo. Detalle en [explica-deteccion-bordes.md](explica-deteccion-bordes.md).
@@ -45,6 +46,15 @@ La numeración (1..N) se **genera sola** a partir de los grupos de `Get-CvProfil
 - Todos usan encoder NVENC (GPU) salvo el 1 (copy). Para CPU (libx264/libx265/**libsvtav1** AV1) usar el custom o un perfil de `config.json`. **`av1_nvenc` (AV1 por GPU) aparece etiquetado `[SIN PROBAR]`**: el código está pero no se ha podido validar en hardware compatible (RTX 40+); sigue seleccionable. `libsvtav1` (AV1 por CPU) está validado.
 - **Validación del encoder por GPU**: nada más arrancar (tras cargar config y asegurar ffmpeg, antes de distinguir preparación/worker) se detecta qué encoders por GPU (`*_nvenc`) soporta **esta GPU** —sondeando cada uno con una codificación sintética mínima—. En el menú de encoder del perfil custom, los encoders GPU no soportados se **marcan `[NO SOPORTADO]` en amarillo** (visible antes de elegir). Al elegir un perfil (de serie, de `config.json` o el custom) con un encoder que la GPU no soporta (p. ej. `av1_nvenc` en una GPU anterior a **RTX 40**), se **avisa** (badge amarillo `[AVISO]`) **y se vuelve al menú** para elegir otro, en vez de dejar que ffmpeg falle a mitad de la conversión. El resultado se **cachea en `config.json`** (nodo `gpuCache`, dato de máquina que no aparece en el editor) clavado por **versión de ffmpeg + modelo de GPU**: si no cambian, el arranque es instantáneo; si cambia alguno (o no hay caché), vuelve a sondear (~1-2 s, una vez) y actualiza la caché.
   - La misma validación se repite en el **WORKER, por cada archivo**: un job ya preparado (o un perfil de `config.json`) que se salta el menú de PREPARAR y trae un encoder no soportado no llega a fallar en ffmpeg — el worker **avisa en ese archivo y lo salta** (sin reintentar).
+
+### Perfil Auto (opción `A`)
+
+Elige **solo** el mejor encoder que soporta **este equipo** usando la sonda de GPU, sin que tengas que saber qué admite tu hardware: prueba en orden **AV1 > H.265 > H.264** y, dentro de cada códec, **GPU (NVENC) antes que CPU**; arma el perfil con el control de tasa adecuado (QP en NVENC, CRF en CPU) a 10 bits (`main10`; en H.264, `high` 8 bits). Anuncia en el log qué eligió (`Perfil Auto: se usara 'X' (GPU|CPU)`). Dos filtros opcionales (en `config.json`, **desactivados por defecto**):
+
+- **`encode.autoGpuOnly`** (`false`): si `true`, Auto **solo** considera encoders por GPU; si no hay GPU compatible, cae a CPU con aviso.
+- **`encode.autoMaxCodec`** (`""`): **tope de códec** (`h264` / `h265` / `av1`); aunque la GPU soporte uno mejor, Auto **no pasa** de ahí. `""` = sin tope.
+
+Ejemplos (con `av1_nvenc` no soportado y `hevc_nvenc` sí, como una GTX 1070): sin tope → `libsvtav1` (AV1 por CPU, el códec más alto soportado); `autoMaxCodec = "h265"` → `hevc_nvenc` (GPU H.265); `autoGpuOnly = true` → `hevc_nvenc`.
 
 ## Perfiles propios en `config.json`
 

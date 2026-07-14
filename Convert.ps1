@@ -546,6 +546,19 @@ while ($didAny) {
                 # con varias pistas el resumen las enumera todas de la salida (no usa este indice).
                 $sumAIdx = if ($aTracks.Count -gt 0) { [int]$aTracks[0].Index } else { -1 }
                 Write-ConversionSummary -Context $jctx -File $f.FullName -Info $info -Output $out -Elapsed $sw.Elapsed -Prof $prof -AudioIndex $sumAIdx
+
+                # Control de calidad de la salida vs origen (encode.qualityCheck; no en 'copy'). Es una
+                # pasada extra de ffmpeg (fuera del tiempo de conversion de arriba); fail-soft.
+                if ($ctx.QualityCheck -ne 'off' -and -not $job.video.skip) {
+                    # Measure-CvQuality muestra su propia linea de progreso en vivo (Invoke-ToolProgress).
+                    $qScore = Measure-CvQuality -Context $jctx -Source $f.FullName -Output $out -Metric $ctx.QualityCheck
+                    if ($null -ne $qScore) {
+                        $qTxt = if ($ctx.QualityCheck -eq 'vmaf') { "{0} / 100" -f (Format-CvNumber $qScore) } else { "{0}  (0-1, 1 = identico)" -f (Format-CvNumber $qScore) }
+                        Write-CvLog 'WORKER' ("[QC] - Calidad {0}: {1}" -f $ctx.QualityCheck.ToUpper(), $qTxt)
+                    } else {
+                        Write-CvLog 'WORKER' ("[QC] - No se pudo medir la calidad ({0}); se continua (vmaf requiere libvmaf en ffmpeg)." -f $ctx.QualityCheck)
+                    }
+                }
                 $results[$name] = @{
                     Status   = 'OK'
                     Reason   = ''

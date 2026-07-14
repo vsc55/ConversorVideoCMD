@@ -182,6 +182,77 @@ function Get-CvMultipass2Pass {
     )
 }
 
+function Get-CvAutoEncoderPriority {
+    <#
+        Orden de preferencia del perfil AUTO: MEJOR codec primero (av1 > h265 > h264) y, dentro de
+        cada codec, GPU (NVENC, mas rapido) antes que CPU. Cada entrada: Value (encoder), Codec y Gpu.
+        Resolve-CvAutoEncoder recorre esta lista aplicando los filtros (autoGpuOnly / autoMaxCodec) y
+        la sonda de soporte real, y devuelve el primero que encaje.
+    #>
+    @(
+        @{ Value = 'av1_nvenc';  Codec = 'av1';  Gpu = $true }
+        @{ Value = 'libsvtav1';  Codec = 'av1';  Gpu = $false }
+        @{ Value = 'hevc_nvenc'; Codec = 'h265'; Gpu = $true }
+        @{ Value = 'libx265';    Codec = 'h265'; Gpu = $false }
+        @{ Value = 'h264_nvenc'; Codec = 'h264'; Gpu = $true }
+        @{ Value = 'libx264';    Codec = 'h264'; Gpu = $false }
+    )
+}
+
+function Get-CvCodecRank {
+    <# Rango de "nivel" de codec para el tope autoMaxCodec (mayor = mejor compresion). #>
+    param([string]$Codec)
+    switch ("$Codec".ToLower()) {
+        'av1'  { 3 }
+        'h265' { 2 }
+        'h264' { 1 }
+        default { 0 }
+    }
+}
+
+function Resolve-CvAutoEncoder {
+    <#
+        Elige el mejor encoder soportado por este equipo segun Get-CvAutoEncoderPriority, aplicando:
+          -GpuOnly:  si $true, solo considera entradas por GPU (descarta CPU).
+          -MaxCodec: tope de codec ('' = sin tope | h264 | h265 | av1); descarta los de codec superior.
+        Se comprueba el soporte real con Test-CvEncoderSupported (CPU siempre; GPU segun la sonda).
+        Si nada encaja (p. ej. GpuOnly sin GPU compatible), cae a 'libx265' (CPU H.265, red de seguridad).
+    #>
+    param($Context, [bool]$GpuOnly = $false, [string]$MaxCodec = '')
+    $cap = if ($MaxCodec) { Get-CvCodecRank $MaxCodec } else { 99 }
+    foreach ($e in (Get-CvAutoEncoderPriority)) {
+        if ($GpuOnly -and -not $e.Gpu) { continue }
+        if ((Get-CvCodecRank $e.Codec) -gt $cap) { continue }
+        if (Test-CvEncoderSupported -Context $Context -Encoder $e.Value) { return $e.Value }
+    }
+    'libx265'
+}
+
+function New-CvAutoProfile {
+    <#
+        Perfil AUTO: resuelve el mejor encoder del equipo (Resolve-CvAutoEncoder con los filtros
+        encode.autoGpuOnly / encode.autoMaxCodec del Context) y arma el perfil con el control de tasa
+        adecuado (QP en NVENC, CRF en CPU) y la profundidad segun el codec (main10 en h265/av1; high
+        8-bit en h264). Asi el usuario elige "Auto" y no tiene que saber que soporta su equipo.
+    #>
+    param($Context)
+    $gpuOnly = [bool]($Context -and $Context.AutoGpuOnly)
+    $maxCod  = if ($Context) { "$($Context.AutoMaxCodec)" } else { '' }
+    $enc     = Resolve-CvAutoEncoder -Context $Context -GpuOnly $gpuOnly -MaxCodec $maxCod
+
+    $isCpu = $enc -in (Get-CvCpuEncoders)
+    $isAv1 = $enc -in (Get-CvAv1Encoders)
+    $isH264 = $enc -in @('libx264', 'h264_nvenc')
+    $prof  = if ($isH264) { 'high' } else { 'main10' }   # h264 no tiene 'main10'
+    if ($isCpu) {
+        $crf = if ($isAv1) { 30 } else { 23 }            # CRF: AV1 (0-63) distinto de H.264/265 (0-51)
+        New-CvProfile -VideoEncoder $enc -VideoProfile $prof -Crf $crf
+    } else {
+        $lvl = if ($isAv1) { '' } else { '5' }           # AV1 no usa -level:v
+        New-CvProfile -VideoEncoder $enc -VideoProfile $prof -VideoLevel $lvl -Qmin 1 -Qmax 23
+    }
+}
+
 function Get-CvVideoSizes {
     <#
         Catalogo de tamanos de referencia para el menu de resize del perfil custom. Lista de
@@ -798,6 +869,7 @@ function Select-Profile {
     $menuLines += @(
         '',
         ('{0}. Custom (configuracion personalizada)' -f ('0'.PadLeft($numW))),
+        ('{0}. Auto  (mejor encoder de este equipo: GPU si puede, si no CPU)' -f ('A'.PadLeft($numW))),
         '',
         ('{0}. Salir' -f ('X'.PadLeft($numW)))
     )
@@ -808,7 +880,7 @@ function Select-Profile {
             Show-Menu -Title 'USAR PERFIL:' -Lines $menuLines
             $show = $false
         }
-        $sel = (Read-Host '[GLOBAL] - [PROFILE] - OPCION NUMERO (X = salir)').Trim()
+        $sel = (Read-Host '[GLOBAL] - [PROFILE] - OPCION NUMERO (A = auto, X = salir)').Trim()
         if ($sel -match '^[Xx]$') { return $null }                 # salir
         if ($sel -eq '0') {
             $custom = New-CustomProfile -Context $Context
@@ -816,6 +888,13 @@ function Select-Profile {
             Clear-Host                                             # custom cancelado -> limpiar y re-mostrar
             $show = $true
             continue
+        }
+        if ($sel -match '^[Aa]$') {
+            # Auto: resuelve el mejor encoder soportado por este equipo (GPU o CPU) y lo anuncia.
+            $auto = New-CvAutoProfile -Context $Context
+            $via  = if ("$($auto.VideoEncoder)" -in (Get-CvCpuEncoders)) { 'CPU' } else { 'GPU' }
+            Write-CvLog 'GLOBAL' ("[INFO] - Perfil Auto: se usara '{0}' ({1})." -f $auto.VideoEncoder, $via)
+            return $auto
         }
         if ($profiles.Contains($sel)) {
             $chosen = $profiles[$sel]

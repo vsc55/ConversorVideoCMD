@@ -201,6 +201,16 @@ function New-CvContext {
         # Toggle encode.multiAudio ($true por defecto). Lo consumen Invoke-AudioAsk (seleccion) y el
         # worker/Multiplex (varias pistas). Con $false = monopista (elige una).
         MultiAudio     = [bool]$cfg.encode.multiAudio
+        # Filtros del perfil Auto (opcion A de USAR PERFIL). AutoGpuOnly: Auto solo considera encoders
+        # GPU. AutoMaxCodec: tope de codec ('' sin tope | h264 | h265 | av1). Los consume New-CvAutoProfile.
+        AutoGpuOnly    = [bool]$cfg.encode.autoGpuOnly
+        AutoMaxCodec   = (Resolve-CvOneOf "$($cfg.encode.autoMaxCodec)" @('', 'h264', 'h265', 'av1') '')
+        # Control de calidad de la salida vs origen tras codificar: off | ssim | vmaf. Lo consume el
+        # worker (Measure-CvQuality) tras un encode con exito (no en 'copy').
+        QualityCheck   = (Resolve-CvOneOf "$($cfg.encode.qualityCheck)" @('off', 'ssim', 'vmaf') 'off')
+        # Umbral (seg) para detectar audio adelantado (acaba antes que el video); 0 = off. Lo usa
+        # Invoke-AudioAsk para avisar/preguntar el retardo. Ver encode.audioSyncThreshold.
+        AudioSyncThreshold = [double]([Math]::Max(0.0, [double]$cfg.encode.audioSyncThreshold))
         # Conservar el titulo del audio de origen en la salida (false = titulo en blanco). Lo aplica
         # Invoke-Multiplex leyendo el titulo del origen por el indice de cada pista.
         AudioKeepTitle = [bool]$cfg.encode.audioKeepTitle

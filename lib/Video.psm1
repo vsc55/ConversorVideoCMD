@@ -684,4 +684,60 @@ function Invoke-VideoRun {
     return $vOk
 }
 
+function Get-CvQualityLavfi {
+    <#
+        Filtro -lavfi para medir la calidad de la SALIDA (input 0) frente al ORIGEN (input 1). Normaliza
+        ambos a yuv420p y escala la referencia (origen) al tamaño de la salida (scale2ref), para que
+        ssim/libvmaf comparen aunque hubo resize/crop o distinta profundidad de bits (p. ej. main10). La
+        alineacion temporal (fps distinto por forceFps) la resuelve el framesync de la propia metrica,
+        asi que NO se usa el filtro 'fps' (que ademas dispara una asercion en ffmpeg 7.1 con 2 inputs).
+        $Metric: 'vmaf' -> libvmaf; cualquier otro -> ssim.
+    #>
+    param([string]$Metric)
+    $m = if ("$Metric".ToLower() -eq 'vmaf') { 'libvmaf' } else { 'ssim' }
+    "[0:v]format=yuv420p[d0];[1:v]format=yuv420p[r0];[r0][d0]scale2ref[ref][dist];[dist][ref]$m"
+}
+
+function Get-CvQualityScore {
+    <# Extrae la puntuacion de la salida de ffmpeg del filtro de calidad. ssim -> el valor 'All:'
+       (0..1); vmaf -> 'VMAF score:' (0..100). Devuelve [double] (invariante) o $null si no aparece. #>
+    param([string]$Metric, [string]$Text)
+    $rx = if ("$Metric".ToLower() -eq 'vmaf') { 'VMAF score:\s*([0-9]+(?:\.[0-9]+)?)' } else { '\bAll:\s*([0-9]+(?:\.[0-9]+)?)' }
+    $mm = [regex]::Match("$Text", $rx)
+    if ($mm.Success) { return [double]::Parse($mm.Groups[1].Value, [System.Globalization.CultureInfo]::InvariantCulture) }
+    $null
+}
+
+function Measure-CvQuality {
+    <#
+        Mide la calidad de $Output frente a $Source con $Metric (ssim|vmaf), decodificando ambos en una
+        pasada extra de ffmpeg. Muestra PROGRESO EN VIVO (% + ETA + velocidad) via Invoke-ToolProgress:
+        como decodifica los dos videos enteros puede tardar, asi el usuario ve que avanza. La salida va
+        a NUL (no a stdout) para no chocar con '-progress pipe:1'; la puntuacion la imprime el filtro por
+        stderr, que Invoke-ToolProgress deja en $global:CvLastToolError. Devuelve la puntuacion [double]
+        o $null si no se puede medir (metrica 'off', sin ffmpeg, ficheros ausentes, ffmpeg falla —p. ej.
+        libvmaf no disponible—). FAIL-SOFT: nunca lanza; el llamador decide que hacer con $null.
+    #>
+    param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)][string]$Source, [Parameter(Mandatory)][string]$Output, [string]$Metric = 'off')
+    if ("$Metric".ToLower() -in @('', 'off')) { return $null }
+    $exe = "$($Context.FFmpeg)"
+    if ([string]::IsNullOrWhiteSpace($exe) -or -not (Test-Path -LiteralPath $exe)) { return $null }
+    if (-not (Test-Path -LiteralPath $Output) -or -not (Test-Path -LiteralPath $Source)) { return $null }
+    $lavfi = Get-CvQualityLavfi -Metric $Metric
+    # Duracion para el % + ETA: la comparativa acaba con el video mas corto (normalmente la salida).
+    $total = 0.0
+    try { $total = [double](Get-MediaDuration (Get-MediaInfo -Context $Context -File $Output)) } catch {}
+    $code = Invoke-ToolProgress -Exe $exe -Arguments @(
+        '-i', $Output
+        '-i', $Source
+        '-lavfi', $lavfi
+        '-an'
+        '-f', 'null'
+        'NUL'
+    ) -Context $Context -Label ("Analizando calidad ({0})..." -f "$Metric".ToUpper()) -TotalSeconds $total
+    Write-Host ''   # cerrar la linea viva de progreso antes de que el llamador registre el resultado
+    if ($code -ne 0) { return $null }
+    Get-CvQualityScore -Metric $Metric -Text "$($global:CvLastToolError)"
+}
+
 Export-ModuleMember -Function *
