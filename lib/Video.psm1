@@ -513,11 +513,23 @@ function Get-VideoArgs {
     $mp = if ("$($Prof.Multipass)" -ne '') { "$($Prof.Multipass)".ToLower() } else { "$($Context.Multipass)" }
     $mpArg = if ($mp -in (Get-CvMultipass2Pass)) { @('-multipass',$mp) } else { @() }
 
+    # Tuning del encoder (preset por familia, rc-lookahead NVENC, refs x26x, tier hevc): fuente unica
+    # encode.video.tuning via el Context. Si el Context no lo trae (contextos sinteticos de test), se
+    # cae a los defaults de config, para no hardcodear los valores aqui.
+    $tune        = (Get-CvConfigDefaults).encode.video.tuning
+    $presetNvenc = if ("$($Context.PresetNvenc)")    { "$($Context.PresetNvenc)" }    else { "$($tune.presetNvenc)" }
+    $presetX26x  = if ("$($Context.PresetX26x)")     { "$($Context.PresetX26x)" }     else { "$($tune.presetX26x)" }
+    $presetSvt   = if ("$($Context.PresetSvtav1)")   { "$($Context.PresetSvtav1)" }   else { "$($tune.presetSvtav1)" }
+    $presetAv1N  = if ("$($Context.PresetAv1Nvenc)") { "$($Context.PresetAv1Nvenc)" } else { "$($tune.presetAv1Nvenc)" }
+    $rcLook      = if ("$($Context.RcLookahead)" -ne '') { "$($Context.RcLookahead)" } else { "$($tune.rcLookahead)" }
+    $refs        = if ("$($Context.Refs)" -ne '')        { "$($Context.Refs)" }        else { "$($tune.refs)" }
+    $tier        = if ("$($Context.Tier)")               { "$($Context.Tier)" }        else { "$($tune.tier)" }
+
     switch ($enc) {
         'hevc_nvenc' {
-            $a += @('-c:v','hevc_nvenc','-tier','high')
+            $a += @('-c:v','hevc_nvenc','-tier',$tier)
             if ($Prof.VideoProfile -eq 'main10') { $a += @('-pix_fmt','p010le') } else { $a += @('-pix_fmt','yuv420p') }
-            $a += @('-preset','slow')
+            $a += @('-preset',$presetNvenc)
             if ($Prof.VideoProfile) { $a += @('-profile:v',$Prof.VideoProfile) }
             if ($Prof.VideoLevel)   { $a += @('-level:v',"$($Prof.VideoLevel)") }
             if ($constqp) { $a += @('-rc','constqp','-qp',"$qmax") }
@@ -526,32 +538,32 @@ function Get-VideoArgs {
                 if ($null -ne $qmax) { $a += @('-qmax',"$qmax") }
             }
             # NOTA: NVENC no admite -refs (muchas GPUs fallan con "No capable devices found").
-            $a += @('-rc-lookahead:v','32') + $mpArg + $fpsArg + @('-movflags','+faststart')
+            $a += @('-rc-lookahead:v',$rcLook) + $mpArg + $fpsArg + @('-movflags','+faststart')
         }
         'h264_nvenc' {
-            $a += @('-c:v','h264_nvenc','-pix_fmt','yuv420p','-preset','slow')
+            $a += @('-c:v','h264_nvenc','-pix_fmt','yuv420p','-preset',$presetNvenc)
             if ($constqp) { $a += @('-rc','constqp','-qp',"$qmax") }
             else {
                 if ($null -ne $qmin) { $a += @('-qmin',"$qmin") }
                 if ($null -ne $qmax) { $a += @('-qmax',"$qmax") }
             }
-            $a += @('-rc-lookahead:v','32') + $mpArg + $fpsArg + @('-movflags','+faststart')
+            $a += @('-rc-lookahead:v',$rcLook) + $mpArg + $fpsArg + @('-movflags','+faststart')
         }
         'libx264' {
             $a += @('-c:v','libx264','-pix_fmt','yuv420p')
             if ($null -ne $Prof.Crf) { $a += @('-crf',"$($Prof.Crf)") }
-            $a += @('-preset','slow')
+            $a += @('-preset',$presetX26x)
             if ($Anim) { $a += @('-tune','animation') }
-            $a += @('-refs','4') + $fpsArg + @('-movflags','+faststart')
+            $a += @('-refs',$refs) + $fpsArg + @('-movflags','+faststart')
         }
         'libx265' {
             $a += @('-c:v','libx265','-pix_fmt','yuv420p')
             if ($null -ne $Prof.Crf) { $a += @('-crf',"$($Prof.Crf)") }
-            $a += @('-preset','slow')
+            $a += @('-preset',$presetX26x)
             if ($Prof.VideoProfile) { $a += @('-profile:v',$Prof.VideoProfile) }
             if ($Prof.VideoLevel)   { $a += @('-level:v',"$($Prof.VideoLevel)") }
             if ($Anim) { $a += @('-tune','animation') }
-            $a += @('-refs','4') + $fpsArg + @('-movflags','+faststart')
+            $a += @('-refs',$refs) + $fpsArg + @('-movflags','+faststart')
         }
         'libsvtav1' {
             # SVT-AV1 (CPU). CRF 0-63 (mayor = menos calidad); preset 0-13 (menor = mas lento/mejor).
@@ -559,20 +571,20 @@ function Get-VideoArgs {
             $a += @('-c:v','libsvtav1')
             if ($Prof.VideoProfile -eq 'main10') { $a += @('-pix_fmt','yuv420p10le') } else { $a += @('-pix_fmt','yuv420p') }
             if ($null -ne $Prof.Crf) { $a += @('-crf',"$($Prof.Crf)") }
-            $a += @('-preset','6') + $fpsArg
+            $a += @('-preset',$presetSvt) + $fpsArg
         }
         'av1_nvenc' {
             # AV1 por NVENC (GPU NVIDIA RTX 40+). Estructura como los demas NVENC: preset pN, constqp o
             # qmin/qmax, lookahead y multipass. 10 bits = p010le. AV1 NVENC no usa -tier/-profile:v/-level:v.
             $a += @('-c:v','av1_nvenc')
             if ($Prof.VideoProfile -eq 'main10') { $a += @('-pix_fmt','p010le') } else { $a += @('-pix_fmt','yuv420p') }
-            $a += @('-preset','p6')
+            $a += @('-preset',$presetAv1N)
             if ($constqp) { $a += @('-rc','constqp','-qp',"$qmax") }
             else {
                 if ($null -ne $qmin) { $a += @('-qmin',"$qmin") }
                 if ($null -ne $qmax) { $a += @('-qmax',"$qmax") }
             }
-            $a += @('-rc-lookahead:v','32') + $mpArg + $fpsArg + @('-movflags','+faststart')
+            $a += @('-rc-lookahead:v',$rcLook) + $mpArg + $fpsArg + @('-movflags','+faststart')
         }
     }
     return ,$a
@@ -604,12 +616,13 @@ function Get-CvVideoFilterChain {
         el llamador lo une con ','. Funcion PURA (sin logging): los avisos de reescalado/tonemap los
         emite el llamador. -Fmt = pixel format del tonemap (Get-CvTonemapFormat).
     #>
-    param([string]$Crop = '', [string]$Resize = '', [bool]$Tonemap = $false, [string]$Fmt = 'yuv420p')
+    param([string]$Crop = '', [string]$Resize = '', [bool]$Tonemap = $false, [string]$Fmt = 'yuv420p', [string]$TonemapCurve = 'bt.2390')
     $vf = @()
     if ($Crop)   { $vf += "crop=$Crop" }
     if ($Resize) { $vf += "scale=$Resize" }
     if ($Tonemap) {
-        $vf += 'libplacebo=tonemapping=bt.2390:colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv'
+        $curve = if ("$TonemapCurve" -ne '') { "$TonemapCurve" } else { 'bt.2390' }
+        $vf += ("libplacebo=tonemapping={0}:colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv" -f $curve)
         $vf += "format=$Fmt"
     }
     return ,$vf
@@ -636,7 +649,7 @@ function Invoke-VideoRun {
     # filtro de video: crop -> scale -> (tonemap). El tonemap va DESPUES del reescalado.
     # La cadena la construye Get-CvVideoFilterChain (pura); aqui solo se emiten los avisos del worker.
     $fmt = Get-CvTonemapFormat -VideoProfile $Prof.VideoProfile -VideoEncoder $Prof.VideoEncoder
-    $vf  = Get-CvVideoFilterChain -Crop $Crop -Resize $Resize -Tonemap $tonemap -Fmt $fmt
+    $vf  = Get-CvVideoFilterChain -Crop $Crop -Resize $Resize -Tonemap $tonemap -Fmt $fmt -TonemapCurve "$($Context.TonemapCurve)"
     if ($Resize) {
         # Indicador en el worker de que se esta reescalando (y a que tamano).
         $rzTxt = "a $Resize"

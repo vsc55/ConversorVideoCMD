@@ -24,9 +24,9 @@ flowchart TD
 Leyenda de placeholders comunes:
 - `<file>` = ruta del vídeo original (`Original\...`).
 - `<N>` = `$ctx.Threads` (`encode.threads`, 0 = auto).
-- `<fps>` = `$ctx.Fps` (`encode.fps`).
-- `<hz>` = bitrate/samplerate de audio (`Profile.AudioHz` o `encode.audioHz`).
-- `<start>`/`<dur>` = `border.start` / `border.duration` en el scan de bordes; `preview.start` / `preview.seconds` en las previews de ffplay (por defecto `0`/`0` = desde el principio y sin límite). El inicio se ajusta solo si el vídeo es más corto (`Get-CvSafeStart`).
+- `<fps>` = `$ctx.Fps` (`encode.video.fps`).
+- `<hz>` = bitrate/samplerate de audio (`Profile.AudioHz` o `encode.audio.hz`).
+- `<start>`/`<dur>` = `encode.video.border.start` / `encode.video.border.duration` en el scan de bordes; `preview.start` / `preview.seconds` en las previews de ffplay (por defecto `0`/`0` = desde el principio y sin límite). El inicio se ajusta solo si el vídeo es más corto (`Get-CvSafeStart`).
 
 ---
 
@@ -52,7 +52,7 @@ ffmpeg -hide_banner -ss <start> -to <start+dur> -i <file> -vf cropdetect -f null
 
 De la salida (`stderr`) se extraen las líneas `crop=W:H:X:Y` y se agrupan; gana la más repetida.
 
-**Muestreo en varios puntos** (`Find-CropDetectSamples`, `border.samples`): en vez de un solo tramo, se escanea en `samples` puntos repartidos uniformemente entre `border.start` y el final del vídeo. **Cada punto escanea `border.duration` segundos completos** (no se reparte: N puntos = N escaneos de `border.duration`, así que más puntos = más tiempo total de análisis). Los recortes de cada punto se agrupan por **votos**: si el más votado alcanza `border.autoAcceptPct` % (por defecto 60) de los puntos que detectaron borde **y** supera al segundo por al menos `border.autoAcceptMinMargin` votos (por defecto 2), se **acepta automáticamente** descartando los atípicos (una escena oscura o unos créditos con otro encuadre no obligan a intervenir) → preview + confirmar. El margen evita auto-aceptar con evidencia débil cuando hay pocas muestras (`2/3` = 67% pero solo +1 → pregunta; `6/9` = 67% con +3 → auto). Si no se cumplen ambas condiciones (voto repartido/empate) se avisa (`[AVISO]`) y se ofrece un menú ordenado por votos para elegir cuál probar. Con `samples=1` (o duración desconocida) se comporta como el escaneo único clásico. Explicación completa con matriz de decisión: [explica-deteccion-bordes.md](explica-deteccion-bordes.md).
+**Muestreo en varios puntos** (`Find-CropDetectSamples`, `encode.video.border.samples`): en vez de un solo tramo, se escanea en `samples` puntos repartidos uniformemente entre `encode.video.border.start` y el final del vídeo. **Cada punto escanea `encode.video.border.duration` segundos completos** (no se reparte: N puntos = N escaneos de `encode.video.border.duration`, así que más puntos = más tiempo total de análisis). Los recortes de cada punto se agrupan por **votos**: si el más votado alcanza `encode.video.border.autoAcceptPct` % (por defecto 60) de los puntos que detectaron borde **y** supera al segundo por al menos `encode.video.border.autoAcceptMinMargin` votos (por defecto 2), se **acepta automáticamente** descartando los atípicos (una escena oscura o unos créditos con otro encuadre no obligan a intervenir) → preview + confirmar. El margen evita auto-aceptar con evidencia débil cuando hay pocas muestras (`2/3` = 67% pero solo +1 → pregunta; `6/9` = 67% con +3 → auto). Si no se cumplen ambas condiciones (voto repartido/empate) se avisa (`[AVISO]`) y se ofrece un menú ordenado por votos para elegir cuál probar. Con `samples=1` (o duración desconocida) se comporta como el escaneo único clásico. Explicación completa con matriz de decisión: [explica-deteccion-bordes.md](explica-deteccion-bordes.md).
 
 ---
 
@@ -111,7 +111,7 @@ ffmpeg -hide_banner -y -i <file> -filter_complex \
 
 > Nota: se referencia `[0:<i>]` (índice concreto), no `[0:a]` (que sería la primera pista y podría no ser la seleccionada). Si hay **downmix con voz reforzada** (5.1→estéreo, `downmixMode=dialogue`), el `aformat` se sustituye por el filtro `pan=stereo|c0=<center>*c2+<front>*c0+<surround>*c4|c1=…` (sube el central, baja surrounds; ver [explica-audio.md](explica-audio.md)).
 >
-> **Método por defecto (`encode.syncAdelay: true`):** en vez del WAV de arriba, el retardo se aplica en la **misma pasada** de recodificación con `adelay=<ms>:all=1` encadenado con el volumen (sin temporal `_concat.wav`). `<ms>` = `round(<sync>·1000)` (milisegundos enteros). El WAV `_concat.wav` de arriba es el método **clásico** (`encode.syncAdelay: false`).
+> **Método por defecto (`encode.audio.syncAdelay: true`):** en vez del WAV de arriba, el retardo se aplica en la **misma pasada** de recodificación con `adelay=<ms>:all=1` encadenado con el volumen (sin temporal `_concat.wav`). `<ms>` = `round(<sync>·1000)` (milisegundos enteros). El WAV `_concat.wav` de arriba es el método **clásico** (`encode.audio.syncAdelay: false`).
 
 ---
 
@@ -139,17 +139,17 @@ Base común del comando (la fuente es `<file>` o el WAV sincronizado):
 ffmpeg -hide_banner -y -threads <N> -i <fuente> <VOLUMEN> -c:a <codec> [-aac_coder twoloop] -ac <canales> -ar <hz> [-b:a <bitrate>] <name>.<m4a|mka>
 ```
 
-`<codec>` = `audioCodec` del perfil (`aac` por defecto; también `ac3`/`eac3`/`libmp3lame`/`flac`/`libopus`). `-aac_coder twoloop` **solo** con AAC; `-b:a` se omite en FLAC (sin pérdida); Opus fuerza `-ar 48000`. El temporal es `.m4a` para AAC y `.mka` (Matroska) para el resto. `<canales>` = `encode.audioChannels` (2 por defecto; 6 = 5.1, 8 = 7.1; downmix si la fuente tiene más). La parte `<VOLUMEN>` depende de `volume.method` (`$ctx.VolumeMethod`). Formatos soportados, especificaciones y el flujo del builder en [explica-audio.md](explica-audio.md):
+`<codec>` = `audioCodec` del perfil (`aac` por defecto; también `ac3`/`eac3`/`libmp3lame`/`flac`/`libopus`). `-aac_coder twoloop` **solo** con AAC; `-b:a` se omite en FLAC (sin pérdida); Opus fuerza `-ar 48000`. El temporal es `.m4a` para AAC y `.mka` (Matroska) para el resto. `<canales>` = `encode.audio.channels` (2 por defecto; 6 = 5.1, 8 = 7.1; downmix si la fuente tiene más). La parte `<VOLUMEN>` depende de `encode.audio.volume.method` (`$ctx.VolumeMethod`). Formatos soportados, especificaciones y el flujo del builder en [explica-audio.md](explica-audio.md):
 
 ### peak (por defecto)
-Mide el pico y lo sube hasta el objetivo `volume.peakTarget` (0 dBFS por defecto; `-1` deja *headroom* contra el clipping inter-sample del AAC) con el filtro `volume`:
+Mide el pico y lo sube hasta el objetivo `encode.audio.volume.peakTarget` (0 dBFS por defecto; `-1` deja *headroom* contra el clipping inter-sample del AAC) con el filtro `volume`:
 ```
 -filter_complex "[<label>]volume=<gain>dB:precision=fixed[a]" -map "[a]"
 ```
 `<gain> = peakTarget - max_volume` (redondeado). Solo **amplifica**: si el pico ya alcanza o supera el objetivo, no se aplica filtro (no atenúa).
 
 ### loudnorm (EBU R128)
-Normalización de sonoridad con `I`/`TP`/`LRA` de `config.volume.loudnorm`:
+Normalización de sonoridad con `I`/`TP`/`LRA` de `config.encode.audio.volume.loudnorm`:
 ```
 -filter_complex "[<label>]loudnorm=I=<I>:TP=<TP>:LRA=<LRA>[a]" -map "[a]"
 ```
@@ -180,7 +180,7 @@ ffmpeg -hide_banner -y -threads <N> -i <file> -an -sn -map_chapters -1 \
 
 `<filtros>` combina recorte y escalado si aplican: `crop=<W:H:X:Y>,scale=<resize>`.
 
-**Tone-mapping HDR→SDR:** si el origen es HDR (`video.hdr`) y `encode.tonemapHdr` ≠ `off`, se añade `-init_hw_device vulkan` y el filtro `libplacebo` al final de la cadena (`…,libplacebo=tonemapping=bt.2390:colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv,format=<p010le|yuv420p>`), y la salida se etiqueta como SDR (`-color_primaries bt709 -color_trc bt709 -colorspace bt709 -color_range tv`). Corre en la GPU (Vulkan). Detalle en [explica-tonemap-hdr.md](explica-tonemap-hdr.md).
+**Tone-mapping HDR→SDR:** si el origen es HDR (`video.hdr`) y `encode.video.tonemapHdr` ≠ `off`, se añade `-init_hw_device vulkan` y el filtro `libplacebo` al final de la cadena (`…,libplacebo=tonemapping=bt.2390:colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv,format=<p010le|yuv420p>`), y la salida se etiqueta como SDR (`-color_primaries bt709 -color_trc bt709 -colorspace bt709 -color_range tv`). Corre en la GPU (Vulkan). Detalle en [explica-tonemap-hdr.md](explica-tonemap-hdr.md).
 
 `<ARGS_ENCODER>` según el encoder del perfil ([ref-perfiles.md](ref-perfiles.md)):
 
@@ -191,7 +191,7 @@ ffmpeg -hide_banner -y -threads <N> -i <file> -an -sn -map_chapters -1 \
 <-rc constqp -qp <q>  |  -qmin <qmin> -qmax <qmax>>
 [-multipass <qres|fullres>] -rc-lookahead:v 32 [-r <fps>] -movflags +faststart
 ```
-`p010le` si el profile es `main10`, si no `yuv420p`. `-multipass` (2-pass NVENC) solo si `multipass` ≠ `off` (perfil o `encode.multipass`). `-r <fps>` solo si `encode.forceFps` (por defecto sí). **No** se pasa `-refs` (muchas GPUs abortan con "No capable devices found").
+`p010le` si el profile es `main10`, si no `yuv420p`. `-multipass` (2-pass NVENC) solo si `multipass` ≠ `off` (perfil o `encode.video.multipass`). `-r <fps>` solo si `encode.video.forceFps` (por defecto sí). **No** se pasa `-refs` (muchas GPUs abortan con "No capable devices found").
 
 ### h264_nvenc (H.264 GPU)
 ```

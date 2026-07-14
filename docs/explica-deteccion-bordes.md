@@ -7,16 +7,16 @@ Cómo el conversor detecta y recorta las barras negras (letterbox/pillarbox), po
 La detección de bordes se ejecuta en PREPARAR según el campo **`detectBorder`** del perfil (o si el nombre del archivo **empieza por `_`**, que fuerza el modo interactivo):
 
 - **`false`** — nunca; se codifica sin recorte.
-- **`true`** — **siempre, interactivo**: escaneo completo (`border.samples` puntos × `border.duration` s), con preview y confirmación. **Antes de escanear pregunta el nº de muestras** (por defecto `border.samples`, editable); útil para hacerlo más rápido o más fiable puntualmente. Al reescanear (`R`) se puede volver a cambiar.
+- **`true`** — **siempre, interactivo**: escaneo completo (`encode.video.border.samples` puntos × `encode.video.border.duration` s), con preview y confirmación. **Antes de escanear pregunta el nº de muestras** (por defecto `encode.video.border.samples`, editable); útil para hacerlo más rápido o más fiable puntualmente. Al reescanear (`R`) se puede volver a cambiar.
 
 > **Auto-aceptar por inactividad:** todas las preguntas del modo interactivo (nº de muestras, inicio/duración del scan, reintentar/continuar y la confirmación del recorte) admiten el **timeout** de `behavior.promptTimeout.border` (por defecto 10 s): si no tocas el teclado en ese tiempo, se acepta el valor por defecto (para dejar PREPARAR desatendido). Ver [ref-configuracion.md](ref-configuracion.md#behaviorprompttimeout--timeout-granular-por-pregunta).
 - **`'auto'`** — **decide solo** con un pre-escaneo rápido (ver abajo).
 
 ## Modo `auto` (decidir si recortar sin preguntar)
 
-Pensado para no tener que saber de antemano si un vídeo tiene barras. Hace un **pre-escaneo ligero** (`border.autoSamples` puntos × `border.autoDuration` s — mucho menos que el escaneo completo) y decide:
+Pensado para no tener que saber de antemano si un vídeo tiene barras. Hace un **pre-escaneo ligero** (`encode.video.border.autoSamples` puntos × `encode.video.border.autoDuration` s — mucho menos que el escaneo completo) y decide:
 
-1. **Tolerancia (¿es ruido o barra real?)** — `cropdetect` casi siempre recorta unos pocos píxeles de borde aunque no haya barras (p. ej. `3824:1600` sobre `3832:1600` = 0,2%). Solo se considera que **hay barras** si el recorte más votado reduce **≥ `border.minCropPct`%** (def. 2). Por debajo → **no recorta**.
+1. **Tolerancia (¿es ruido o barra real?)** — `cropdetect` casi siempre recorta unos pocos píxeles de borde aunque no haya barras (p. ej. `3824:1600` sobre `3832:1600` = 0,2%). Solo se considera que **hay barras** si el recorte más votado reduce **≥ `encode.video.border.minCropPct`%** (def. 2). Por debajo → **no recorta**.
 2. **Consistencia (¿son barras de verdad?)** — unas barras reales son **constantes**: el **mismo** recorte significativo aparece en varios puntos. Un recorte que solo sale en **un** punto es ruido (una escena oscura o un plano con formato distinto da un recorte disparatado, p. ej. `336:752` o `2304:1600`). Así que se filtra: se descartan los near-full (paso 1) y, de los significativos, se mira el más votado.
 
 Resultado (sobre los puntos del pre-escaneo):
@@ -40,11 +40,11 @@ ffmpeg -ss <inicio> -to <fin> -i <archivo> [-map 0:<pista>] -vf cropdetect -f nu
 
 ### Por qué en varios puntos
 
-Un solo escaneo al inicio se equivoca a menudo: los primeros minutos pueden ser créditos, un logo, una escena oscura o un plano con formato distinto al del grueso de la película. Por eso se muestrea en **`border.samples`** puntos repartidos **uniformemente** entre `border.start` y casi el final del vídeo, y cada punto **vota** su recorte.
+Un solo escaneo al inicio se equivoca a menudo: los primeros minutos pueden ser créditos, un logo, una escena oscura o un plano con formato distinto al del grueso de la película. Por eso se muestrea en **`encode.video.border.samples`** puntos repartidos **uniformemente** entre `encode.video.border.start` y casi el final del vídeo, y cada punto **vota** su recorte.
 
-- **`border.start`** (def. 120): segundo del primer punto.
-- **`border.duration`** (def. 120): segundos que escanea **cada** punto. No es un presupuesto que se reparta: con `samples=6` son **6 escaneos de `duration` segundos** cada uno (más puntos = más tiempo total de análisis, pero cada muestra conserva su ventana completa).
-- **`border.samples`** (def. 6): número de puntos. Con `1` (o duración desconocida) se comporta como el escaneo único clásico.
+- **`encode.video.border.start`** (def. 120): segundo del primer punto.
+- **`encode.video.border.duration`** (def. 120): segundos que escanea **cada** punto. No es un presupuesto que se reparta: con `samples=6` son **6 escaneos de `duration` segundos** cada uno (más puntos = más tiempo total de análisis, pero cada muestra conserva su ventana completa).
+- **`encode.video.border.samples`** (def. 6): número de puntos. Con `1` (o duración desconocida) se comporta como el escaneo único clásico.
 
 Ejemplo de reparto en un vídeo de 46 min (`start=120`, `duration=120`):
 
@@ -57,8 +57,8 @@ Ejemplo de reparto en un vídeo de 46 min (`start=120`, `duration=120`):
 
 Los recortes de todos los puntos se agrupan por **votos**. El más votado se **acepta automáticamente** (y se muestran preview + confirmación) si cumple **las dos** condiciones:
 
-1. **Porcentaje** — alcanza `border.autoAcceptPct` % (def. **60**) de los puntos que detectaron borde.
-2. **Margen** — supera al segundo candidato por al menos `border.autoAcceptMinMargin` votos (def. **2**).
+1. **Porcentaje** — alcanza `encode.video.border.autoAcceptPct` % (def. **60**) de los puntos que detectaron borde.
+2. **Margen** — supera al segundo candidato por al menos `encode.video.border.autoAcceptMinMargin` votos (def. **2**).
 
 Si no se cumplen ambas (voto repartido o empate), se avisa (`▐ AVISO ▌`) y se muestra un **menú de recortes ordenado por votos** para elegir a mano (o valor manual / reescanear / sin recorte).
 
@@ -84,13 +84,13 @@ El caso `8, 1` (un punto atípico frente a ocho coincidentes) se resuelve solo, 
 
 ```mermaid
 flowchart TD
-    S["Escaneo en N puntos<br/>(border.samples)"] --> G["Agrupar recortes por votos"]
+    S["Escaneo en N puntos<br/>(encode.video.border.samples)"] --> G["Agrupar recortes por votos"]
     G --> Q{"1er recorte:<br/>% ≥ autoAcceptPct<br/>Y margen ≥ minMargin?"}
     Q -- "sí" --> A["Auto-aceptar el más votado<br/>(descarta atípicos)<br/>→ preview + confirmar"]
     Q -- "no" --> M["AVISO + menú por votos<br/>(elegir / manual / reescanear / sin recorte)"]
 ```
 
-## Ajustes relacionados (`config.json` → `border`)
+## Ajustes relacionados (`config.json` → `encode.video.border`)
 
 | Clave | Def. | Efecto |
 |---|---|---|

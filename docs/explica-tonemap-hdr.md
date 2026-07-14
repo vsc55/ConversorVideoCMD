@@ -17,7 +17,7 @@ flowchart LR
 ## Cómo lo resuelve el conversor
 
 1. **Detección (fase PREPARAR).** `Test-CvHdr` (en `lib/MediaInfo.psm1`) lee el `color_transfer` de la pista de vídeo elegida; si es `smpte2084` (PQ) o `arib-std-b67` (HLG), el origen es HDR. El dato se **congela** en el job (`video.hdr`).
-2. **Conversión (fase WORKER).** Si el job es HDR y `encode.tonemapHdr` ≠ `off`, `Invoke-VideoRun` añade el filtro **`libplacebo`** (que corre en la **GPU** vía Vulkan) para convertir **BT.2020/PQ → BT.709/SDR**, y **etiqueta** la salida como BT.709. El orden del filtro es `crop → scale → libplacebo → format`.
+2. **Conversión (fase WORKER).** Si el job es HDR y `encode.video.tonemapHdr` ≠ `off`, `Invoke-VideoRun` añade el filtro **`libplacebo`** (que corre en la **GPU** vía Vulkan) para convertir **BT.2020/PQ → BT.709/SDR**, y **etiqueta** la salida como BT.709. El orden del filtro es `crop → scale → libplacebo → format`.
 3. **Etiquetado.** La salida lleva `-color_primaries bt709 -color_trc bt709 -colorspace bt709 -color_range tv`, así que cualquier reproductor la interpreta como SDR.
 
 El material **SDR no se toca**: `Test-CvHdr` da `false` y el vídeo se recodifica exactamente igual que antes.
@@ -26,8 +26,8 @@ El material **SDR no se toca**: `Test-CvHdr` da `false` y el vídeo se recodific
 
 | Clave | Valor | Efecto |
 |---|---|---|
-| `encode.tonemapHdr` | `auto` (por defecto) | Convierte a SDR BT.709 **solo** si el origen es HDR. |
-| `encode.tonemapHdr` | `off` | No convierte nunca; el vídeo se recodifica sin tocar el color (conserva el HDR, con el riesgo de verse lavado en SDR). |
+| `encode.video.tonemapHdr` | `auto` (por defecto) | Convierte a SDR BT.709 **solo** si el origen es HDR. |
+| `encode.video.tonemapHdr` | `off` | No convierte nunca; el vídeo se recodifica sin tocar el color (conserva el HDR, con el riesgo de verse lavado en SDR). |
 
 - **Profundidad de bits:** la salida SDR mantiene **10 bits** (`p010le`) si el perfil es `main10` en HEVC (evita *banding* en cielos/degradados que puede introducir el tone-mapping); 8 bits (`yuv420p`) en el resto.
 - **Requisito:** el filtro `libplacebo` necesita una GPU con **Vulkan** (en NVIDIA, el driver normal lo trae). Por eso `Invoke-VideoRun` añade `-init_hw_device vulkan` solo cuando toca convertir. En este proyecto se eligió `libplacebo` porque `zscale`+`tonemap` (zimg) aborta en el build de ffmpeg incluido.

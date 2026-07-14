@@ -63,6 +63,25 @@ function Edit-Scalar {
             value   = "$p"
         }
     }
+    if ($Key -eq 'tonemapCurve') {
+        # Curvas de libplacebo (Get-CvTonemapCurves). NO es lista cerrada: 'custom' deja escribir otra.
+        $opts   = @(Get-CvTonemapCurves)
+        $custom = 'custom (escribir otra)'
+        $def = [array]::IndexOf($opts, "$Default") + 1
+        if ($def -lt 1) { $def = [array]::IndexOf($opts, "$Current") + 1 }
+        if ($def -lt 1) { $def = 1 }
+        $p = Select-FromList -Title ("tonemapCurve (actual: {0})" -f $Current) -Options ($opts + $custom) -NoneLabel 'cancelar (dejar actual)' -DefaultIndex $def
+        if ($p -eq '') { return @{ changed = $false } }
+        if ($p -eq $custom) {
+            $c = (Read-Host '   Curva de tonemapping de libplacebo (p. ej. st2094-40)').Trim()
+            if ($c -eq '') { return @{ changed = $false } }
+            return @{ changed = $true; value = "$c" }
+        }
+        return @{
+            changed = $true
+            value   = "$p"
+        }
+    }
 
     # Numero / texto libre: sin menu; se muestra actual y default, ENTER = dejar actual.
     $defTxt = if ($null -ne $Default) { ", por defecto: $Default" } else { '' }

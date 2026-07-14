@@ -33,7 +33,7 @@ function Start-CvSession {
         Write-Host ("AVISO: no existe el config indicado ({0}); se usan los valores por defecto." -f $cfgPath) -ForegroundColor Yellow
     }
     $ctx = New-CvContext -Root $Root -ConfigPath $cfgPath
-    Set-CvMarkStyle -Ascii $ctx.AsciiMarks     # [OK]/[ERROR] en vez de simbolos si behavior.asciiMarks
+    Set-CvMarkStyle -Ascii $ctx.AsciiMarks     # [OK]/[ERROR] en vez de simbolos si console.asciiMarks
     Set-CvSepWidth -Width $ctx.SepWidth         # ancho de los separadores de seccion (config console.sepWidth)
     Set-CvProgressBarWidth -Width $ctx.ProgressBarWidth   # ancho de la barra de progreso (config console.progressBarWidth)
     Set-CvPromptStopOnType -Value $ctx.PromptStopOnType   # auto-timeout: desactivar al teclear (behavior.promptTimeoutStopOnType)
@@ -107,26 +107,38 @@ function New-CvContext {
         AacGainVersion = $agSel
         Platform       = $plat
         Downloads      = $cfg.downloads
-        VolumeMethod   = "$($cfg.volume.method)"
+        VolumeMethod   = "$($cfg.encode.audio.volume.method)"
         # Pico objetivo (dBFS) del metodo 'peak'; se limita a <= 0 (positivo recortaria).
-        PeakTarget     = [Math]::Min(0.0, [double]$cfg.volume.peakTarget)
-        LoudnormI      = $cfg.volume.loudnorm.I
-        LoudnormTP     = $cfg.volume.loudnorm.TP
-        LoudnormLRA    = $cfg.volume.loudnorm.LRA
+        PeakTarget     = [Math]::Min(0.0, [double]$cfg.encode.audio.volume.peakTarget)
+        LoudnormI      = $cfg.encode.audio.volume.loudnorm.I
+        LoudnormTP     = $cfg.encode.audio.volume.loudnorm.TP
+        LoudnormLRA    = $cfg.encode.audio.volume.loudnorm.LRA
         OutExt         = "$($cfg.encode.outputExtension)"
         Threads        = [int]$cfg.encode.threads
-        Fps            = "$($cfg.encode.fps)"
+        Fps            = "$($cfg.encode.video.fps)"
         # Forzar el fps de salida (-r). $true = como hasta ahora; $false = conserva el fps de origen.
-        ForceFps       = [bool]$cfg.encode.forceFps
+        ForceFps       = [bool]$cfg.encode.video.forceFps
         # 2-pass de NVENC (-multipass): 'off'|'qres'|'fullres'. Solo lo usan los encoders NVENC.
-        Multipass      = (Resolve-CvOneOf "$($cfg.encode.multipass)" @('off','qres','fullres') "$($def.encode.multipass)")
+        Multipass      = (Resolve-CvOneOf "$($cfg.encode.video.multipass)" @('off','qres','fullres') "$($def.encode.video.multipass)")
         # Tone-mapping HDR->SDR (BT.709): 'auto' = solo si el origen es HDR; 'off' = nunca.
-        TonemapHdr     = (Resolve-CvOneOf "$($cfg.encode.tonemapHdr)" @('auto','off') "$($def.encode.tonemapHdr)")
+        TonemapHdr     = (Resolve-CvOneOf "$($cfg.encode.video.tonemapHdr)" @('auto','off') "$($def.encode.video.tonemapHdr)")
+        # Curva de tone-mapping de libplacebo (config encode.video.tonemapCurve); si viene vacia, el
+        # default de config. La consume Get-CvVideoFilterChain al construir el filtro libplacebo.
+        TonemapCurve    = $(if ("$($cfg.encode.video.tonemapCurve)" -ne '') { "$($cfg.encode.video.tonemapCurve)" } else { "$($def.encode.video.tonemapCurve)" })
         # Video anamorfico (SAR!=1): 'keep' = conserva SAR; 'square'/'squareheight' = cuadra a pixeles
         # cuadrados (fijando ancho/alto). Lo consume Get-CvResize al decidir el reescalado.
-        Anamorphic     = (Resolve-CvOneOf "$($cfg.encode.anamorphic)" @('keep','square','squareheight') "$($def.encode.anamorphic)")
+        Anamorphic     = (Resolve-CvOneOf "$($cfg.encode.video.anamorphic)" @('keep','square','squareheight') "$($def.encode.video.anamorphic)")
+        # Tuning del encoder de video (fuente unica encode.video.tuning; lo consume Get-VideoArgs):
+        # preset por familia, rc-lookahead (NVENC), refs (x264/x265) y tier (hevc_nvenc).
+        PresetNvenc    = "$($cfg.encode.video.tuning.presetNvenc)"
+        PresetX26x     = "$($cfg.encode.video.tuning.presetX26x)"
+        PresetSvtav1   = "$($cfg.encode.video.tuning.presetSvtav1)"
+        PresetAv1Nvenc = "$($cfg.encode.video.tuning.presetAv1Nvenc)"
+        RcLookahead    = [int]$cfg.encode.video.tuning.rcLookahead
+        Refs           = [int]$cfg.encode.video.tuning.refs
+        Tier           = "$($cfg.encode.video.tuning.tier)"
         # Downmix 5.1->estereo: 'dialogue' = voz reforzada (pan); 'default' = downmix estandar.
-        DownmixMode    = (Resolve-CvOneOf "$($cfg.encode.downmixMode)" @('default','dialogue') "$($def.encode.downmixMode)")
+        DownmixMode    = (Resolve-CvOneOf "$($cfg.encode.audio.downmixMode)" @('default','dialogue') "$($def.encode.audio.downmixMode)")
         # Pesos del downmix 'dialogue' (center/front/surround); el pan se construye de estos valores.
         # Del JSON llegan como numero; el cast [double] de PowerShell es invariante de locale. Con la
         # clave ausente (null) se usa el default de Get-CvDefaultDownmixCoeffs (fuente unica de los
@@ -134,28 +146,33 @@ function New-CvContext {
         DownmixCoeffs  = $(
             $d = Get-CvDefaultDownmixCoeffs
             @{
-                Center   = $(if ($null -ne $cfg.encode.downmixCoeffs.center)   { [double]$cfg.encode.downmixCoeffs.center }   else { $d.Center })
-                Front    = $(if ($null -ne $cfg.encode.downmixCoeffs.front)    { [double]$cfg.encode.downmixCoeffs.front }    else { $d.Front })
-                Surround = $(if ($null -ne $cfg.encode.downmixCoeffs.surround) { [double]$cfg.encode.downmixCoeffs.surround } else { $d.Surround })
+                Center   = $(if ($null -ne $cfg.encode.audio.downmixCoeffs.center)   { [double]$cfg.encode.audio.downmixCoeffs.center }   else { $d.Center })
+                Front    = $(if ($null -ne $cfg.encode.audio.downmixCoeffs.front)    { [double]$cfg.encode.audio.downmixCoeffs.front }    else { $d.Front })
+                Surround = $(if ($null -ne $cfg.encode.audio.downmixCoeffs.surround) { [double]$cfg.encode.audio.downmixCoeffs.surround } else { $d.Surround })
             }
         )
-        DefaultAudioHz = [int]$cfg.encode.audioHz
-        BorderStart    = [int]$cfg.border.start
-        BorderDur      = [int]$cfg.border.duration
+        # Coder del encoder AAC nativo (twoloop = mayor calidad). Fuente unica encode.audio.aacCoder.
+        AacCoder       = "$($cfg.encode.audio.aacCoder)"
+        DefaultAudioHz = [int]$cfg.encode.audio.hz
+        BorderStart    = [int]$cfg.encode.video.border.start
+        BorderDur      = [int]$cfg.encode.video.border.duration
         # Nº de puntos del video donde se escanean bordes (1 = solo al inicio, clasico).
-        BorderSamples  = [int]$cfg.border.samples
+        BorderSamples  = [int]$cfg.encode.video.border.samples
         # % de votos que debe alcanzar el recorte mas votado para aceptarse sin preguntar (0-100).
-        BorderAutoAcceptPct = [Math]::Min(100, [Math]::Max(0, [int]$cfg.border.autoAcceptPct))
+        BorderAutoAcceptPct = [Math]::Min(100, [Math]::Max(0, [int]$cfg.encode.video.border.autoAcceptPct))
         # Margen minimo de votos del mas votado sobre el 2o para auto-aceptar (ademas del %).
-        BorderAutoAcceptMargin = [Math]::Max(0, [int]$cfg.border.autoAcceptMinMargin)
+        BorderAutoAcceptMargin = [Math]::Max(0, [int]$cfg.encode.video.border.autoAcceptMinMargin)
         # Modo DetectBorder='auto': puntos/seg del pre-escaneo y reduccion minima (%) para tomar el
         # recorte como barras reales (por debajo = ruido de borde -> no recorta).
-        BorderAutoSamples = [Math]::Max(1, [int]$cfg.border.autoSamples)
-        BorderAutoDuration = [Math]::Max(1, [int]$cfg.border.autoDuration)
-        BorderMinCropPct  = [Math]::Max(0.0, [double]$cfg.border.minCropPct)   # 0.0 (no 0) para forzar el overload double y no truncar un valor fraccionario
+        BorderAutoSamples = [Math]::Max(1, [int]$cfg.encode.video.border.autoSamples)
+        BorderAutoDuration = [Math]::Max(1, [int]$cfg.encode.video.border.autoDuration)
+        BorderMinCropPct  = [Math]::Max(0.0, [double]$cfg.encode.video.border.minCropPct)   # 0.0 (no 0) para forzar el overload double y no truncar un valor fraccionario
         # Previsualizacion ffplay: inicio (0 = principio) y duracion de la muestra (0 = sin limite).
         PreviewStart   = [Math]::Max(0, [int]$cfg.preview.start)
         PreviewSeconds = [Math]::Max(0, [int]$cfg.preview.seconds)
+        # Largo (seg) de cada clip de la comparacion A/B de sincronia (Show-CvSyncPreview); minimo 1
+        # (el clip se codifica, no puede ser 0/ilimitado como preview.seconds).
+        PreviewSyncSeconds = [Math]::Max(1, [int]$cfg.preview.syncSeconds)
         AudioLangs     = @($cfg.languages.audio)
         SubLangs       = @($cfg.languages.subtitle)
         # debug: desde config.json (seccion 'debug') o creando el marcador 'debug_on' (cualquiera lo
@@ -173,7 +190,7 @@ function New-CvContext {
         # Reintentos por archivo cuando la codificacion falla (antes de abandonarlo).
         Retries        = [int]$cfg.behavior.retries
         # Marcas/avisos en ASCII puro ([OK]/[ERROR]) en vez de simbolos/badge (consolas sin glifos).
-        AsciiMarks     = [bool]$cfg.behavior.asciiMarks
+        AsciiMarks     = [bool]$cfg.console.asciiMarks
         # Progreso inline (% + ETA) en los pasos largos de recodificacion en vez de ventana aparte.
         Progress       = [bool]$cfg.behavior.progress
         # Timeout de inactividad (seg) en las preguntas simples de PREPARAR: mapa {tipo -> segundos}
@@ -192,28 +209,39 @@ function New-CvContext {
         # Sincronia con el filtro 'adelay' en una pasada (combinada con el volumen), sin WAV intermedio.
         # $true (por defecto) = adelay; $false = metodo clasico (WAV). Config encode.syncAdelay. Lo
         # consume Invoke-AudioRun.
-        SyncAdelay     = [bool]$cfg.encode.syncAdelay
+        SyncAdelay     = [bool]$cfg.encode.audio.syncAdelay
         # BETA: activador del downmix 'dialogue' (voz reforzada). Doble llave: DownmixMode='dialogue'
         # fija el modo, pero solo refuerza la voz si BetaDownmix. Config test.betaDownmix; lo usa
         # Invoke-AudioRun junto con DownmixMode.
         BetaDownmix    = [bool]$cfg.test.betaDownmix
+        # BETA: ejecucion en UNA sola pasada de ffmpeg (audio+video+mux fundidos). Config test.betaOnePass;
+        # lo consumen Test-CvOnePassEligible/Invoke-CvOnePass (lib/OnePass.psm1) desde el worker. Off por
+        # defecto: solo aplica en encode+encode con sincronia adelay, volumen loudnorm y sin HDR.
+        BetaOnePass    = [bool]$cfg.test.betaOnePass
         # Multipista de audio (conservar varias pistas del idioma preferido + elegir la default).
         # Toggle encode.multiAudio ($true por defecto). Lo consumen Invoke-AudioAsk (seleccion) y el
         # worker/Multiplex (varias pistas). Con $false = monopista (elige una).
-        MultiAudio     = [bool]$cfg.encode.multiAudio
+        MultiAudio     = [bool]$cfg.encode.audio.multiAudio
         # Filtros del perfil Auto (opcion A de USAR PERFIL). AutoGpuOnly: Auto solo considera encoders
         # GPU. AutoMaxCodec: tope de codec ('' sin tope | h264 | h265 | av1). Los consume New-CvAutoProfile.
-        AutoGpuOnly    = [bool]$cfg.encode.autoGpuOnly
-        AutoMaxCodec   = (Resolve-CvOneOf "$($cfg.encode.autoMaxCodec)" @('', 'h264', 'h265', 'av1') '')
+        AutoGpuOnly    = [bool]$cfg.encode.video.auto.gpuOnly
+        AutoMaxCodec   = (Resolve-CvOneOf "$($cfg.encode.video.auto.maxCodec)" @('', 'h264', 'h265', 'av1') '')
+        # Control de tasa del perfil Auto (fuente unica en config.json encode.auto; lo consume
+        # Get-CvAutoRate): CRF para CPU (H.26x / AV1), Qmin/Qmax + level para NVENC.
+        AutoCrf        = [int]$cfg.encode.video.auto.crf
+        AutoCrfAv1     = [int]$cfg.encode.video.auto.crfAv1
+        AutoQmin       = [int]$cfg.encode.video.auto.qmin
+        AutoQmax       = [int]$cfg.encode.video.auto.qmax
+        AutoLevel      = "$($cfg.encode.video.auto.level)"
         # Control de calidad de la salida vs origen tras codificar: off | ssim | vmaf. Lo consume el
         # worker (Measure-CvQuality) tras un encode con exito (no en 'copy').
-        QualityCheck   = (Resolve-CvOneOf "$($cfg.encode.qualityCheck)" @('off', 'ssim', 'vmaf') 'off')
+        QualityCheck   = (Resolve-CvOneOf "$($cfg.encode.video.qualityCheck)" @('off', 'ssim', 'vmaf') 'off')
         # Umbral (seg) para detectar audio adelantado (acaba antes que el video); 0 = off. Lo usa
         # Invoke-AudioAsk para avisar/preguntar el retardo. Ver encode.audioSyncThreshold.
-        AudioSyncThreshold = [double]([Math]::Max(0.0, [double]$cfg.encode.audioSyncThreshold))
+        AudioSyncThreshold = [double]([Math]::Max(0.0, [double]$cfg.encode.audio.syncThreshold))
         # Conservar el titulo del audio de origen en la salida (false = titulo en blanco). Lo aplica
         # Invoke-Multiplex leyendo el titulo del origen por el indice de cada pista.
-        AudioKeepTitle = [bool]$cfg.encode.audioKeepTitle
+        AudioKeepTitle = [bool]$cfg.encode.audio.keepTitle
         # log: transcript de la ejecucion a logs\; el marcador 'no_log' lo desactiva.
         Log            = ([bool]$cfg.behavior.log -and -not (Test-Path (Join-Path $Root 'no_log')))
         # Postproceso: limpiar las etiquetas DURATION del MKV con mkvpropedit.
@@ -242,7 +270,7 @@ function New-CvContext {
         # (tolera que el usuario las escriba con o sin '*.'/'.').
         Extensions     = @(@($cfg.encode.extensions) | Where-Object { "$_" -ne '' } | ForEach-Object { '*.' + ("$_".TrimStart('*').TrimStart('.')) })
         # Canales del audio recodificado (encode.audioChannels; 2 = estereo por defecto).
-        AudioChannels  = $(if ([int]$cfg.encode.audioChannels -ge 1) { [int]$cfg.encode.audioChannels } else { [int]$def.encode.audioChannels })
+        AudioChannels  = $(if ([int]$cfg.encode.audio.channels -ge 1) { [int]$cfg.encode.audio.channels } else { [int]$def.encode.audio.channels })
         # Perfiles de codificacion propios (config 'profiles'); se anaden a los de serie.
         Profiles       = @($cfg.profiles)
         # Valores por defecto del constructor de perfil CUSTOM interactivo (config 'customProfile').
@@ -257,6 +285,24 @@ function New-CvContext {
         CustomMultipass    = (Resolve-CvOneOf "$($cfg.customProfile.multipass)" @('off','qres','fullres') "$($def.customProfile.multipass)")
         CustomAudioBitrate = "$($cfg.customProfile.audioBitrate)"
         CustomAudioCodec   = "$($cfg.customProfile.audioCodec)"
+        # Semillas restantes del builder custom (paridad con profiles[]): deteccion de bordes (false|
+        # true|'auto'), reescalado (changeSize/maxWidth), audio (encoder/hz/canales) y downmix (modo +
+        # coeficientes). Los consume New-CustomProfile como default de cada pregunta.
+        CustomDetectBorder = $(if ("$($cfg.customProfile.detectBorder)".ToLower() -eq 'auto') { 'auto' } else { [bool]$cfg.customProfile.detectBorder })
+        CustomChangeSize   = "$($cfg.customProfile.changeSize)"
+        CustomMaxWidth     = [int]$cfg.customProfile.maxWidth
+        CustomAudioEncoder = "$($cfg.customProfile.audioEncoder)"
+        CustomAudioHz      = [int]$cfg.customProfile.audioHz
+        CustomAudioChannels = [int]$cfg.customProfile.audioChannels
+        CustomDownmixMode  = (Resolve-CvOneOf "$($cfg.customProfile.downmixMode)" @('default','dialogue') "$($def.customProfile.downmixMode)")
+        CustomDownmixCoeffs = $(
+            $dd = Get-CvDefaultDownmixCoeffs
+            @{
+                Center   = $(if ($null -ne $cfg.customProfile.downmixCoeffs.center)   { [double]$cfg.customProfile.downmixCoeffs.center }   else { $dd.Center })
+                Front    = $(if ($null -ne $cfg.customProfile.downmixCoeffs.front)    { [double]$cfg.customProfile.downmixCoeffs.front }    else { $dd.Front })
+                Surround = $(if ($null -ne $cfg.customProfile.downmixCoeffs.surround) { [double]$cfg.customProfile.downmixCoeffs.surround } else { $dd.Surround })
+            }
+        )
     }
 
     # Rutas de las herramientas para la version 'selected' (fuente unica en New-CvToolContext).

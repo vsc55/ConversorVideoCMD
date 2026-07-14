@@ -20,7 +20,10 @@
 param(
     [ValidateSet('hevc_nvenc','h264_nvenc','libx265','libx264','copy')]
     [string]$Encoder = 'hevc_nvenc',
-    [switch]$Keep
+    [switch]$Keep,
+    # Ejecuta la bateria por la ruta de UNA SOLA PASADA (BETA): fuerza test.betaOnePass + volumen
+    # loudnorm (requisito de elegibilidad) en el config aislado. Misma verificacion de salidas.
+    [switch]$OnePass
 )
 
 $ErrorActionPreference = 'Stop'
@@ -42,6 +45,7 @@ $modules = @(
     'Audio'
     'Subtitle'
     'Multiplex'
+    'OnePass'
 )
 foreach ($m in $modules) {
     Import-Module (Join-Path $Lib ("{0}.psm1" -f $m)) -Force
@@ -181,7 +185,7 @@ $tempRoot = Join-Path $env:TEMP ('cv-test-' + [guid]::NewGuid().ToString('N'))
 $results = @()
 
 Write-Host ''
-Write-Host ('=== BATERIA DE TESTS (encoder={0}) ===' -f $Encoder) -ForegroundColor Cyan
+Write-Host ('=== BATERIA DE TESTS (encoder={0}{1}) ===' -f $Encoder, $(if ($OnePass) { ', UNA SOLA PASADA [beta]' } else { '' })) -ForegroundColor Cyan
 Write-Host ('Root aislado: {0}' -f $tempRoot)
 
 # --- Root AISLADO: no se toca NADA del proyecto real (ni config.json ni carpetas de trabajo).
@@ -198,6 +202,12 @@ try {
     $cfg['behavior']['separateWindow']  = $false   # codificar inline (no ventanas aparte)
     $cfg['behavior']['lockCloseButton'] = $false   # no tocar el boton X de la ventana
     $cfg['behavior']['log']             = $false   # sin transcript
+    if ($OnePass) {
+        # Ruta de una sola pasada (BETA): activar el flag y forzar loudnorm (peak/aacgain obligan a
+        # pasada extra y desactivarian la elegibilidad). syncAdelay ya es true por defecto.
+        $cfg['test']['betaOnePass'] = $true
+        $cfg['volume']['method']    = 'loudnorm'
+    }
     Save-CvConfigFile -Path (Join-Path $tempRoot 'config.json') -Config $cfg
 
     $ctx  = New-CvContext -Root $tempRoot   # Original/Proceso/Convertido bajo el root temporal; las crea

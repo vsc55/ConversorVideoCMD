@@ -44,6 +44,7 @@ $modules = @(
     'SubtitleSRT'
     'Attachment'
     'Multiplex'
+    'OnePass'
 )
 foreach ($m in $modules) {
     Import-Module (Join-Path $Lib ("{0}.psm1" -f $m)) -Force
@@ -243,6 +244,10 @@ if ($needPrepare) {
         if ($cvLog) { Stop-CvLog }
         exit 0
     }
+    # Perfil de config.json con videoEncoder: "auto" -> resolver aqui al mejor encoder del equipo
+    # (con la sonda de GPU y los filtros autoGpuOnly/autoMaxCodec), conservando el resto del perfil.
+    # La opcion "A" del menu ya devuelve un encoder concreto, asi que esto es no-op para ella.
+    $cfgProfile = Resolve-CvProfileAuto -Context $ctx -Prof $cfgProfile
     Write-ProfileInfo -Prof $cfgProfile
 
     Write-CvLog 'GLOBAL' '[PREPARAR] - Generando configuracion de los archivos...'
@@ -468,11 +473,25 @@ while ($didAny) {
                 [void]$skip.Add($name); continue
             }
 
+            # ---------- CONVERSION ----------
+            # $aTracks lo usan tanto el pipeline por etapas como el resumen final (indice predeterminado).
+            $aTracks = @(Get-CvJobAudioTracks -Audio $job.audio)   # normaliza multipista o job antiguo monopista
+            $failReason = ''
+            $ok = $false
+            # Ejecucion en UNA sola pasada (BETA) si el job es elegible; si no, pipeline por etapas.
+            $onePass = Test-CvOnePassEligible -Context $jctx -Job $job -Prof $prof
+            if ($onePass.Ok) {
+                Write-CvInfoStep $jctx 'WORKER' 'Modo una sola pasada [beta] (audio + video + multiplexado en un ffmpeg)'
+                $ok = Invoke-CvOnePass -Context $jctx -Prof $prof -File $f.FullName -Info $info -Job $job -Duration (Get-MediaDuration $info)
+                if (-not $ok) { $failReason = 'fallo en la ejecucion unica' }
+            }
+            else {
+            if ($jctx.Debug -and $jctx.BetaOnePass) { Write-CvLog 'WORKER' ("[1PASS] - No aplica ({0}); se usa el pipeline por etapas" -f $onePass.Reason) }
+
             # ---------- AUDIO ----------
             if ($jctx.Debug) { Write-Host '' }
             $audioOk = $true
             $audioTracks = @()   # pistas para el multiplex: {Source='temp'|'copy'; File; Index; Lang; Default}
-            $aTracks = @(Get-CvJobAudioTracks -Audio $job.audio)   # normaliza multipista o job antiguo monopista
             if ($job.audio.skip) {
                 # copy: no se recodifica. Con pistas elegidas (multipista beta en copy) se copian esas del
                 # original; sin pistas (copy clasico) el multiplex cae a 0:a:0.
@@ -518,7 +537,6 @@ while ($didAny) {
             else { $videoOk = Invoke-VideoRun -Context $jctx -Prof $prof -File $f.FullName -Crop $job.video.crop -Resize $job.video.resize -Anim ([bool]$job.video.anim) -Index $vIdx -Hdr ([bool]$job.video.hdr) -Duration (Get-MediaDuration $info) }
 
             # ---------- MULTIPLEX ----------
-            $failReason = ''
             if ((-not $audioOk) -or (-not $videoOk)) {
                 $failReason = if (-not $audioOk) { 'fallo en la codificacion de audio' } else { 'fallo en la codificacion de video' }
                 Write-CvLog 'WORKER' ("[ERR] - {0}; no se multiplexa" -f $failReason)
@@ -528,6 +546,7 @@ while ($didAny) {
                 $ok = Invoke-Multiplex -Context $jctx -File $f.FullName -Info $info -VideoSkipped ([bool]$job.video.skip) -AudioSkipped ([bool]$job.audio.skip) -AudioTracks $audioTracks -Subtitles $job.subtitles -VideoIndex $vIdx
                 if (-not $ok) { $failReason = 'fallo en el multiplexado' }
             }
+            }   # fin del pipeline por etapas (else de la ejecucion unica)
 
             if ($ok) {
                 # limpieza de temporales (activable/desactivable con el marcador 'keep_temp')
@@ -650,10 +669,11 @@ if ($ctx.LockClose) { Set-CvCloseButton -Enabled $true }
 if ($cvLog) { Stop-CvLog }
 
 # Pausa final: mantener la ventana del worker abierta para poder leer el RESUMEN antes de que se
-# cierre (cada ventana en paralelo muestra el suyo). Solo si este worker proceso algo. Mismo patron
-# que el Read-Host de "nº de workers" de PREPARAR: con la entrada redirigida/EOF (baterias de test)
-# devuelve vacio al instante y no bloquea; en una ventana de consola real espera al ENTER.
-if (@($results.Keys).Count -gt 0) {
+# cierre (cada ventana en paralelo muestra el suyo). Solo si este worker proceso algo Y la entrada es
+# INTERACTIVA (consola real). Con la entrada REDIRIGIDA (baterias de test, tuberias, CI) se OMITE: un
+# 'Read-Host' sobre una tuberia abierta pero vacia se QUEDA BLOQUEADO esperando un ENTER que no llega
+# (no devuelve EOF), asi que la bateria colgaria tras el resumen del worker.
+if ((@($results.Keys).Count -gt 0) -and -not [Console]::IsInputRedirected) {
     Write-Host ''
     Read-Host 'ENTER para cerrar esta ventana' | Out-Null
 }

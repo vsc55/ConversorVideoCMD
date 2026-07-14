@@ -17,10 +17,12 @@ function New-CvProfile {
         [string]$ChangeSize = '',      # '' = no | '1920:-2' etc. (escala SIEMPRE; altura -2 = auto y PAR)
         [object]$MaxWidth = $null,     # $null = no | 1920 etc. (reduce a ese ancho SOLO si es mayor; nunca amplia)
         [string]$Multipass = '',       # '' = usar el global (encode.multipass) | off | qres | fullres (NVENC)
-        [string]$AudioEncoder = 'aac_coder',  # aac_coder (recodificar) | copy
-        [string]$AudioCodec = 'aac',   # codec de salida al recodificar: aac | ac3 | eac3 | libmp3lame | flac | libopus
-        [string]$AudioBitrate = '192k',
-        [int]$AudioHz = 44100,
+        # Salida de audio por defecto: FUENTE UNICA en config (encode.audio.*), no hardcodeada. El
+        # default del param solo se evalua cuando el llamador NO lo pasa (perfiles de serie de Get-CvProfiles).
+        [string]$AudioEncoder = "$((Get-CvConfigDefaults).encode.audio.encoder)",  # aac_coder (recodificar) | copy
+        [string]$AudioCodec   = "$((Get-CvConfigDefaults).encode.audio.codec)",    # aac | ac3 | eac3 | libmp3lame | flac | libopus
+        [string]$AudioBitrate = "$((Get-CvConfigDefaults).encode.audio.bitrate)",
+        [int]$AudioHz         = [int](Get-CvConfigDefaults).encode.audio.hz,
         # Salida de audio POR PERFIL (override del global; $null = usar el global encode.*):
         [object]$AudioChannels = $null,   # MAXIMO de canales (no hace upmix). $null = encode.audioChannels | 2 | 6 | 8
         [object]$DownmixMode   = $null,   # $null = encode.downmixMode | 'default' | 'dialogue' (voz reforzada, BETA)
@@ -94,23 +96,25 @@ function Get-CvProfiles {
     @(
         [pscustomobject]@{ Profiles = @(
             (New-CvProfile -VideoEncoder 'copy')
+            (New-CvProfile -VideoEncoder 'auto' -Qmin 1 -Qmax 23 -DetectBorder 'auto' -ChangeSize '1920:-2')
         )}
         [pscustomobject]@{ Profiles = @(
-            (New-CvProfile -VideoEncoder 'hevc_nvenc' -VideoProfile 'main10' -VideoLevel '5' -Qmin 1 -Qmax 23)
-            (New-CvProfile -VideoEncoder 'hevc_nvenc' -VideoProfile 'main10' -VideoLevel '5' -Qmin 1 -Qmax 23 -DetectBorder $true)
             (New-CvProfile -VideoEncoder 'hevc_nvenc' -VideoProfile 'main10' -VideoLevel '5' -Qmin 1 -Qmax 23 -DetectBorder 'auto')
+            (New-CvProfile -VideoEncoder 'hevc_nvenc' -VideoProfile 'main10' -VideoLevel '5' -Qmin 1 -Qmax 23 -DetectBorder $true)
+            (New-CvProfile -VideoEncoder 'hevc_nvenc' -VideoProfile 'main10' -VideoLevel '5' -Qmin 1 -Qmax 23)
         )}
         [pscustomobject]@{ Profiles = @(
-            (New-CvProfile -VideoEncoder 'hevc_nvenc' -VideoProfile 'main10' -VideoLevel '5' -Qmin 1 -Qmax 23 -MaxWidth 1920)
-            (New-CvProfile -VideoEncoder 'hevc_nvenc' -VideoProfile 'main10' -VideoLevel '5' -Qmin 1 -Qmax 23 -MaxWidth 1920 -DetectBorder $true)
             (New-CvProfile -VideoEncoder 'hevc_nvenc' -VideoProfile 'main10' -VideoLevel '5' -Qmin 1 -Qmax 23 -MaxWidth 1920 -DetectBorder 'auto')
+            (New-CvProfile -VideoEncoder 'hevc_nvenc' -VideoProfile 'main10' -VideoLevel '5' -Qmin 1 -Qmax 23 -MaxWidth 1920 -DetectBorder $true)
+            (New-CvProfile -VideoEncoder 'hevc_nvenc' -VideoProfile 'main10' -VideoLevel '5' -Qmin 1 -Qmax 23 -MaxWidth 1920)
         )}
         [pscustomobject]@{ Profiles = @(
             (New-CvProfile -VideoEncoder 'hevc_nvenc' -VideoProfile 'main10' -VideoLevel '5' -Qmin 1 -Qmax 23 -ChangeSize '1920:-2')
         )}
         [pscustomobject]@{ Profiles = @(
-            (New-CvProfile -VideoEncoder 'hevc_nvenc' -VideoProfile 'main10' -VideoLevel '5')
+            (New-CvProfile -VideoEncoder 'hevc_nvenc' -VideoProfile 'main10' -VideoLevel '5' -DetectBorder 'auto')
             (New-CvProfile -VideoEncoder 'hevc_nvenc' -VideoProfile 'main10' -VideoLevel '5' -DetectBorder $true)
+            (New-CvProfile -VideoEncoder 'hevc_nvenc' -VideoProfile 'main10' -VideoLevel '5')
         )}
         [pscustomobject]@{ Profiles = @(
             (New-CvProfile -VideoEncoder 'h264_nvenc' -VideoLevel '5' -Qmin 1 -Qmax 23)
@@ -228,29 +232,75 @@ function Resolve-CvAutoEncoder {
     'libx265'
 }
 
+function Get-CvAutoRate {
+    <#
+        Control de tasa "auto" para un encoder concreto: profundidad segun el codec (main10 en h265/av1,
+        high 8-bit en h264 —no tiene main10—) y QP en NVENC / CRF en CPU (AV1 0-63 vs H.264/265 0-51).
+        Los VALORES (CRF/Qmin/Qmax/level) NO se hardcodean aqui: salen de la config (encode.auto.crf /
+        crfAv1 / qmin / qmax / level) via el Context; si no se pasa Context, se leen de
+        Get-CvConfigDefaults (misma fuente de verdad). FUENTE UNICA de la parametrizacion auto: la usan
+        New-CvAutoProfile (opcion "A") y Resolve-CvProfileAuto (videoEncoder: "auto"). Solo la
+        profundidad (main10/high) es logica del codec. Devuelve {VideoProfile; VideoLevel; Qmin; Qmax; Crf}.
+    #>
+    param([Parameter(Mandatory)][string]$Encoder, $Context = $null)
+    # Valores del Context si los trae; si no (p. ej. tests con -Context $null), de los defaults de config.
+    if ($null -ne $Context -and $null -ne $Context.AutoQmax) {
+        $crf26x = [int]$Context.AutoCrf; $crfAv1 = [int]$Context.AutoCrfAv1
+        $qmin   = [int]$Context.AutoQmin; $qmax = [int]$Context.AutoQmax; $level = "$($Context.AutoLevel)"
+    } else {
+        $a = (Get-CvConfigDefaults).encode.video.auto
+        $crf26x = [int]$a.crf; $crfAv1 = [int]$a.crfAv1
+        $qmin   = [int]$a.qmin; $qmax = [int]$a.qmax; $level = "$($a.level)"
+    }
+    $isCpu  = $Encoder -in (Get-CvCpuEncoders)
+    $isAv1  = $Encoder -in (Get-CvAv1Encoders)
+    $isH264 = $Encoder -in @('libx264', 'h264_nvenc')
+    $vp = if ($isH264) { 'high' } else { 'main10' }
+    if ($isCpu) {
+        [pscustomobject]@{ VideoProfile = $vp; VideoLevel = ''; Qmin = $null; Qmax = $null; Crf = $(if ($isAv1) { $crfAv1 } else { $crf26x }) }
+    } else {
+        [pscustomobject]@{ VideoProfile = $vp; VideoLevel = $(if ($isAv1) { '' } else { $level }); Qmin = $qmin; Qmax = $qmax; Crf = $null }
+    }
+}
+
 function New-CvAutoProfile {
     <#
         Perfil AUTO: resuelve el mejor encoder del equipo (Resolve-CvAutoEncoder con los filtros
-        encode.autoGpuOnly / encode.autoMaxCodec del Context) y arma el perfil con el control de tasa
-        adecuado (QP en NVENC, CRF en CPU) y la profundidad segun el codec (main10 en h265/av1; high
-        8-bit en h264). Asi el usuario elige "Auto" y no tiene que saber que soporta su equipo.
+        encode.auto.gpuOnly / encode.auto.maxCodec del Context) y arma el perfil con el control de tasa
+        adecuado (Get-CvAutoRate). Asi el usuario elige "Auto" y no tiene que saber que soporta su equipo.
     #>
     param($Context)
     $gpuOnly = [bool]($Context -and $Context.AutoGpuOnly)
     $maxCod  = if ($Context) { "$($Context.AutoMaxCodec)" } else { '' }
     $enc     = Resolve-CvAutoEncoder -Context $Context -GpuOnly $gpuOnly -MaxCodec $maxCod
+    $r       = Get-CvAutoRate -Encoder $enc -Context $Context
+    New-CvProfile -VideoEncoder $enc -VideoProfile $r.VideoProfile -VideoLevel $r.VideoLevel -Qmin $r.Qmin -Qmax $r.Qmax -Crf $r.Crf
+}
 
-    $isCpu = $enc -in (Get-CvCpuEncoders)
-    $isAv1 = $enc -in (Get-CvAv1Encoders)
-    $isH264 = $enc -in @('libx264', 'h264_nvenc')
-    $prof  = if ($isH264) { 'high' } else { 'main10' }   # h264 no tiene 'main10'
-    if ($isCpu) {
-        $crf = if ($isAv1) { 30 } else { 23 }            # CRF: AV1 (0-63) distinto de H.264/265 (0-51)
-        New-CvProfile -VideoEncoder $enc -VideoProfile $prof -Crf $crf
-    } else {
-        $lvl = if ($isAv1) { '' } else { '5' }           # AV1 no usa -level:v
-        New-CvProfile -VideoEncoder $enc -VideoProfile $prof -VideoLevel $lvl -Qmin 1 -Qmax 23
-    }
+function Resolve-CvProfileAuto {
+    <#
+        Resuelve un perfil cuyo VideoEncoder sea el literal 'auto' (p. ej. de un perfil de config.json)
+        al mejor encoder soportado por este equipo, CONSERVANDO el resto del perfil (audio, resize/crop,
+        maxWidth, detectBorder, multipass...). Solo reescribe los campos ligados al codec de video
+        (VideoEncoder + control de tasa via Get-CvAutoRate), porque el CRF/QP del origen no puede saber
+        que encoder saldra. Si el encoder no es 'auto', devuelve el perfil TAL CUAL (no-op). Se llama en
+        PREPARAR (con Context, para la sonda de GPU) antes de congelar el perfil en el .job.json, igual
+        que la opcion "A" del menu.
+    #>
+    param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)]$Prof)
+    if ("$($Prof.VideoEncoder)".ToLower() -ne 'auto') { return $Prof }
+    $gpuOnly = [bool]($Context -and $Context.AutoGpuOnly)
+    $maxCod  = if ($Context) { "$($Context.AutoMaxCodec)" } else { '' }
+    $enc     = Resolve-CvAutoEncoder -Context $Context -GpuOnly $gpuOnly -MaxCodec $maxCod
+    $r       = Get-CvAutoRate -Encoder $enc -Context $Context
+    $new = $Prof.PSObject.Copy()   # copia superficial: conserva audio/resize/crop/etc.
+    $new.VideoEncoder = $enc
+    $new.VideoProfile = $r.VideoProfile
+    $new.VideoLevel   = $r.VideoLevel
+    $new.Qmin = $r.Qmin
+    $new.Qmax = $r.Qmax
+    $new.Crf  = $r.Crf
+    return $new
 }
 
 function Get-CvVideoSizes {
@@ -582,6 +632,8 @@ function Get-CvProfileProp($obj, [string]$key, $default) {
 function ConvertTo-CvProfile {
     <# Convierte un objeto de perfil de config.json (camelCase) en un perfil (New-CvProfile). #>
     param([Parameter(Mandatory)]$Obj)
+    # Fallbacks de la salida de audio: FUENTE UNICA en config (encode.audio.*), no hardcodeados.
+    $eaud = (Get-CvConfigDefaults).encode.audio
     New-CvProfile `
         -VideoEncoder "$(Get-CvProfileProp $Obj 'videoEncoder' '')" `
         -VideoProfile "$(Get-CvProfileProp $Obj 'videoProfile' '')" `
@@ -593,10 +645,10 @@ function ConvertTo-CvProfile {
         -ChangeSize   "$(Get-CvProfileProp $Obj 'changeSize' '')" `
         -MaxWidth     (Get-CvProfileProp $Obj 'maxWidth' $null) `
         -Multipass    "$(Get-CvProfileProp $Obj 'multipass' '')" `
-        -AudioEncoder "$(Get-CvProfileProp $Obj 'audioEncoder' 'aac_coder')" `
-        -AudioCodec   "$(Get-CvProfileProp $Obj 'audioCodec' 'aac')" `
-        -AudioBitrate "$(Get-CvProfileProp $Obj 'audioBitrate' '192k')" `
-        -AudioHz ([int](Get-CvProfileProp $Obj 'audioHz' 44100)) `
+        -AudioEncoder "$(Get-CvProfileProp $Obj 'audioEncoder' $eaud.encoder)" `
+        -AudioCodec   "$(Get-CvProfileProp $Obj 'audioCodec' $eaud.codec)" `
+        -AudioBitrate "$(Get-CvProfileProp $Obj 'audioBitrate' $eaud.bitrate)" `
+        -AudioHz ([int](Get-CvProfileProp $Obj 'audioHz' $eaud.hz)) `
         -AudioChannels (Get-CvProfileProp $Obj 'audioChannels' $null) `
         -DownmixMode   (Get-CvProfileProp $Obj 'downmixMode' $null) `
         -DownmixCoeffs (ConvertTo-CvDownmixCoeffs (Get-CvProfileProp $Obj 'downmixCoeffs' $null))
@@ -683,6 +735,15 @@ function New-CustomProfile {
     $defMp    = if ($Context -and "$($Context.CustomMultipass)" -ne '') { "$($Context.CustomMultipass)" } else { "$($cp.multipass)" }
     $defAb    = if ($Context -and "$($Context.CustomAudioBitrate)" -ne '') { "$($Context.CustomAudioBitrate)" } else { "$($cp.audioBitrate)" }
     $defCodec = if ($Context -and "$($Context.CustomAudioCodec)" -ne '') { "$($Context.CustomAudioCodec)" } else { "$($cp.audioCodec)" }
+    # Semillas restantes (paridad con profiles[]): bordes, reescalado, audioEncoder/Hz/canales y downmix.
+    $defDetect = if ($Context) { $Context.CustomDetectBorder } else { $(if ("$($cp.detectBorder)".ToLower() -eq 'auto') { 'auto' } else { [bool]$cp.detectBorder }) }
+    $defChange = if ($Context) { "$($Context.CustomChangeSize)" } else { "$($cp.changeSize)" }
+    $defMaxW   = if ($Context) { [int]$Context.CustomMaxWidth } else { [int]$cp.maxWidth }
+    $defAEnc   = if ($Context -and "$($Context.CustomAudioEncoder)" -ne '') { "$($Context.CustomAudioEncoder)" } else { "$($cp.audioEncoder)" }
+    $defHz     = if ($Context -and [int]$Context.CustomAudioHz -ge 1) { [int]$Context.CustomAudioHz } else { [int]$cp.audioHz }
+    $defCh     = if ($Context -and [int]$Context.CustomAudioChannels -ge 1) { [int]$Context.CustomAudioChannels } else { [int]$cp.audioChannels }
+    $defDm     = if ($Context -and "$($Context.CustomDownmixMode)" -ne '') { "$($Context.CustomDownmixMode)" } else { "$($cp.downmixMode)" }
+    $defCoeffs = if ($Context -and $Context.CustomDownmixCoeffs) { $Context.CustomDownmixCoeffs } else { @{ Center = [double]$cp.downmixCoeffs.center; Front = [double]$cp.downmixCoeffs.front; Surround = [double]$cp.downmixCoeffs.surround } }
 
     while ($true) {
         try {
@@ -700,6 +761,9 @@ function New-CustomProfile {
                     Text  = $t
                 }
             })
+            # 'auto' (solo builder/config, no es un encoder real de ffmpeg): mejor encoder del equipo,
+            # se resuelve al PREPARAR (Resolve-CvProfileAuto). Se ofrece SIEMPRE (no depende de la GPU).
+            $encList = @(@{ Value = 'auto'; Text = 'auto (mejor encoder del equipo; se resuelve al preparar)' }) + $encList
             $encVals = @($encList | ForEach-Object { "$($_.Value)" })
             $encDefIdx = 1 + [array]::IndexOf($encVals, "$defEnc")
             if ($encDefIdx -le 0) { $encDefIdx = 1 + [array]::IndexOf($encVals, 'hevc_nvenc') }
@@ -717,9 +781,30 @@ function New-CustomProfile {
             $p = New-CvProfile -VideoEncoder $enc
 
             if ($enc -ne 'copy') {
-                $p.DetectBorder = Read-YesNo '   Detectar bordes negros en cada archivo?' $false -AllowCancel
+                # Deteccion de bordes: No / Si (interactivo) / Auto (pre-escaneo decide). Semilla: $defDetect.
+                $dbDef = if ("$defDetect" -eq 'auto') { 'auto' } elseif ([bool]$defDetect) { '1' } else { '0' }
+                $dbSel = Select-FromList -Title 'DETECTAR BORDES NEGROS:' -Options @(
+                    @{ Value = '0';    Text = 'No' }
+                    @{ Value = '1';    Text = 'Si (interactivo, con preview)' }
+                    @{ Value = 'auto'; Text = 'Auto (pre-escaneo decide solo)' }
+                ) -NoNone -DefaultValue $dbDef -AllowCancel
+                $p.DetectBorder = switch ("$dbSel") { '1' { $true } 'auto' { 'auto' } default { $false } }
 
-                if (Read-YesNo '   Cambiar el tamano del video?' $false -AllowCancel) {
+                # Reescalado: No / Maximo ancho (reduce solo si es mayor) / Escalar siempre. Semilla: maxWidth/changeSize.
+                $rzDef = if ($defMaxW -gt 0) { 'max' } elseif ("$defChange" -ne '') { 'scale' } else { 'no' }
+                $rzSel = Select-FromList -Title 'REDIMENSIONAR VIDEO:' -Options @(
+                    @{ Value = 'no';    Text = 'No cambiar el tamano' }
+                    @{ Value = 'max';   Text = 'Maximo ancho (reduce solo si es mayor; no amplia)' }
+                    @{ Value = 'scale'; Text = 'Escalar siempre a un ancho (altura -2 automatica PAR)' }
+                ) -NoNone -DefaultValue $rzDef -AllowCancel
+                if ($rzSel -eq 'max') {
+                    $mwDef = if ($defMaxW -gt 0) { "$defMaxW" } else { '1920' }
+                    $mw = (Read-CvLine -Prompt ("   Ancho maximo en px [ENTER = {0}, C/ESC = cancelar]" -f $mwDef) -AllowCancel).Trim()
+                    if ($mw -match '^[Cc]$') { throw 'CV_CANCEL' }
+                    if ($mw -eq '') { $mw = $mwDef }
+                    if ($mw -match '^\d+$') { $p.MaxWidth = [int]$mw }
+                }
+                elseif ($rzSel -eq 'scale') {
                     $sizeLines = @(Get-CvVideoSizes | ForEach-Object { '{0,-24}- {1}' -f $_.Text, $_.Value })
                     Show-Menu -Title 'TAMANOS DE REFERENCIA:' -Lines ($sizeLines + @(
                         '',
@@ -727,8 +812,10 @@ function New-CustomProfile {
                         '',
                         'C / ESC. Cancelar'
                     ))
-                    $sz = (Read-CvLine -Prompt '   Nuevo tamano (ej 1920:-2, 1280:720) [C/ESC = cancelar]' -AllowCancel).Trim()
+                    $szDef = if ("$defChange" -ne '') { "$defChange" } else { '1920:-2' }
+                    $sz = (Read-CvLine -Prompt ("   Nuevo tamano (ej 1920:-2, 1280:720) [ENTER = {0}, C/ESC = cancelar]" -f $szDef) -AllowCancel).Trim()
                     if ($sz -match '^[Cc]$') { throw 'CV_CANCEL' }
+                    if ($sz -eq '') { $sz = $szDef }
                     if ($sz -ne '') {
                         # Si solo dan el ancho, se completa con ':-2' (no ':-1'): -2 mantiene el aspecto
                         # y ademas fuerza altura PAR, requisito de 4:2:0 (con -1 podria salir impar y
@@ -738,40 +825,41 @@ function New-CustomProfile {
                     }
                 }
 
-                # Perfil y level validos segun el codec (catalogo @{Value;Text} en Get-CvCodecOptions).
-                $co       = Get-CvCodecOptions -Encoder $enc
-                $profOpts = @($co.Profiles)
-                $lvlOpts  = @($co.Levels)
-                # Indice 1-based del valor por defecto. Perfil y level son OBLIGATORIOS (-NoNone): si
-                # el default de config no aplica al codec, caen a la 1a opcion (nunca a "ninguno").
-                $profDefIdx = 1 + [array]::IndexOf(@($profOpts | ForEach-Object { "$($_.Value)" }), "$defProf")
-                if ($profDefIdx -le 0) { $profDefIdx = 1 }
-                $lvlDefIdx  = 1 + [array]::IndexOf(@($lvlOpts  | ForEach-Object { "$($_.Value)" }), "$defLvl")
-                if ($lvlDefIdx -le 0) { $lvlDefIdx = 1 }
-                $p.VideoProfile = Select-FromList -Title 'Perfil de codec:' -Options $profOpts -NoNone -DefaultIndex $profDefIdx -AllowCancel
-                # AV1 no usa level: si el codec no ofrece niveles, se salta el menu.
-                if ($lvlOpts.Count -gt 0) { $p.VideoLevel = Select-FromList -Title 'Level (resolucion/fps orientativos):' -Options $lvlOpts -NoNone -DefaultIndex $lvlDefIdx -AllowCancel }
-                else { $p.VideoLevel = '' }
+                # Perfil/level/control de tasa: SOLO con encoder concreto. Con 'auto' se saltan (los fija
+                # Resolve-CvProfileAuto al preparar segun el encoder que resuelva para este equipo).
+                if ($enc -ne 'auto') {
+                    # Perfil y level validos segun el codec (catalogo @{Value;Text} en Get-CvCodecOptions).
+                    $co       = Get-CvCodecOptions -Encoder $enc
+                    $profOpts = @($co.Profiles)
+                    $lvlOpts  = @($co.Levels)
+                    # Indice 1-based del valor por defecto. Perfil y level son OBLIGATORIOS (-NoNone): si
+                    # el default de config no aplica al codec, caen a la 1a opcion (nunca a "ninguno").
+                    $profDefIdx = 1 + [array]::IndexOf(@($profOpts | ForEach-Object { "$($_.Value)" }), "$defProf")
+                    if ($profDefIdx -le 0) { $profDefIdx = 1 }
+                    $lvlDefIdx  = 1 + [array]::IndexOf(@($lvlOpts  | ForEach-Object { "$($_.Value)" }), "$defLvl")
+                    if ($lvlDefIdx -le 0) { $lvlDefIdx = 1 }
+                    $p.VideoProfile = Select-FromList -Title 'Perfil de codec:' -Options $profOpts -NoNone -DefaultIndex $profDefIdx -AllowCancel
+                    # AV1 no usa level: si el codec no ofrece niveles, se salta el menu.
+                    if ($lvlOpts.Count -gt 0) { $p.VideoLevel = Select-FromList -Title 'Level (resolucion/fps orientativos):' -Options $lvlOpts -NoNone -DefaultIndex $lvlDefIdx -AllowCancel }
+                    else { $p.VideoLevel = '' }
 
-                # Control de tasa: CRF (CPU: libx264/libx265/libsvtav1) o qmin/qmax (NVENC). Defaults de config.
-                if ($enc -in (Get-CvCpuEncoders)) {
-                    $p.Crf = Read-QOrNull '   CRF (calidad 0-51)' $defCrf -Max 51 -AllowCancel
-                } else {
-                    $p.Qmin = Read-QOrNull '   QP minimo (0-51)' $defQmin -Max 51 -AllowCancel
-                    $p.Qmax = Read-QOrNull '   QP maximo (0-51)' $defQmax -Max 51 -AllowCancel
-                    # 2-pass NVENC (multipass): catalogo @{Value;Text} en Get-CvNvencMultipass. Solo
-                    # NVENC. 'off' es la opcion 0 (None); qres/fullres van como opciones normales.
-                    # Catalogo @{Value;Text;Position} ('off'=first/opcion 0). Default por valor.
-                    $p.Multipass = Select-FromList -Title '2-pass NVENC (multipass):' `
-                        -Options (Get-CvNvencMultipass) -DefaultValue "$defMp" -AllowCancel
+                    # Control de tasa: CRF (CPU: libx264/libx265/libsvtav1) o qmin/qmax (NVENC). Defaults de config.
+                    if ($enc -in (Get-CvCpuEncoders)) {
+                        $p.Crf = Read-QOrNull '   CRF (calidad 0-51)' $defCrf -Max 51 -AllowCancel
+                    } else {
+                        $p.Qmin = Read-QOrNull '   QP minimo (0-51)' $defQmin -Max 51 -AllowCancel
+                        $p.Qmax = Read-QOrNull '   QP maximo (0-51)' $defQmax -Max 51 -AllowCancel
+                        # 2-pass NVENC (multipass): catalogo @{Value;Text;Position} ('off'=opcion 0). Default por valor.
+                        $p.Multipass = Select-FromList -Title '2-pass NVENC (multipass):' `
+                            -Options (Get-CvNvencMultipass) -DefaultValue "$defMp" -AllowCancel
+                    }
                 }
             }
 
-            # AUDIO en dos pasos: 1) SALIDA = copy (no recodificar) o codec (Get-CvAudioCodecs); luego,
-            # solo al recodificar, 2) BITRATE apropiado al codec (Get-CvAudioBitrates -Codec). FLAC (sin
-            # perdida) y copy se saltan el bitrate. El default de salida = 'copy' si customProfile.audioBitrate
-            # es 'copy' (compatibilidad), si no el codec por defecto (customProfile.audioCodec).
-            $defOut = if ("$defAb" -eq 'copy') { 'copy' } else { "$defCodec" }
+            # AUDIO: 1) SALIDA = copy (no recodificar) o codec (Get-CvAudioCodecs); al recodificar,
+            # 2) bitrate (Get-CvAudioBitrates -Codec; FLAC/copy lo saltan), 3) frecuencia, 4) canales y
+            # 5) downmix. Todo con semilla de customProfile (audioEncoder/Bitrate/Codec/Hz/Channels/Downmix*).
+            $defOut = if ("$defAEnc" -eq 'copy') { 'copy' } else { "$defCodec" }
             $out = Select-FromList -Title 'SALIDA DE AUDIO (codec):' -Options (Get-CvAudioCodecs) -NoNone -DefaultValue "$defOut" -AllowCancel
             if ($out -eq 'copy') {
                 $p.AudioEncoder = 'copy'; $p.AudioCodec = 'aac'; $p.AudioBitrate = ''
@@ -791,14 +879,35 @@ function New-CustomProfile {
                         $p.AudioBitrate = $ab; break
                     }
                 }
-                # Canales de salida (override del global encode.audioChannels). Default = el global.
-                $defCh = if ($Context -and [int]$Context.AudioChannels -ge 1) { [int]$Context.AudioChannels } else { [int]$dflt.encode.audioChannels }
+                # Frecuencia de salida (Hz). Semilla: customProfile.audioHz. (Opus se fuerza a 48000 al codificar.)
+                $hzIn = (Read-CvLine -Prompt ("   Frecuencia de audio en Hz [ENTER = {0}, C/ESC = cancelar]" -f $defHz) -AllowCancel).Trim()
+                if ($hzIn -match '^[Cc]$') { throw 'CV_CANCEL' }
+                $p.AudioHz = if ($hzIn -match '^\d+$') { [int]$hzIn } else { [int]$defHz }
+                # Canales de salida (MAXIMO, no upmix). Semilla: customProfile.audioChannels.
                 $chSel = Select-FromList -Title 'CANALES DE SALIDA:' -Options (Get-CvAudioChannels) -NoNone -DefaultValue "$defCh" -AllowCancel
                 $p.AudioChannels = [int]$chSel
-                # Downmix SOLO si la salida es estereo (2): solo entonces se baja 5.1 -> estereo.
+                # Downmix SOLO si la salida es estereo (2): solo entonces se baja 5.1 -> estereo. Semilla: customProfile.downmixMode.
                 if ([int]$chSel -eq 2) {
-                    $defDm = if ($Context -and "$($Context.DownmixMode)" -ne '') { "$($Context.DownmixMode)" } else { "$($dflt.encode.downmixMode)" }
                     $p.DownmixMode = Select-FromList -Title 'DOWNMIX 5.1 -> estereo:' -Options (Get-CvDownmixModes) -NoNone -DefaultValue "$defDm" -AllowCancel
+                    # Coeficientes del downmix 'dialogue' (voz reforzada). Semilla: customProfile.downmixCoeffs;
+                    # se pueden personalizar (si no, se conserva la semilla).
+                    if ("$($p.DownmixMode)" -eq 'dialogue') {
+                        $p.DownmixCoeffs = @{ Center = $defCoeffs.Center; Front = $defCoeffs.Front; Surround = $defCoeffs.Surround }
+                        if (Read-YesNo ("   Coeficientes de downmix personalizados? (actual C={0}/F={1}/S={2})" -f $defCoeffs.Center, $defCoeffs.Front, $defCoeffs.Surround) $false -AllowCancel) {
+                            $toNum = { param($s, $d) if ("$s" -match '^\d+([.,]\d+)?$') { [double]("$s" -replace ',', '.') } else { [double]$d } }
+                            $cC = (Read-CvLine -Prompt ("   Peso CENTRAL (dialogos) [ENTER = {0}]" -f $defCoeffs.Center) -AllowCancel).Trim()
+                            if ($cC -match '^[Cc]$') { throw 'CV_CANCEL' }
+                            $cF = (Read-CvLine -Prompt ("   Peso FRONTALES L/R [ENTER = {0}]" -f $defCoeffs.Front) -AllowCancel).Trim()
+                            if ($cF -match '^[Cc]$') { throw 'CV_CANCEL' }
+                            $cS = (Read-CvLine -Prompt ("   Peso SURROUNDS [ENTER = {0}]" -f $defCoeffs.Surround) -AllowCancel).Trim()
+                            if ($cS -match '^[Cc]$') { throw 'CV_CANCEL' }
+                            $p.DownmixCoeffs = @{
+                                Center   = (& $toNum $cC $defCoeffs.Center)
+                                Front    = (& $toNum $cF $defCoeffs.Front)
+                                Surround = (& $toNum $cS $defCoeffs.Surround)
+                            }
+                        }
+                    }
                 }
             }
 

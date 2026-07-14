@@ -132,10 +132,13 @@ flowchart TD
     W4 --> W5["Confirm-CvTool: instala la versión del job si falta"]
     W5 --> W6["New-CvToolContext: contexto con esa versión"]
     W6 --> INFO["[INFO] Resolución + Duración del archivo"]
-    INFO --> A["Invoke-AudioRun"]
+    INFO --> OP{"Test-CvOnePassEligible (test.betaOnePass)"}
+    OP -- "elegible" --> P1["Invoke-CvOnePass → Convertido\\&lt;nombre&gt;_fix.mkv (un solo ffmpeg + mkvpropedit)"]
+    OP -- "no / beta off" --> A["Invoke-AudioRun"]
     A --> V["Invoke-VideoRun"]
     V --> M["Invoke-Multiplex → Convertido\\&lt;nombre&gt;_fix.mkv (+ mkvpropedit)"]
-    M --> OK{"¿salida creada?"}
+    P1 --> OK{"¿salida creada?"}
+    M --> OK
     OK -- "sí" --> CLEAN["Remove-CvTemps + Remove-CvJob + resumen"]
     OK -- "no" --> RETRY["se reintentará"]
     CLEAN --> UNLOCK["Exit-Lock (finally)"]
@@ -145,7 +148,9 @@ flowchart TD
 
 Al iniciar cada archivo, el worker muestra su **resolución y duración** (útil para estimar cuánto durará la codificación). En **uso normal**, cada paso se muestra como una línea compacta `- <acción>... ✓` (o `×` en rojo si falla; la cruz es `×` U+00D7 para que se vea en cualquier fuente). Los pasos **largos** (recodificar audio/vídeo) muestran **progreso en vivo** `- <acción>...  42%  ETA 03:12  1.8x  1234.5kbits/s  q28` (porcentaje, tiempo restante, velocidad, **bitrate** de salida y —en vídeo— el **cuantizador `q`**) leyendo el `-progress` de ffmpeg, si `behavior.progress` está activo (por defecto); si se desactiva, ffmpeg va en una ventana aparte y solo se ve el `✓` al terminar. Al acabar cada archivo se imprime su **resumen de conversión** enmarcado con guiones. En **modo debug** se ven los logs detallados por sección, los comandos exactos y (si `debug.pausePerCommand`, por defecto) la confirmación con ENTER antes de cada comando.
 
-Orden de codificación por archivo: **audio → vídeo → multiplexado**. El audio se recodifica a un temporal (`.m4a` si el códec es AAC, `.mka` para el resto), el vídeo a un `.mkv` temporal, y el multiplexado los une con los **subtítulos** y los **adjuntos** conservados del original en `Convertido\<nombre>_fix.mkv`; después limpia los metadatos heredados y quita las etiquetas `DURATION` con **mkvpropedit**. Con la **multipista de audio** (`encode.multiAudio`, por defecto; ver [explica-audio.md](explica-audio.md)) se recodifica **una pista por temporal** (`<nombre>_aN.*`, pos 0 = predeterminada) y el multiplexado las mapea todas (predeterminada primero). El orden global de pistas del MKV es **vídeo → audio → subtítulos → capítulos**.
+Orden de codificación por archivo: **audio → vídeo → multiplexado**. El audio se recodifica a un temporal (`.m4a` si el códec es AAC, `.mka` para el resto), el vídeo a un `.mkv` temporal, y el multiplexado los une con los **subtítulos** y los **adjuntos** conservados del original en `Convertido\<nombre>_fix.mkv`; después limpia los metadatos heredados y quita las etiquetas `DURATION` con **mkvpropedit**. Con la **multipista de audio** (`encode.audio.multiAudio`, por defecto; ver [explica-audio.md](explica-audio.md)) se recodifica **una pista por temporal** (`<nombre>_aN.*`, pos 0 = predeterminada) y el multiplexado las mapea todas (predeterminada primero). El orden global de pistas del MKV es **vídeo → audio → subtítulos → capítulos**.
+
+> **🧪 Una sola pasada (BETA, `test.betaOnePass`, off por defecto).** Cuando el job es **elegible** —vídeo y audio se codifican (ninguno en `copy`), sincronía **`adelay`**, volumen **`loudnorm`** y **sin tone-mapping HDR→SDR**—, `Invoke-CvOnePass` funde las tres etapas en **una única llamada a ffmpeg** con `-filter_complex` (rama de vídeo `crop→scale` + una rama por pista de audio `adelay→downmix→loudnorm`), mapeando en el mismo comando los subtítulos/adjuntos/capítulos del original y escribiendo directo `Convertido\<nombre>_fix.mkv`. Ahorra los temporales intermedios y dos arranques de ffmpeg. `Test-CvOnePassEligible` decide (y registra el motivo cuando **no** aplica); en cualquier caso no elegible se usa el pipeline por etapas de abajo. Los métodos de volumen `peak`/`aacgain` obligan a una pasada extra por diseño, así que **quedan fuera** de este modo.
 
 Pipeline interno de cada archivo (pasos de cada etapa):
 

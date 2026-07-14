@@ -41,6 +41,25 @@ function Get-CvVolumeMethods {
     )
 }
 
+function Get-CvTonemapCurves {
+    <#
+        FUENTE UNICA de las curvas de tone-mapping de libplacebo mas comunes (la 1a = por defecto).
+        La ofrece el editor de setup como menu para encode.video.tonemapCurve; NO es una lista cerrada:
+        libplacebo admite mas (y varian por version), asi que el editor deja escribir otra ('custom').
+    #>
+    @(
+        'bt.2390'
+        'bt.2446a'
+        'spline'
+        'reinhard'
+        'mobius'
+        'hable'
+        'gamma'
+        'linear'
+        'clip'
+    )
+}
+
 function Resolve-CvOneOf {
     <#
         Valida una opcion enum: devuelve $Value en minusculas si esta en $Valid (comparacion sin
@@ -80,7 +99,12 @@ function Get-CvConfigDefaults {
         'spanish'
     )
     $dmc   = Get-CvDefaultDownmixCoeffs   # coeficientes por defecto del downmix dialogue (fuente unica)
-    [ordered]@{
+    # NOTA: customProfile es la SEMILLA del builder custom; los campos con equivalente en encode.* NO
+    # se re-declaran aqui: se DERIVAN mas abajo (fuente unica), justo antes de devolver el objeto:
+    # videoEncoder/videoProfile/videoLevel de encode.video; qmin/qmax/crf de encode.video.auto; multipass
+    # de encode.video; encoder/codec/bitrate/hz/channels/downmixMode/downmixCoeffs de encode.audio. El
+    # resto (bordes/resize) es propio del builder y no tiene gemelo en encode.*.
+    $cfg = [ordered]@{
         downloads = [ordered]@{
             ffmpeg = [ordered]@{
                 selected     = '8.1.2'
@@ -152,12 +176,15 @@ function Get-CvConfigDefaults {
             audio    = $langs
             subtitle = $langs
         }
-        # encode: outputExtension = contenedor de salida; extensions = extensiones de ENTRADA que
-        # se procesan de Original\ (sin punto); audioChannels = canales del audio recodificado, tratado
-        # como MAXIMO (no hace upmix: si el origen tiene menos canales, se conservan los del origen; 2
-        # = estereo; 6 = 5.1; 8 = 7.1); fps/audioHz para ffmpeg. threads = -threads de ffmpeg:
-        # 0 = auto (usa TODOS los nucleos de CPU); N para limitar (util con encoders CPU + varios
-        # workers, que si no se pisan). Con NVENC casi no influye (trabaja la GPU).
+        # encode: outputExtension = contenedor de salida; extensions = extensiones de ENTRADA que se
+        # procesan de Original\ (sin punto); threads = -threads de ffmpeg (0 = auto, usa TODOS los nucleos;
+        # N para limitar, util con encoders CPU + varios workers; con NVENC casi no influye). El resto se
+        # agrupa en dos subsecciones: encode.VIDEO (fps, forceFps, multipass, tonemapHdr, anamorphic,
+        # qualityCheck + auto{} + tuning{}) y encode.AUDIO (hz, channels, downmixMode, downmixCoeffs,
+        # syncAdelay, multiAudio, keepTitle, syncThreshold, aacCoder). audio.channels = canales del audio
+        # recodificado, tratado como MAXIMO (no hace upmix: si el origen tiene menos canales se conservan
+        # los suyos; 2 = estereo, 6 = 5.1, 8 = 7.1). tuning = ajustes finos del encoder de video (preset por
+        # familia, rc-lookahead NVENC, refs x26x, tier hevc); aacCoder = coder del AAC nativo (twoloop).
         # forceFps: si $true (por defecto) se fuerza la salida a 'fps' (-r), reajustando (dup/drop)
         #   los videos con otro fps de origen; si $false, se CONSERVA el fps de cada archivo (sin -r).
         # multipass: 2-pass de NVENC (solo hevc_nvenc/h264_nvenc). 'off' (por defecto) | 'qres'
@@ -166,7 +193,10 @@ function Get-CvConfigDefaults {
         # tonemapHdr: convierte el HDR (BT.2020/PQ o HLG) a SDR BT.709 al recodificar, para que no se
         #   vea "lavado" al reproducir en SDR. 'auto' (por defecto) = solo actua si el origen es HDR;
         #   'off' = nunca (deja el video como esta). Usa el filtro libplacebo en la GPU (Vulkan).
-        # downmixMode: SOLO al bajar 5.1 -> estereo (audioChannels=2). 'default' (por defecto) = downmix
+        # tonemapping: curva de tone-mapping de libplacebo (parametro 'tonemapping='). 'bt.2390' (por
+        #   defecto, recomendada), 'bt.2446a', 'spline', 'reinhard', 'mobius', 'hable', 'gamma', 'linear',
+        #   'clip'... Solo aplica cuando tonemapHdr actua.
+        # downmixMode: SOLO al bajar 5.1 -> estereo (audio.channels=2). 'default' (por defecto) = downmix
         #   estandar de ffmpeg. 'dialogue' (BETA) = downmix con VOZ REFORZADA (filtro pan que sube el
         #   canal central —dialogos— y baja los surrounds), para que los dialogos no queden bajos frente
         #   al ambiente/efectos. No aplica si la salida no es estereo o el origen no es 5.1. BETA: los
@@ -179,7 +209,7 @@ function Get-CvConfigDefaults {
         # multiAudio: si $true (por defecto), cuando hay 2+ pistas del idioma preferido se ofrece
         #   conservar VARIAS (no solo la mejor) y elegir cual queda como predeterminada. Con $false =
         #   monopista (elige una, como siempre). Con 0-1 pistas del idioma preferido no cambia nada.
-        # audioKeepTitle: si $true, la(s) pista(s) de audio de salida CONSERVAN el titulo del origen
+        # keepTitle (audio): si $true, la(s) pista(s) de audio de salida CONSERVAN el titulo del origen
         #   (util para distinguir varias del mismo idioma: principal/comentarios/...). Por defecto
         #   $false = titulo en blanco (como el resto de pistas recodificadas).
         # anamorphic: como tratar el video ANAMORFICO (pixeles no cuadrados, SAR != 1, p. ej. un DVD
@@ -193,12 +223,16 @@ function Get-CvConfigDefaults {
         #   en UNA sola pasada (encadenado con la normalizacion de volumen), sin WAV intermedio. $false =
         #   metodo clasico (genera un WAV silencio+pista y luego lo codifica). Ambos dan el mismo resultado
         #   audible; 'adelay' cuantiza a ms enteros (ver docs/ref-gotchas.md). Antes era la beta test.syncAdelay.
-        # autoGpuOnly / autoMaxCodec: filtros del perfil 'Auto' (opcion A del menu, que elige solo el mejor
-        #   encoder soportado). autoGpuOnly ($false por defecto): si $true, Auto solo considera encoders por
-        #   GPU (NVENC); si el equipo no tiene GPU compatible cae a CPU con aviso. autoMaxCodec (''=sin tope
-        #   por defecto): limita hasta que CODEC sube Auto: 'h264' | 'h265' | 'av1'. Ej: con 'h265', aunque
-        #   la GPU soporte AV1, Auto no pasa de H.265. Auto escala av1 > h265 > h264, GPU antes que CPU.
-        # audioSyncThreshold: detecta un posible AUDIO ADELANTADO comparando cuánto ACABA el audio
+        # auto: ajustes del perfil 'Auto' (opcion A del menu y videoEncoder:"auto" en un perfil), que
+        #   elige solo el mejor encoder soportado. FILTROS: gpuOnly ($false por defecto): si $true, Auto
+        #   solo considera encoders por GPU (NVENC); si el equipo no tiene GPU compatible cae a CPU con
+        #   aviso. maxCodec (''=sin tope): limita hasta que CODEC sube Auto: 'h264' | 'h265' | 'av1' (ej:
+        #   con 'h265', aunque la GPU soporte AV1, Auto no pasa de H.265). Auto escala av1 > h265 > h264,
+        #   GPU antes que CPU. CONTROL DE TASA (fuente unica, la usa Get-CvAutoRate): crf = CRF de
+        #   libx264/libx265 (0-51, menor = mejor); crfAv1 = CRF de libsvtav1/AV1 (0-63, escala distinta a
+        #   H.26x); en NVENC se usan qmin/qmax (control por QP) y level = -level:v de H.264/H.265 (AV1 no
+        #   usa level). La profundidad (main10 en h265/av1, high 8-bit en h264) la fija el codec, no config.
+        # syncThreshold (audio): detecta un posible AUDIO ADELANTADO comparando cuánto ACABA el audio
         #   antes que el vídeo (con inicios alineados). Si la diferencia supera este umbral en segundos,
         #   PREPARAR avisa y PREGUNTA cuánto retardo aplicar (por defecto el valor detectado; se puede
         #   previsualizar original vs corregido). 0 = desactiva la detección. Timeout de la pregunta:
@@ -219,88 +253,142 @@ function Get-CvConfigDefaults {
                 'mkv'
             )
             threads         = 0
-            fps             = '23.976'
-            forceFps        = $true
-            multipass       = 'off'
-            tonemapHdr      = 'auto'
-            downmixMode     = 'default'
-            downmixCoeffs   = [ordered]@{
-                center   = $dmc.Center
-                front    = $dmc.Front
-                surround = $dmc.Surround
+            # --- VIDEO ---
+            video = [ordered]@{
+                # Codec de video por defecto (fuente unica; la hereda customProfile como semilla del builder).
+                # OJO: los perfiles de serie y de profiles[] declaran su PROPIO encoder/profile/level, asi que
+                # estos globales NO los sustituyen; solo siembran el constructor CUSTOM (opcion 0). videoLevel
+                # usa el formato del catalogo del builder ('5.0'); encode.video.auto.level guarda '5' (-level:v).
+                videoEncoder = 'hevc_nvenc'
+                videoProfile = 'main10'
+                videoLevel   = '5.0'
+                fps          = '23.976'
+                forceFps     = $true
+                multipass    = 'off'
+                tonemapHdr   = 'auto'
+                tonemapCurve = 'bt.2390'
+                anamorphic   = 'square'
+                qualityCheck = 'off'
+                # Perfil Auto: filtros (gpuOnly/maxCodec) + control de tasa (crf/crfAv1/qmin/qmax/level).
+                auto = [ordered]@{
+                    gpuOnly  = $false
+                    maxCodec = ''
+                    crf      = 21
+                    crfAv1   = 30
+                    qmin     = 1
+                    qmax     = 23
+                    level    = '5'
+                }
+                # Tuning del encoder de video (fuente unica, la usa Get-VideoArgs): preset por familia
+                # (NVENC h264/h265 y libx264/libx265 = 'slow'; SVT-AV1 0-13; AV1 NVENC p1-p7), lookahead
+                # de control de tasa (NVENC), refs (x264/x265) y tier (hevc_nvenc).
+                tuning = [ordered]@{
+                    presetNvenc    = 'slow'
+                    presetX26x     = 'slow'
+                    presetSvtav1   = '6'
+                    presetAv1Nvenc = 'p6'
+                    rcLookahead    = 32
+                    refs           = 4
+                    tier           = 'high'
+                }
+                # border: deteccion de bordes negros con cropdetect.
+                #  - start: segundo del primer punto de escaneo. duration: segundos que escanea CADA punto.
+                #  - samples: en cuantos puntos repartidos del video se escanea (1 = solo al inicio, clasico).
+                #  - autoAcceptPct: si el recorte mas votado alcanza este % de los puntos que detectaron
+                #    borde, se acepta AUTOMATICAMENTE (se descartan los atipicos); por debajo, se pregunta.
+                #  - autoAcceptMinMargin: ADEMAS del %, el mas votado debe superar al 2o por al menos estos
+                #    votos. Evita auto-aceptar con evidencia debil cuando hay pocas muestras (2/3 = 67% pero
+                #    solo 1 de margen -> pregunta; 6/9 = 67% con 3+ de margen -> auto). 0 = sin margen.
+                #  - autoSamples/autoDuration: puntos y segundos del PRE-ESCANEO del modo 'auto' del perfil
+                #    (DetectBorder='auto'), mas ligero. OJO: el escaneo aplica un minimo de 5 s por punto,
+                #    asi que autoDuration < 5 se trata como 5. minCropPct: reduccion minima (%) para
+                #    considerar barras de verdad. El modo 'auto' reusa autoAcceptPct/autoAcceptMinMargin.
+                border = [ordered]@{
+                    start               = 120
+                    duration            = 120
+                    samples             = 6
+                    autoAcceptPct       = 60
+                    autoAcceptMinMargin = 2
+                    autoSamples         = 3
+                    autoDuration        = 5
+                    minCropPct          = 2
+                }
             }
-            audioHz         = 44100
-            audioChannels   = 2
-            syncAdelay      = $true
-            multiAudio      = $true
-            audioKeepTitle  = $false
-            anamorphic      = 'square'
-            audioSyncThreshold = 2.0
-            autoGpuOnly     = $false
-            autoMaxCodec    = ''
-            qualityCheck    = 'off'
+            # --- AUDIO ---
+            audio = [ordered]@{
+                hz            = 44100
+                channels      = 2
+                # Salida de audio por defecto (fuente unica; la hereda customProfile): encoder = recodificar
+                # (aac_coder) o 'copy'; codec = codec de recodificacion; bitrate ('copy' = copiar la pista).
+                encoder       = 'aac_coder'
+                codec         = 'aac'
+                bitrate       = '192k'
+                downmixMode   = 'default'
+                downmixCoeffs = [ordered]@{
+                    center   = $dmc.Center
+                    front    = $dmc.Front
+                    surround = $dmc.Surround
+                }
+                syncAdelay    = $true
+                multiAudio    = $true
+                keepTitle     = $false
+                syncThreshold = 2.0
+                aacCoder      = 'twoloop'   # coder del encoder AAC nativo (twoloop = mayor calidad)
+                # volume: normalizacion de volumen. peakTarget = pico objetivo dBFS del metodo 'peak'
+                # (0 = maximo sin recorte; -1 deja headroom contra el clipping inter-sample del AAC).
+                volume = [ordered]@{
+                    method     = 'peak'
+                    peakTarget = 0
+                    loudnorm   = [ordered]@{
+                        I   = -16
+                        TP  = -1.5
+                        LRA = 11
+                    }
+                }
+            }
         }
         # customProfile: valores por DEFECTO del constructor de perfil CUSTOM interactivo (opcion 0
         #   del menu USAR PERFIL). En cada menu, ENTER acepta el valor por defecto (o eliges otro).
-        #   videoEncoder: libx264|h264_nvenc|libx265|hevc_nvenc|libsvtav1|av1_nvenc|copy. videoProfile: main|main10|...
-        #   (segun codec). videoLevel: 4.0|4.1|5.0|... (segun codec). Se ignoran si no aplican al codec.
-        #   qmin/qmax: control de tasa por defecto en NVENC. crf: control de tasa por defecto en CPU.
-        #     Rango 0-51; -1 (o negativo) = AUTO (sin -qmin/-qmax ni -crf; decide el encoder).
-        #   audioBitrate: bitrate de audio por defecto ('copy' = copiar la pista sin recodificar).
-        #   audioCodec: codec de salida por defecto al recodificar: aac|ac3|eac3|libmp3lame|flac|libopus.
+        #   Acepta los MISMOS campos que un perfil del array 'profiles' (paridad), como semilla de cada
+        #   pregunta del builder. videoEncoder: libx264|h264_nvenc|libx265|hevc_nvenc|libsvtav1|av1_nvenc|
+        #   copy|auto (auto = mejor encoder del equipo, se resuelve al preparar como la opcion 'A').
+        #   videoProfile: main|main10|... / videoLevel: 4.0|4.1|5.0|... (segun codec; se ignoran si no aplican).
+        #   qmin/qmax: tasa por defecto en NVENC. crf: tasa por defecto en CPU. Rango 0-51; -1 = AUTO.
+        #   detectBorder: false|true|'auto' (deteccion de bordes por archivo). changeSize: '' | '1920:-2'
+        #     (escala siempre). maxWidth: 0 (no) | 1920 (reduce a ese ancho solo si es mayor; no amplia).
+        #   audioEncoder: aac_coder (recodificar) | copy. audioCodec: aac|ac3|eac3|libmp3lame|flac|libopus.
+        #   audioBitrate: bitrate de audio ('copy' = copiar la pista sin recodificar). audioHz: frecuencia.
+        #   audioChannels: 2|6|8 (MAXIMO, no upmix). downmixMode: default|dialogue. downmixCoeffs: pesos
+        #   del downmix dialogue (center/front/surround), como en encode.audio.downmixCoeffs.
         customProfile = [ordered]@{
-            videoEncoder = 'hevc_nvenc'
-            videoProfile = 'main10'
-            videoLevel   = '5.0'
-            qmin         = 1
-            qmax         = 23
-            crf          = 21
-            multipass    = 'off'
-            audioCodec   = 'aac'
-            audioBitrate = '192k'
-        }
-        # border: deteccion de bordes negros con cropdetect.
-        #  - start: segundo del primer punto de escaneo. duration: segundos que escanea CADA punto.
-        #  - samples: en cuantos puntos repartidos del video se escanea (1 = solo al inicio, clasico).
-        #  - autoAcceptPct: si el recorte mas votado alcanza este % de los puntos que detectaron
-        #    borde, se acepta AUTOMATICAMENTE (se descartan los atipicos); por debajo, se pregunta.
-        #  - autoAcceptMinMargin: ADEMAS del %, el mas votado debe superar al 2o por al menos estos
-        #    votos. Evita auto-aceptar con evidencia debil cuando hay pocas muestras (2/3 = 67% pero
-        #    solo 1 de margen -> pregunta; 6/9 = 67% con 3+ de margen -> auto). 0 = sin margen.
-        #  - autoSamples/autoDuration: puntos y segundos del PRE-ESCANEO del modo 'auto' del perfil
-        #    (DetectBorder='auto'), mas ligero que el escaneo normal (pocos puntos y cortos). OJO: el
-        #    escaneo aplica un minimo de 5 s por punto (cropdetect necesita estabilizarse), asi que
-        #    autoDuration < 5 se trata como 5. minCropPct: reduccion minima (%) para considerar que
-        #    hay barras de verdad (por debajo = ruido de borde -> no recorta). El modo 'auto' reusa
-        #    autoAcceptPct/autoAcceptMinMargin para el voto de mayoria.
-        border    = [ordered]@{
-            start               = 120
-            duration            = 120
-            samples             = 6
-            autoAcceptPct       = 60
-            autoAcceptMinMargin = 2
-            autoSamples         = 3
-            autoDuration        = 5
-            minCropPct          = 2
+            videoEncoder  = $null   # <- se deriva de encode.video.videoEncoder
+            videoProfile  = $null   # <- se deriva de encode.video.videoProfile
+            videoLevel    = $null   # <- se deriva de encode.video.videoLevel
+            qmin          = $null   # <- se deriva de encode.video.auto.qmin
+            qmax          = $null   # <- se deriva de encode.video.auto.qmax
+            crf           = $null   # <- se deriva de encode.video.auto.crf
+            detectBorder  = $false
+            changeSize    = ''
+            maxWidth      = 0
+            multipass     = $null   # <- se deriva de encode.video.multipass (abajo)
+            audioEncoder  = $null   # <- se deriva de encode.audio.encoder
+            audioCodec    = $null   # <- se deriva de encode.audio.codec
+            audioBitrate  = $null   # <- se deriva de encode.audio.bitrate
+            audioHz       = $null   # <- se deriva de encode.audio.hz
+            audioChannels = $null   # <- se deriva de encode.audio.channels
+            downmixMode   = $null   # <- se deriva de encode.audio.downmixMode
+            downmixCoeffs = $null   # <- se deriva de encode.audio.downmixCoeffs
         }
         # preview: previsualizacion con ffplay en PREPARAR (pista audio/video, comparacion de bordes).
         #   start = segundo donde empieza (0 = desde el principio). seconds = duracion de la muestra
         #   (0 = SIN limite: reproduce hasta el final o hasta que el usuario cierre con q/ESC). El
         #   comando 'P N <seg>' de los menus fuerza el inicio en ese segundo puntual.
+        #   syncSeconds = duracion de cada clip de la comparacion A/B de sincronia de audio (que se
+        #   CODIFICA, asi que necesita ser finita; por eso no usa 'seconds', que admite 0 = sin limite).
         preview   = [ordered]@{
-            start   = 0
-            seconds = 0
-        }
-        # volume: metodo de normalizacion. peakTarget = pico objetivo en dBFS del metodo 'peak'
-        # (0 = maximo sin recorte; -1 deja margen/headroom contra el clipping inter-sample del AAC).
-        volume    = [ordered]@{
-            method     = 'peak'
-            peakTarget = 0
-            loudnorm   = [ordered]@{
-                I   = -16
-                TP  = -1.5
-                LRA = 11
-            }
+            start       = 0
+            seconds     = 0
+            syncSeconds = 20
         }
         # Postproceso del MKV final:
         #  - stripTags: limpiar con mkvpropedit las etiquetas DURATION por pista que anade el
@@ -343,7 +431,6 @@ function Get-CvConfigDefaults {
             log             = $true
             workers         = 2
             retries         = 2
-            asciiMarks      = $false
             progress        = $true
             promptTimeout   = [ordered]@{
                 default    = 0
@@ -374,10 +461,15 @@ function Get-CvConfigDefaults {
         #   sea beta hay doble llave: encode.downmixMode='dialogue' fija el modo, pero SOLO refuerza la
         #   voz si betaDownmix=$true. Con $false (por defecto), aunque downmixMode sea 'dialogue' se usa
         #   el downmix estandar de ffmpeg. Al promocionar la mezcla se retira este flag.
+        #   betaOnePass (BETA): funde audio+video+multiplexado en UNA sola ejecucion de ffmpeg
+        #   (menos temporales y arranques). Solo aplica si video y audio se codifican (no copy),
+        #   sincronia 'adelay', volumen 'loudnorm' y sin tone-mapping HDR; en el resto se usa el
+        #   pipeline por etapas. Con $false (por defecto) SIEMPRE se usa el pipeline por etapas.
         test      = [ordered]@{
             enabled        = $false
             minutes        = 5
             betaDownmix    = $false
+            betaOnePass    = $false
         }
         console   = [ordered]@{
             background       = 'DarkBlue'
@@ -388,6 +480,9 @@ function Get-CvConfigDefaults {
             windowHeight     = 40
             sepWidth         = 64
             progressBarWidth = 20
+            # Marcas de estado en ASCII ([OK]/[ERROR]) en vez de simbolos ✓/✗ (util si la fuente no
+            # tiene esos glifos). Es apariencia de consola, por eso vive aqui (no en behavior).
+            asciiMarks       = $false
         }
         # Carpetas de trabajo: vacio = junto al programa; admite ruta absoluta o relativa.
         paths     = [ordered]@{
@@ -402,6 +497,31 @@ function Get-CvConfigDefaults {
         # Ejemplo: { "label":"Anime 1080p", "videoEncoder":"libx265", "crf":18, "changeSize":"1920:-2" }
         profiles  = @()
     }
+    # customProfile HEREDA de encode.* (fuente unica) los campos con equivalente global, en vez de
+    # repetir el literal: cambiar el default global cambia tambien la semilla del builder custom.
+    # videoEncoder/videoProfile/videoLevel salen de encode.video (el level del builder usa '5.0', distinto
+    # de encode.video.auto.level='5' para -level:v). El control de tasa (qmin/qmax/crf) se toma del perfil
+    # Auto (encode.video.auto). downmixCoeffs se COPIA (nuevo [ordered]) para no compartir referencia con
+    # encode.audio.
+    $cfg.customProfile.videoEncoder  = $cfg.encode.video.videoEncoder
+    $cfg.customProfile.videoProfile  = $cfg.encode.video.videoProfile
+    $cfg.customProfile.videoLevel    = $cfg.encode.video.videoLevel
+    $cfg.customProfile.qmin          = $cfg.encode.video.auto.qmin
+    $cfg.customProfile.qmax          = $cfg.encode.video.auto.qmax
+    $cfg.customProfile.crf           = $cfg.encode.video.auto.crf
+    $cfg.customProfile.multipass     = $cfg.encode.video.multipass
+    $cfg.customProfile.audioEncoder  = $cfg.encode.audio.encoder
+    $cfg.customProfile.audioCodec    = $cfg.encode.audio.codec
+    $cfg.customProfile.audioBitrate  = $cfg.encode.audio.bitrate
+    $cfg.customProfile.audioHz       = $cfg.encode.audio.hz
+    $cfg.customProfile.audioChannels = $cfg.encode.audio.channels
+    $cfg.customProfile.downmixMode   = $cfg.encode.audio.downmixMode
+    $cfg.customProfile.downmixCoeffs = [ordered]@{
+        center   = $cfg.encode.audio.downmixCoeffs.center
+        front    = $cfg.encode.audio.downmixCoeffs.front
+        surround = $cfg.encode.audio.downmixCoeffs.surround
+    }
+    return $cfg
 }
 
 function Get-CvConfigHelp {
@@ -419,63 +539,96 @@ function Get-CvConfigHelp {
         'languages/audio'    = 'Etiquetas de idioma preferidas al elegir la pista de audio'
         'languages/subtitle' = 'Etiquetas de idioma preferidas al elegir/conservar subtitulos'
 
-        'encode'                = 'Ajustes de codificacion (contenedor, fps, audio, HDR...)'
+        'encode'                = 'Ajustes de codificacion (contenedor + subsecciones video/audio)'
         'encode/outputExtension'= 'Contenedor de salida (mkv recomendado; mp4/mov admiten +faststart)'
         'encode/extensions'     = 'Extensiones de entrada que se procesan de Original\ (sin punto)'
         'encode/threads'        = '-threads de ffmpeg: 0 = todos los nucleos; N para limitar'
-        'encode/fps'            = "Fps de salida cuando forceFps=true (ej 23.976)"
-        'encode/forceFps'       = "true = fuerza la salida a 'fps' (-r); false = conserva el fps de origen"
-        'encode/multipass'      = '2-pass NVENC: off | qres (1/4 res) | fullres. Mas calidad, mas GPU'
-        'encode/tonemapHdr'     = 'HDR->SDR BT.709 al recodificar: auto (solo si origen HDR) | off'
-        'encode/anamorphic'     = 'Video anamorfico (SAR!=1): keep | square (cuadra por ancho) | squareheight (por alto)'
-        'encode/downmixMode'    = 'Al bajar 5.1->estereo: default | dialogue (refuerza la voz)'
-        'encode/downmixCoeffs'        = 'Pesos del downmix dialogue (voz reforzada); solo con downmixMode=dialogue'
-        'encode/downmixCoeffs/center' = 'Peso del canal central (dialogos) en el downmix dialogue'
-        'encode/downmixCoeffs/front'  = 'Peso de los frontales L/R en el downmix dialogue'
-        'encode/downmixCoeffs/surround' = 'Peso de los surrounds en el downmix dialogue (el LFE se descarta)'
-        'encode/audioHz'        = 'Frecuencia del audio recodificado (Hz); opus fuerza 48000'
-        'encode/audioChannels'  = 'Canales de salida (MAXIMO, no hace upmix): 2 = estereo, 6 = 5.1, 8 = 7.1'
-        'encode/syncAdelay'     = 'Sincronia: true (por defecto) = adelay en 1 pasada (sin WAV); false = clasico (WAV silencio+pista)'
-        'encode/multiAudio'     = 'Con 2+ pistas del idioma preferido, conservar varias y elegir la predeterminada (false = monopista, solo la mejor)'
-        'encode/audioKeepTitle' = 'Conservar el titulo del audio de origen en la salida (false = titulo en blanco)'
-        'encode/autoGpuOnly'    = 'Perfil Auto: si true, solo considera encoders por GPU (NVENC); false = permite CPU'
-        'encode/autoMaxCodec'   = 'Perfil Auto: tope de codec ("" sin tope | h264 | h265 | av1); Auto no sube de ahi'
-        'encode/qualityCheck'   = 'Medir calidad de la salida vs origen tras codificar: off | ssim | vmaf (pasada extra, mas lento)'
-        'encode/audioSyncThreshold' = 'Detectar audio adelantado si acaba N s antes que el video (0 = off); PREPARAR pregunta el retardo'
+        'encode/video'          = 'Ajustes de VIDEO (fps, HDR, anamorfico, perfil Auto, tuning...)'
+        'encode/video/videoEncoder'= 'Codec de video por defecto (semilla del builder custom): libx264|h264_nvenc|libx265|hevc_nvenc|libsvtav1|av1_nvenc|copy|auto'
+        'encode/video/videoProfile'= 'Perfil del codec por defecto (main|main10|...); se ignora si no aplica'
+        'encode/video/videoLevel'  = 'Nivel del codec por defecto (4.0|4.1|5.0|...); se ignora si no aplica'
+        'encode/video/fps'      = "Fps de salida cuando forceFps=true (ej 23.976)"
+        'encode/video/forceFps' = "true = fuerza la salida a 'fps' (-r); false = conserva el fps de origen"
+        'encode/video/multipass'= '2-pass NVENC: off | qres (1/4 res) | fullres. Mas calidad, mas GPU'
+        'encode/video/tonemapHdr' = 'HDR->SDR BT.709 al recodificar: auto (solo si origen HDR) | off'
+        'encode/video/tonemapCurve'= 'Curva de tone-mapping libplacebo: bt.2390 (rec.) | bt.2446a | spline | reinhard | mobius | hable | ...'
+        'encode/video/anamorphic' = 'Video anamorfico (SAR!=1): keep | square (cuadra por ancho) | squareheight (por alto)'
+        'encode/video/qualityCheck' = 'Medir calidad de la salida vs origen tras codificar: off | ssim | vmaf (pasada extra, mas lento)'
+        'encode/video/auto'         = 'Ajustes del perfil Auto (filtros de encoder + control de tasa)'
+        'encode/video/auto/gpuOnly' = 'Perfil Auto: si true, solo considera encoders por GPU (NVENC); false = permite CPU'
+        'encode/video/auto/maxCodec'= 'Perfil Auto: tope de codec ("" sin tope | h264 | h265 | av1); Auto no sube de ahi'
+        'encode/video/auto/crf'     = 'Perfil Auto: CRF de libx264/libx265 (0-51, menor = mejor calidad)'
+        'encode/video/auto/crfAv1'  = 'Perfil Auto: CRF de libsvtav1/AV1 (0-63, escala distinta a H.26x)'
+        'encode/video/auto/qmin'    = 'Perfil Auto: Qmin de los encoders NVENC (control por QP)'
+        'encode/video/auto/qmax'    = 'Perfil Auto: Qmax de los encoders NVENC (control por QP)'
+        'encode/video/auto/level'   = 'Perfil Auto: -level:v de H.264/H.265 NVENC (AV1 no usa level)'
+        'encode/video/tuning'                = 'Tuning del encoder de video (preset por familia, lookahead, refs, tier)'
+        'encode/video/tuning/presetNvenc'    = 'Preset de hevc_nvenc/h264_nvenc (p. ej. slow, o p1-p7)'
+        'encode/video/tuning/presetX26x'     = 'Preset de libx264/libx265 (ultrafast..placebo; def slow)'
+        'encode/video/tuning/presetSvtav1'   = 'Preset de libsvtav1 (0-13; menor = mas lento/mejor)'
+        'encode/video/tuning/presetAv1Nvenc' = 'Preset de av1_nvenc (p1-p7)'
+        'encode/video/tuning/rcLookahead'    = 'rc-lookahead de los encoders NVENC (frames)'
+        'encode/video/tuning/refs'           = 'Frames de referencia de libx264/libx265 (-refs)'
+        'encode/video/tuning/tier'           = 'Tier de hevc_nvenc (main | high)'
+        'encode/audio'          = 'Ajustes de AUDIO (canales, downmix, sincronia, multipista...)'
+        'encode/audio/hz'       = 'Frecuencia del audio recodificado (Hz); opus fuerza 48000'
+        'encode/audio/channels' = 'Canales de salida (MAXIMO, no hace upmix): 2 = estereo, 6 = 5.1, 8 = 7.1'
+        'encode/audio/encoder'  = 'Salida de audio por defecto: aac_coder (recodificar) | copy'
+        'encode/audio/codec'    = 'Codec de recodificacion por defecto: aac|ac3|eac3|libmp3lame|flac|libopus'
+        'encode/audio/bitrate'  = "Bitrate de audio por defecto ('copy' = copiar la pista sin recodificar)"
+        'encode/audio/downmixMode'    = 'Al bajar 5.1->estereo: default | dialogue (refuerza la voz)'
+        'encode/audio/downmixCoeffs'        = 'Pesos del downmix dialogue (voz reforzada); solo con downmixMode=dialogue'
+        'encode/audio/downmixCoeffs/center' = 'Peso del canal central (dialogos) en el downmix dialogue'
+        'encode/audio/downmixCoeffs/front'  = 'Peso de los frontales L/R en el downmix dialogue'
+        'encode/audio/downmixCoeffs/surround' = 'Peso de los surrounds en el downmix dialogue (el LFE se descarta)'
+        'encode/audio/syncAdelay'     = 'Sincronia: true (por defecto) = adelay en 1 pasada (sin WAV); false = clasico (WAV silencio+pista)'
+        'encode/audio/multiAudio'     = 'Con 2+ pistas del idioma preferido, conservar varias y elegir la predeterminada (false = monopista, solo la mejor)'
+        'encode/audio/keepTitle'      = 'Conservar el titulo del audio de origen en la salida (false = titulo en blanco)'
+        'encode/audio/syncThreshold'  = 'Detectar audio adelantado si acaba N s antes que el video (0 = off); PREPARAR pregunta el retardo'
+        'encode/audio/aacCoder'       = 'Coder del encoder AAC nativo (twoloop = mayor calidad)'
 
-        'customProfile'             = 'Valores por defecto del constructor de perfil CUSTOM (opcion 0 de USAR PERFIL)'
-        'customProfile/videoEncoder'= 'Codec de video: libx264|h264_nvenc|libx265|hevc_nvenc|copy'
+        'customProfile'             = 'Valores por defecto del constructor de perfil CUSTOM (opcion 0 de USAR PERFIL); mismos campos que un profiles[]'
+        'customProfile/videoEncoder'= 'Codec de video: libx264|h264_nvenc|libx265|hevc_nvenc|libsvtav1|av1_nvenc|copy|auto'
         'customProfile/videoProfile'= 'Perfil del codec (main|main10|...); se ignora si no aplica'
         'customProfile/videoLevel'  = 'Nivel del codec (4.0|4.1|5.0|...); se ignora si no aplica'
         'customProfile/qmin'        = 'Q minimo del control de tasa en NVENC (0-51)'
         'customProfile/qmax'        = 'Q maximo del control de tasa en NVENC (0-51)'
         'customProfile/crf'         = 'CRF por defecto en encoders de CPU (0-51); -1 = auto'
+        'customProfile/detectBorder'= 'Deteccion de bordes por defecto: false | true | auto'
+        'customProfile/changeSize'  = 'Reescalado por defecto ("" = no; ej "1920:-2" escala siempre)'
+        'customProfile/maxWidth'    = 'Ancho maximo por defecto (0 = no; ej 1920 reduce solo si es mayor)'
         'customProfile/multipass'   = '2-pass NVENC del perfil custom: off | qres | fullres'
+        'customProfile/audioEncoder'= 'Audio por defecto: aac_coder (recodificar) | copy'
         'customProfile/audioCodec'  = 'Codec de audio: aac|ac3|eac3|libmp3lame|flac|libopus'
         'customProfile/audioBitrate'= "Bitrate de audio ('copy' = copiar sin recodificar)"
+        'customProfile/audioHz'     = 'Frecuencia de audio por defecto (Hz); opus fuerza 48000'
+        'customProfile/audioChannels'= 'Canales de salida por defecto (MAXIMO, no upmix): 2 | 6 | 8'
+        'customProfile/downmixMode' = 'Downmix 5.1->estereo por defecto: default | dialogue'
+        'customProfile/downmixCoeffs'= 'Pesos del downmix dialogue por defecto (center/front/surround)'
 
-        'border'                    = 'Deteccion de bordes negros con cropdetect'
-        'border/start'              = 'Segundo del primer punto de escaneo'
-        'border/duration'           = 'Segundos que escanea CADA punto'
-        'border/samples'            = 'En cuantos puntos repartidos se escanea (1 = solo al inicio)'
-        'border/autoAcceptPct'      = '% de puntos que deben coincidir para auto-aceptar el recorte'
-        'border/autoAcceptMinMargin'= 'Votos de ventaja sobre el 2o para auto-aceptar (0 = sin margen)'
-        'border/autoSamples'        = "Puntos del pre-escaneo del modo 'auto' del perfil"
-        'border/autoDuration'       = "Segundos por punto del pre-escaneo 'auto' (minimo real 5 s)"
-        'border/minCropPct'         = 'Reduccion minima (%) para considerar barras (menos = no recorta)'
+        'encode/video/border'                    = 'Deteccion de bordes negros con cropdetect'
+        'encode/video/border/start'              = 'Segundo del primer punto de escaneo'
+        'encode/video/border/duration'           = 'Segundos que escanea CADA punto'
+        'encode/video/border/samples'            = 'En cuantos puntos repartidos se escanea (1 = solo al inicio)'
+        'encode/video/border/autoAcceptPct'      = '% de puntos que deben coincidir para auto-aceptar el recorte'
+        'encode/video/border/autoAcceptMinMargin'= 'Votos de ventaja sobre el 2o para auto-aceptar (0 = sin margen)'
+        'encode/video/border/autoSamples'        = "Puntos del pre-escaneo del modo 'auto' del perfil"
+        'encode/video/border/autoDuration'       = "Segundos por punto del pre-escaneo 'auto' (minimo real 5 s)"
+        'encode/video/border/minCropPct'         = 'Reduccion minima (%) para considerar barras (menos = no recorta)'
 
 
         'preview'         = 'Previsualizacion con ffplay en PREPARAR'
         'preview/start'   = 'Segundo en que empieza la muestra (0 = desde el principio)'
         'preview/seconds' = 'Duracion de la muestra en seg (0 = sin limite, todo el video)'
+        'preview/syncSeconds' = 'Duracion (seg) de cada clip de la comparacion A/B de sincronia de audio'
 
-        'volume'             = 'Normalizacion de volumen del audio'
-        'volume/method'      = ('Metodo: {0}' -f ((Get-CvVolumeMethods) -join ' | '))
-        'volume/peakTarget'  = "Pico objetivo dBFS de 'peak' (0 = maximo; -1 deja headroom)"
-        'volume/loudnorm'    = 'Parametros EBU R128 del metodo loudnorm'
-        'volume/loudnorm/I'  = 'Loudness integrada objetivo (LUFS), ej -16'
-        'volume/loudnorm/TP' = 'True Peak maximo (dBTP), ej -1.5'
-        'volume/loudnorm/LRA'= 'Rango de loudness objetivo (LU), ej 11'
+        'encode/audio/volume'             = 'Normalizacion de volumen del audio'
+        'encode/audio/volume/method'      = ('Metodo: {0}' -f ((Get-CvVolumeMethods) -join ' | '))
+        'encode/audio/volume/peakTarget'  = "Pico objetivo dBFS de 'peak' (0 = maximo; -1 deja headroom)"
+        'encode/audio/volume/loudnorm'    = 'Parametros EBU R128 del metodo loudnorm'
+        'encode/audio/volume/loudnorm/I'  = 'Loudness integrada objetivo (LUFS), ej -16'
+        'encode/audio/volume/loudnorm/TP' = 'True Peak maximo (dBTP), ej -1.5'
+        'encode/audio/volume/loudnorm/LRA'= 'Rango de loudness objetivo (LU), ej 11'
 
         'postprocess'                    = 'Postproceso del MKV final'
         'postprocess/stripTags'          = 'Limpiar con mkvpropedit las etiquetas DURATION que anade ffmpeg'
@@ -493,7 +646,7 @@ function Get-CvConfigHelp {
         'behavior/log'                      = 'Guardar log (transcript) de la sesion en logs\'
         'behavior/workers'                  = 'Codificaciones en paralelo al terminar PREPARAR (esta + N-1)'
         'behavior/retries'                  = 'Reintentos por archivo cuando la codificacion falla'
-        'behavior/asciiMarks'               = 'Marcas en ASCII puro ([OK]/[ERROR]) en vez de simbolos'
+        'console/asciiMarks'                = 'Marcas en ASCII puro ([OK]/[ERROR]) en vez de simbolos'
         'behavior/progress'                 = 'Linea viva con % y ETA al recodificar (inline); false = ventana aparte + solo ✓'
         'behavior/promptTimeout'            = 'Auto-aceptar el valor por defecto en preguntas de PREPARAR tras N s de inactividad'
         'behavior/promptTimeout/default'    = 'Timeout generico en segundos (0 = desactivado)'
@@ -515,6 +668,7 @@ function Get-CvConfigHelp {
         'test/enabled'    = "Activar modo pruebas: cada archivo solo se codifica hasta 'minutes' min"
         'test/minutes'    = 'Minutos que se codifican por archivo en modo pruebas (>=1)'
         'test/betaDownmix'= 'BETA: activa el downmix dialogue (voz reforzada); sin el, dialogue = downmix estandar'
+        'test/betaOnePass'= 'BETA: audio+video+mux en una sola ejecucion de ffmpeg (solo encode+adelay+loudnorm, sin HDR)'
 
         'console'             = 'Apariencia de la ventana de consola'
         'console/background'  = 'Color de fondo de la consola'

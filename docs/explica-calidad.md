@@ -1,7 +1,7 @@
 # Control de calidad de la salida (SSIM vs VMAF)
 
 Tras recodificar, el conversor puede **medir cuánta calidad se perdió** comparando el vídeo de salida
-con el original. Se activa con `encode.qualityCheck` en `config.json`:
+con el original. Se activa con `encode.video.qualityCheck` en `config.json`:
 
 | Valor | Qué hace |
 |---|---|

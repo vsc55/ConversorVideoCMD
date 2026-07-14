@@ -49,7 +49,7 @@ Si defines **QMIN igual a QMAX**, no hay rango que ajustar: es **calidad fija** 
 
 ### "Q auto" (sin QMIN/QMAX)
 
-Si **no** defines QMIN/QMAX (vacío en el builder, o negativo = "desactivar"), NVENC usa su propio control de tasa según el `-preset` (aquí `slow`), sin cotas manuales. Es lo que hacen los perfiles de serie **9** y **10** ("Q auto").
+Si **no** defines QMIN/QMAX (vacío en el builder, o negativo = "desactivar"), NVENC usa su propio control de tasa según el `-preset` (aquí `slow`), sin cotas manuales. Es lo que hacen los perfiles de serie **10**, **11** y **12** ("Q auto").
 
 ## Cómo se traduce a ffmpeg (resumen)
 

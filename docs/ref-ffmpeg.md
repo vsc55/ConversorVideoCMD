@@ -22,7 +22,7 @@ Glosario de **todas** las opciones, filtros y flags de ffmpeg/ffprobe/ffplay que
 | `-ss <pos>` | **Antes de `-i`**: busca en la entrada (no exacto; con `-accurate_seek` —por defecto al transcodificar— decodifica y descarta el sobrante). **Después**: descarta al decodificar hasta `pos`. | `-ss` antes de `-i` en cropdetect (seek rápido) y en previews **solo si** `preview.start` > 0 (o `P N <seg>`). |
 | `-t <dur>` | Limita la duración leída (input) o escrita (output). Excluyente con `-to`, y `-t` tiene prioridad. | `-t` para el **modo pruebas** (recorte a N s) y en previews **solo si** `preview.seconds` > 0 (por defecto `0` = sin límite, sin `-t`). |
 | `-to <pos>` | Corta la lectura/escritura en `pos`. Excluyente con `-t`. | En el escaneo de bordes (`Find-CropDetect`: `-ss X -to Y`). |
-| `-r[:v] <fps>` | Fija el fps. Output: duplica/descarta frames antes de codificar (fps constante). | `-r <encode.fps>` solo si `encode.forceFps` está activo. |
+| `-r[:v] <fps>` | Fija el fps. Output: duplica/descarta frames antes de codificar (fps constante). | `-r <encode.video.fps>` solo si `encode.video.forceFps` está activo. |
 | `-pix_fmt <fmt>` | Formato de píxel de salida (`-pix_fmts` lista los soportados). Prefijo `+` = error si no se puede. | `p010le` (10 bits, main10) / `yuv420p` (8 bits). |
 | `-metadata[:spec] k=v` | Fija un metadato (global o de stream/capítulo). Valor vacío = borrarlo. Anula lo de `-map_metadata`. | `-metadata title=` (vacía el título), `-metadata:s:v language=und`, `-metadata:s:a language=<lang>`. |
 | `-map_metadata <idx>` | Copia metadatos del input `idx`. **`-map_metadata -1` = mapeo ficticio que desactiva la copia automática.** | En el multiplex, `-map_metadata -1` limpia los metadatos heredados; `-map_metadata:s:a:0 0:s:a:0` restaura los del audio en modo copy. |
@@ -46,7 +46,7 @@ Glosario de **todas** las opciones, filtros y flags de ffmpeg/ffprobe/ffplay que
 | `-rc constqp` + `-qp <n>` | Control de tasa por **QP constante**. *(probado)* | Cuando `qmin == qmax` (calidad fija). |
 | `-qmin <n>` / `-qmax <n>` | Límites del cuantizador. *(probado)* | Control de tasa NVENC por rango. |
 | `-rc-lookahead:v 32` | Frames de *lookahead* del control de tasa. *(probado)* | Fijo (mejora la asignación de bits). |
-| `-multipass qres\|fullres` | 2-pass de NVENC: `qres` = 1ª pasada a ¼ de resolución; `fullres` = a resolución completa. *(probado: ambos funcionan)* | Opción `encode.multipass`/perfil. `-b_ref_mode middle` **NO** se usa (no soportado en la GTX 1070). |
+| `-multipass qres\|fullres` | 2-pass de NVENC: `qres` = 1ª pasada a ¼ de resolución; `fullres` = a resolución completa. *(probado: ambos funcionan)* | Opción `encode.video.multipass`/perfil. `-b_ref_mode middle` **NO** se usa (no soportado en la GTX 1070). |
 
 ### CPU (doc oficial: libx264 / libx265)
 
@@ -76,7 +76,7 @@ Glosario de **todas** las opciones, filtros y flags de ffmpeg/ffprobe/ffplay que
 | `-aac_coder <m>` | Método del encoder AAC: **`twoloop`** (def, *Two Loop Searching*, mayor calidad), `fast` (cuantizador constante, más rápido a bitrate alto), `anmr` (experimental, no recomendado). | `-aac_coder twoloop` (solo con AAC). |
 | `-c:a ac3` / `eac3` / `libmp3lame` / `flac` / `libopus` / `copy` | Otros códecs de salida (Dolby Digital, DD+, MP3, FLAC, Opus) o copiar sin recodificar. | Códec configurable por perfil (`audioCodec`). Ver [explica-audio.md](explica-audio.md). |
 | `-b:a <r>` / `b` | Bitrate de audio en bit/s (AAC nativo por defecto 128k; la opción genérica `b` por defecto 200k). | `-b:a <audioBitrate>` (se omite en FLAC, sin pérdida). |
-| `-ac <n>` | Nº de canales de audio (output: por defecto el del input). | `-ac <encode.audioChannels>` (downmix/upmix). |
+| `-ac <n>` | Nº de canales de audio (output: por defecto el del input). | `-ac <encode.audio.channels>` (downmix/upmix). |
 | `-ar <hz>` | Frecuencia de muestreo (output: por defecto la del input). | `-ar <audioHz>`; Opus se fuerza a 48000. |
 
 ## Audio: filtros
@@ -87,7 +87,7 @@ Glosario de **todas** las opciones, filtros y flags de ffmpeg/ffprobe/ffplay que
 | `volume=<expr>dB:precision=fixed` | `salida = volume × entrada` (recorta al máximo). `precision=fixed` = punto fijo de 8 bits (limita la entrada a U8/S16/S32). | Aplicar la ganancia calculada (método `peak`). |
 | `volumedetect` | Sin parámetros; al final imprime `mean_volume` (RMS) y `max_volume` (por muestra), en dB relativos al PCM máximo. | Medir el pico (`max_volume`) para la normalización `peak`. |
 | `loudnorm=I=..:TP=..:LRA=..` | Normalización de sonoridad **EBU R128**. `I` (integrated, def -24, rango -70..-5), `LRA` (rango de sonoridad, def 7, 1..50), `TP` (true peak máx, def -2, -9..0). Simple o doble pasada. | Método de volumen `loudnorm` (una pasada). |
-| `adelay=<ms>:all=1` | Retrasa canales de audio rellenando con silencio; `delays` en **milisegundos** (sufijo `s` = segundos, `S` = muestras). `all=1` aplica el último retardo a **todos** los canales. | Sincronía en una pasada (por defecto, `encode.syncAdelay`): prepende el silencio inicial. |
+| `adelay=<ms>:all=1` | Retrasa canales de audio rellenando con silencio; `delays` en **milisegundos** (sufijo `s` = segundos, `S` = muestras). `all=1` aplica el último retardo a **todos** los canales. | Sincronía en una pasada (por defecto, `encode.audio.syncAdelay`): prepende el silencio inicial. |
 | `aformat=channel_layouts=<cl>` | Restringe el formato de salida (channel layouts / sample fmts / rates); el framework negocia para minimizar conversiones. | Fijar el layout en la ruta de sincronía por WAV. |
 | `aevalsrc=0:d=<s>:sample_rate=<hz>:channel_layout=<cl>` | Genera audio por expresión (aquí `0` = silencio). `d`/`duration` (duración), `sample_rate` (def 44100), `channel_layout`. | Generar el **silencio inicial** (sincronía clásica por WAV). |
 | `concat=n=2:v=0:a=1` | Concatena segmentos de audio/vídeo (todos empiezan en 0). `n` segmentos (def 2), `v` streams de vídeo (def 1), `a` de audio (def 0). | Unir `silencio + pista` en la sincronía clásica. |

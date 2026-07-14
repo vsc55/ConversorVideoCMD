@@ -56,13 +56,13 @@ function Get-CvDownmixPan {
 function Resolve-CvVolumeMethod {
     <#
         Metodo de volumen final: si -Method no es valido (Get-CvVolumeMethods) cae al default de config
-        (volume.method). 'aacgain' solo aplica a AAC (ReplayGain sobre .m4a): con otro codec cae a
+        (encode.audio.volume.method). 'aacgain' solo aplica a AAC (ReplayGain sobre .m4a): con otro codec cae a
         'peak' (filtro valido para cualquiera). Devuelve {Method; AacgainDowngraded} (=$true si se
         cambio aacgain->peak por el codec, para avisar en el worker).
     #>
     param([string]$Method, [string]$Codec)
     $m = "$Method".ToLower()
-    if ($m -notin (Get-CvVolumeMethods)) { $m = "$((Get-CvConfigDefaults).volume.method)" }
+    if ($m -notin (Get-CvVolumeMethods)) { $m = "$((Get-CvConfigDefaults).encode.audio.volume.method)" }
     $downgraded = $false
     if ($m -eq 'aacgain' -and "$Codec".ToLower() -ne 'aac') { $m = 'peak'; $downgraded = $true }
     [pscustomobject]@{
@@ -134,9 +134,13 @@ function Show-CvSyncPreview {
         (porque el audio va $Delay adelantado). Fail-soft: si algo falla, avisa y sigue. $Index = indice
         absoluto de la pista de audio en el fichero.
     #>
-    param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)][string]$File, [int]$Index, [double]$Delay, [double]$At = 0, [int]$Seconds = 20)
+    param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)][string]$File, [int]$Index, [double]$Delay, [double]$At = 0, [int]$Seconds = 0)
     $ff = "$($Context.FFmpeg)"
     if ([string]::IsNullOrWhiteSpace($ff) -or -not (Test-Path -LiteralPath $ff)) { Write-CvLog 'AUDIO' '[SYNC] - No se puede previsualizar (ffmpeg no disponible).' -Indent 3; return }
+    # Largo del clip A/B: config preview.syncSeconds (Context.PreviewSyncSeconds; clave dedicada porque
+    # el clip se CODIFICA y necesita duracion finita, a diferencia de preview.seconds que admite 0). El
+    # parametro -Seconds (>0) lo puede forzar puntualmente.
+    $secs = if ($Seconds -gt 0) { $Seconds } else { [int]$Context.PreviewSyncSeconds }
     $tmp  = [System.IO.Path]::GetTempPath()
     $tag  = [guid]::NewGuid().ToString('N').Substring(0, 8)
     $orig = Join-Path $tmp ("cv-syncprev-orig-{0}.mkv" -f $tag)
@@ -145,15 +149,15 @@ function Show-CvSyncPreview {
     try {
         # Clip ORIGINAL (video + su audio, tal cual = desfasado).
         [void](Invoke-ToolCapture -Exe $ff -Arguments @(
-            '-hide_banner', '-y', '-ss', (Format-CvNumber $At), '-t', "$Seconds", '-i', $File,
+            '-hide_banner', '-y', '-ss', (Format-CvNumber $At), '-t', "$secs", '-i', $File,
             '-map', '0:v:0', '-map', "0:$Index", '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23',
             '-c:a', 'aac', '-b:a', '128k', $orig
         ) -Context $Context)
         # Clip CORREGIDO: video desde $At, audio desde $At-$Delay (dos entradas del mismo fichero).
         [void](Invoke-ToolCapture -Exe $ff -Arguments @(
             '-hide_banner', '-y',
-            '-ss', (Format-CvNumber $At), '-t', "$Seconds", '-i', $File,
-            '-ss', (Format-CvNumber $audioAt), '-t', "$Seconds", '-i', $File,
+            '-ss', (Format-CvNumber $At), '-t', "$secs", '-i', $File,
+            '-ss', (Format-CvNumber $audioAt), '-t', "$secs", '-i', $File,
             '-map', '0:v:0', '-map', "1:$Index", '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23',
             '-c:a', 'aac', '-b:a', '128k', $corr
         ) -Context $Context)
@@ -750,7 +754,7 @@ function Invoke-AudioRun {
     # (el bitrate no aplica). El resto usa el samplerate del perfil y el bitrate como los demas.
     $arOut = if ($codec -eq 'libopus') { 48000 } else { $hz }
     $ffArgs += @('-c:a',$codec)
-    if ($codec -eq 'aac') { $ffArgs += @('-aac_coder','twoloop') }
+    if ($codec -eq 'aac') { $ffArgs += @('-aac_coder', $(if ("$($Context.AacCoder)") { "$($Context.AacCoder)" } else { 'twoloop' })) }
     $ffArgs += @('-ac',"$ch",'-ar',"$arOut")
     if ($Prof.AudioBitrate -and $codec -ne 'flac') { $ffArgs += @('-b:a',"$($Prof.AudioBitrate)") }
     # Modo pruebas: acotar la salida (si la fuente es el WAV clasico, ya viene recortado).

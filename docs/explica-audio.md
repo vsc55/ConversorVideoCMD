@@ -45,13 +45,13 @@ Ejemplo (dos pistas 5.1 en español): `eac3 768k` gana a `ac3 640k` por códec (
 
 ### Multipista de audio (conservar varias)
 
-Por defecto se conserva **una** pista. Con la multipista (`encode.multiAudio = true`, por defecto) se pueden conservar **varias** del idioma preferido (p. ej. principal + comentarios) y elegir la **predeterminada**. Es simétrico con los subtítulos.
+Por defecto se conserva **una** pista. Con la multipista (`encode.audio.multiAudio = true`, por defecto) se pueden conservar **varias** del idioma preferido (p. ej. principal + comentarios) y elegir la **predeterminada**. Es simétrico con los subtítulos.
 
-**Toggle:** `encode.multiAudio` — `true` (por defecto) habilita conservar varias; `false` = monopista (elige una, comportamiento clásico). Solo se dispara con **2+ pistas del idioma preferido**.
+**Toggle:** `encode.audio.multiAudio` — `true` (por defecto) habilita conservar varias; `false` = monopista (elige una, comportamiento clásico). Solo se dispara con **2+ pistas del idioma preferido**.
 
 ```mermaid
 flowchart TD
-    A["2+ pistas del idioma preferido<br/>y encode.multiAudio = true"] --> B["Select-AudioMulti: lista SOLO las del idioma preferido<br/>+ preseleccion default (Select-CvDefaultAudio)"]
+    A["2+ pistas del idioma preferido<br/>y encode.audio.multiAudio = true"] --> B["Select-AudioMulti: lista SOLO las del idioma preferido<br/>+ preseleccion default (Select-CvDefaultAudio)"]
     B --> C["Un prompt: indices a conservar; * marca la predeterminada<br/>(ENTER = solo la *, T = todas, P/A = reproducir)"]
     C --> D["Sincronia preguntada POR pista conservada"]
     D --> E["tracks[] en el job (predeterminada primero)"]
@@ -60,7 +60,7 @@ flowchart TD
 ```
 
 - **Preselección de la predeterminada** (`Select-CvDefaultAudio`): la marcada `disposition.default` en el origen; si ninguna, la de mejor calidad (`Select-CvBestAudio`).
-- **Título**: por defecto se deja **en blanco** (como el resto de pistas recodificadas). Con `encode.audioKeepTitle = true` se **conserva el título del origen** en cada pista (útil para distinguir varias del mismo idioma: principal/comentarios/…); el multiplex lo lee del origen por el índice de la pista.
+- **Título**: por defecto se deja **en blanco** (como el resto de pistas recodificadas). Con `encode.audio.keepTitle = true` se **conserva el título del origen** en cada pista (útil para distinguir varias del mismo idioma: principal/comentarios/…); el multiplex lo lee del origen por el índice de la pista.
 - **Orden en el MKV**: la predeterminada **primero** y el resto después (orden de listado). Orden global de pistas: **vídeo → audio → subtítulos → capítulos**.
 - **Modo `copy`**: también conserva el conjunto elegido, copiando las pistas del original (`-c:a copy`, sin recodificar); sin la beta (o con 0-1 pistas) es el copy clásico de una pista.
 - **Temporales por pista**: `<nombre>_aN.(m4a|mka)` (pos 0 = predeterminada); los limpia `Remove-CvTemps`.
@@ -68,11 +68,11 @@ flowchart TD
 
 ## 2. Procesado de volumen: métodos y tiempo
 
-`volume.method` elige cómo se ajusta el volumen al recodificar el audio (`Invoke-AudioRun`):
+`encode.audio.volume.method` elige cómo se ajusta el volumen al recodificar el audio (`Invoke-AudioRun`):
 
 | Método | Qué hace | Pasadas sobre el audio |
 |---|---|---|
-| `peak` | Mide el pico (`volumedetect`) y **amplifica** hasta `volume.peakTarget` con el filtro `volume`. | 2 (análisis + encode), ambas ligeras |
+| `peak` | Mide el pico (`volumedetect`) y **amplifica** hasta `encode.audio.volume.peakTarget` con el filtro `volume`. | 2 (análisis + encode), ambas ligeras |
 | `loudnorm` | Normalización de **sonoridad EBU R128** (I/TP/LRA) con el filtro `loudnorm`, en **1 pasada** dentro del encode. | 1 (encode), pero el filtro es pesado |
 | `aacgain` | Codifica sin ajuste y aplica **ReplayGain** sobre el `.m4a` ya codificado, **sin recodificar**. | 1 encode + escaneo aacgain |
 
@@ -88,7 +88,7 @@ Medido sobre **5 minutos** de audio AC-3 5.1 → AAC (solo la fase de audio; el 
 
 > El método de volumen apenas mueve el **tiempo total** de la conversión: manda el encode de **vídeo**. Aun así, si procesas mucho audio, `peak` es el más rápido y `loudnorm` el más lento (su filtro hace análisis de sonoridad + true-peak). `loudnorm` da el volumen más uniforme entre archivos; `peak` solo iguala el pico; `aacgain` ajusta sin recodificar (reversible).
 
-Los parámetros de cada método (`volume.peakTarget`, `volume.loudnormI/TP/LRA`) están en [ref-configuracion.md](ref-configuracion.md); los comandos exactos, en [ref-comandos.md](ref-comandos.md).
+Los parámetros de cada método (`encode.audio.volume.peakTarget`, `encode.audio.volume.loudnormI/TP/LRA`) están en [ref-configuracion.md](ref-configuracion.md); los comandos exactos, en [ref-comandos.md](ref-comandos.md).
 
 ## 3. Sincronía audio/vídeo
 
@@ -128,7 +128,7 @@ El valor elegido se **congela** en el job (`audio.sync`); que haya habido pregun
 
 Hay un segundo desfase que **no** tiene retardo inicial (audio y vídeo empiezan en `pts 0`) pero el audio va **adelantado de forma constante**: el sonido llega antes que la imagen. Se "esconde" porque los `start_time` son 0; la pista es que el **audio ACABA varios segundos antes que el vídeo** (el vídeo trae ~N s de más al inicio —logo/intro— que el audio no incluye, así que todo el audio queda N s adelantado).
 
-- **Detección** (`Resolve-CvAudioAhead`): compara el último `pts` del vídeo con el de la pista de audio (leídos baratos por índice cerca del final, `Get-CvStreamEndPts`). Si `fin_vídeo − fin_audio ≥ encode.audioSyncThreshold` (por defecto **2 s**), se sugiere retrasar el audio esa diferencia.
+- **Detección** (`Resolve-CvAudioAhead`): compara el último `pts` del vídeo con el de la pista de audio (leídos baratos por índice cerca del final, `Get-CvStreamEndPts`). Si `fin_vídeo − fin_audio ≥ encode.audio.syncThreshold` (por defecto **2 s**), se sugiere retrasar el audio esa diferencia.
 - **Pregunta** (fase PREPARAR): `[SYNC] - El audio acaba N s antes que el vídeo: parece ADELANTADO ~N s`. Default = `N`; `0` = nada; **`P` = previsualizar** dos clips cortos (`Show-CvSyncPreview`): el **original** (se oye el desfase) y el **corregido** (audio retrasado `N` s; el clip corregido toma el vídeo desde `T` y el audio desde `T−N`). Auto-acepta el valor detectado a los `promptTimeout.audioSync` s (15).
 - **Aplicación**: el retardo elegido va a `audio.sync` y el worker lo aplica con `adelay` (igual que el caso 1).
 
@@ -172,17 +172,17 @@ Comandos exactos: [ref-comandos.md](ref-comandos.md) (§4 detección, §5 WAV).
 
 ### Modo de sincronía: `adelay` (por defecto) vs clásico (WAV)
 
-Hay **dos** formas de aplicar el silencio, elegibles con **`encode.syncAdelay`** en `config.json`:
+Hay **dos** formas de aplicar el silencio, elegibles con **`encode.audio.syncAdelay`** en `config.json`:
 
-| | `adelay` — **por defecto** (`encode.syncAdelay: true`) | Clásico (`encode.syncAdelay: false`) |
+| | `adelay` — **por defecto** (`encode.audio.syncAdelay: true`) | Clásico (`encode.audio.syncAdelay: false`) |
 |---|---|---|
 | Cómo | 1 paso: filtro `adelay=<ms>:all=1` **encadenado con el volumen** en el mismo encode | 2 pasos: genera un WAV `silencio + pista` y luego lo codifica |
 | Procesos ffmpeg | **1** | 2 (WAV + AAC) |
 | Temporal `_concat.wav` | **no** | sí |
 
-En modo `adelay`, la cadena de filtros combina retardo + volumen en una sola pasada, p. ej.: `[0:<i>]adelay=<ms>:all=1,volume=<g>dB[a]` (o `,loudnorm=...` según `volume.method`). Es el **método por defecto** desde la validación (ambos dan el mismo resultado audible; `adelay` cuantiza a **ms enteros** — ver [ref-gotchas.md](ref-gotchas.md)).
+En modo `adelay`, la cadena de filtros combina retardo + volumen en una sola pasada, p. ej.: `[0:<i>]adelay=<ms>:all=1,volume=<g>dB[a]` (o `,loudnorm=...` según `encode.audio.volume.method`). Es el **método por defecto** desde la validación (ambos dan el mismo resultado audible; `adelay` cuantiza a **ms enteros** — ver [ref-gotchas.md](ref-gotchas.md)).
 
-> **Implementación.** Config: **`encode.syncAdelay`** (`lib/Config.psm1`) · Contexto: **`SyncAdelay`** (`lib/Context.psm1`). Lógica: rama `if ($Sync -gt 0 -and $Context.SyncAdelay)` en **`Invoke-AudioRun`** (`lib/Audio.psm1`); la rama `else` es el clásico (WAV). Verificado (ffmpeg 7.1.1) y en uso real: misma duración y silencio inicial que el clásico.
+> **Implementación.** Config: **`encode.audio.syncAdelay`** (`lib/Config.psm1`) · Contexto: **`SyncAdelay`** (`lib/Context.psm1`). Lógica: rama `if ($Sync -gt 0 -and $Context.SyncAdelay)` en **`Invoke-AudioRun`** (`lib/Audio.psm1`); la rama `else` es el clásico (WAV). Verificado (ffmpeg 7.1.1) y en uso real: misma duración y silencio inicial que el clásico.
 
 ## 4. Canales y códec de la pista de salida
 
@@ -194,7 +194,7 @@ flowchart TD
     B -- "copy" --> C["Copiar la pista original al MKV<br/>(-c:a copy: sin recodificar,<br/>sin volumen ni cambio de canales)"]
     B -- "aac_coder<br/>(recodificar)" --> D["Recodificar con audioCodec<br/>-c:a &lt;codec&gt;  (+ -aac_coder twoloop si es AAC)"]
     D --> E["-b:a  = bitrate del perfil (p.ej. 192k)<br/>(omitido en FLAC, sin perdida)"]
-    D --> F["-ac   = encode.audioChannels (2/6/8)"]
+    D --> F["-ac   = encode.audio.channels (2/6/8)"]
     D --> G["-ar   = audioHz del perfil (44100)<br/>(Opus fuerza 48000)"]
     E --> H["pista .m4a (AAC) o .mka (resto) → multiplex"]
     F --> H
@@ -220,18 +220,18 @@ Cuando se recodifica (la mayoría de perfiles), el códec de salida lo fija `aud
 ### Parámetros comunes al recodificar
 
 - **Bitrate**: `-b:a`, el `audioBitrate` del perfil (p. ej. `192k`). **No** se pasa para FLAC (sin pérdida) ni si el perfil no lo define.
-- **Canales**: `-ac`, del **perfil** (`audioChannels`) si lo fija, o del global `encode.audioChannels`: `2` = estéreo (por defecto), `6` = 5.1, `8` = 7.1. Es un **MÁXIMO**: hace **downmix** si la fuente tiene más canales, pero **NO hace upmix** si tiene menos (se conservan los del origen; ver más abajo).
-- **Samplerate**: `-ar`, el `audioHz` del **perfil** (`44100` por defecto); `encode.audioHz` es el valor de reserva si el perfil no lo trae. Excepción: **Opus** se codifica siempre a `48000`.
+- **Canales**: `-ac`, del **perfil** (`audioChannels`) si lo fija, o del global `encode.audio.channels`: `2` = estéreo (por defecto), `6` = 5.1, `8` = 7.1. Es un **MÁXIMO**: hace **downmix** si la fuente tiene más canales, pero **NO hace upmix** si tiene menos (se conservan los del origen; ver más abajo).
+- **Samplerate**: `-ar`, el `audioHz` del **perfil** (`44100` por defecto); `encode.audio.hz` es el valor de reserva si el perfil no lo trae. Excepción: **Opus** se codifica siempre a `48000`.
 
-### Downmix 5.1 → estéreo con voz reforzada (`encode.downmixMode`) 🧪 BETA
+### Downmix 5.1 → estéreo con voz reforzada (`encode.audio.downmixMode`) 🧪 BETA
 
 > 🧪 **El modo `dialogue` está en BETA.** Los coeficientes del filtro `pan` son **provisionales**, a la espera de validarlos y afinarlos con más material y distintos tipos de mezcla. El worker lo señala con `[beta]` en la línea del paso. El modo `default` (estándar de ffmpeg) no es beta.
 >
-> **Doble llave mientras sea beta:** `encode.downmixMode = "dialogue"` fija el modo, pero solo refuerza la voz si además `test.betaDownmix = true`. Con `betaDownmix = false` (por defecto), aunque `downmixMode` sea `"dialogue"` se usa el downmix **estándar** (y el worker avisa: `… activa test.betaDownmix para la voz reforzada [beta]`). Al promocionar la mezcla se retirará este flag.
+> **Doble llave mientras sea beta:** `encode.audio.downmixMode = "dialogue"` fija el modo, pero solo refuerza la voz si además `test.betaDownmix = true`. Con `betaDownmix = false` (por defecto), aunque `downmixMode` sea `"dialogue"` se usa el downmix **estándar** (y el worker avisa: `… activa test.betaDownmix para la voz reforzada [beta]`). Al promocionar la mezcla se retirará este flag.
 
 Al bajar un audio **5.1 a estéreo** (`audioChannels = 2`), el downmix estándar de ffmpeg mezcla el canal **central** (FC, donde van casi todos los **diálogos**) atenuado junto con los frontales y los surrounds (ambiente/efectos/música). Con la normalización ajustando el nivel a los picos de acción, los diálogos quedan **por debajo** y hay que subir/bajar el volumen constantemente.
 
-`encode.downmixMode` controla cómo se hace ese downmix:
+`encode.audio.downmixMode` controla cómo se hace ese downmix:
 
 | Valor | Downmix |
 |---|---|
@@ -241,7 +241,7 @@ Al bajar un audio **5.1 a estéreo** (`audioChannels = 2`), el downmix estándar
 Detalles del modo `dialogue`:
 
 - Filtro: `pan=stereo|c0=<center>*c2+<front>*c0+<surround>*c4|c1=<center>*c2+<front>*c1+<surround>*c5` — usa **índices de canal** (`c0..c5`), así vale para `5.1` y `5.1(side)` (SL/SR vs BL/BR). `c2` = central; `c0`/`c1` = frontales; `c4`/`c5` = surrounds; `c3` (LFE) se descarta.
-- **Coeficientes configurables** en `encode.downmixCoeffs` (`center`/`front`/`surround`; por defecto `0.5`/`0.35`/`0.15`), así se pueden afinar sin tocar código. El LFE se descarta siempre.
+- **Coeficientes configurables** en `encode.audio.downmixCoeffs` (`center`/`front`/`surround`; por defecto `0.5`/`0.35`/`0.15`), así se pueden afinar sin tocar código. El LFE se descarta siempre.
 - **`audioChannels` es un MÁXIMO — no hace upmix:** si el origen tiene menos canales que el objetivo (p. ej. estéreo con `6`), se conservan los del origen; bajar sí (5.1→estéreo). Nunca se fabrican canales de surround que no existen.
 - **Por perfil (override del global):** cada perfil puede fijar su propia salida de audio — `audioChannels` (canales, máximo), `downmixMode` (`default`/`dialogue`) y `downmixCoeffs` — que manda sobre `encode.*`; si el perfil no los define, se usa el global. El builder de perfil **custom** pregunta canales y, si sale estéreo, el modo de downmix (los coeficientes se dejan al global). El activador beta `test.betaDownmix` es siempre global.
 - **Clip-safe** si los coeficientes suman ≤ 1,0 (los de serie suman 1,0): el pico del downmix **no supera** el del origen, así que la normalización de volumen (medida sobre el origen) sigue siendo correcta y no hay recorte, sea cual sea el método (`peak`/`loudnorm`/`aacgain`). Si subes los pesos por encima de 1,0 en total, puede recortar.

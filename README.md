@@ -31,7 +31,7 @@ Recodifica a **MKV** (vídeo H.265/H.264 por GPU NVIDIA o CPU; audio AAC, AC-3, 
 
 `Convert.cmd` solo lanza `Convert.ps1` con `-ExecutionPolicy Bypass` (no cambia la política del sistema) y pone la consola en UTF-8.
 
-Para gestionar las herramientas (FFmpeg, aacgain, MKVToolNix, 7zr) o editar la configuración cómodamente: **`setup.cmd`**. Ambos lanzadores admiten `-Config <ruta>` para usar un fichero de configuración alterno (se **reenvía** a las ventanas worker que se abran en paralelo). Para depurar hay **`Convert-Debug.cmd`**, que usa `config.debug.json` (`behavior.debug = true`) y muestra el log detallado sin tocar tu `config.json`; y **`setup-Debug.cmd`** para editar/gestionar ese `config.debug.json` con el editor de setup.
+Para gestionar las herramientas (FFmpeg, aacgain, MKVToolNix, 7zr) o editar la configuración cómodamente: **`setup.cmd`**. Ambos lanzadores admiten `-Config <ruta>` para usar un fichero de configuración alterno (se **reenvía** a las ventanas worker que se abran en paralelo). Para depurar hay **`Convert-Debug.cmd`**, que usa `config.debug.json` (`debug.enabled = true`) y muestra el log detallado sin tocar tu `config.json`; y **`setup-Debug.cmd`** para editar/gestionar ese `config.debug.json` con el editor de setup.
 
 ## En qué consiste
 
@@ -40,6 +40,72 @@ Modelo **preparar → procesar**:
 - **PREPARAR**: elige un perfil y, por cada vídeo, pregunta/detecta todo (selección de pista de vídeo si hay varias, bordes con preview en varios puntos, resize, animación, pista de audio con su idioma, sincronía, subtítulos) y lo congela en `Proceso\<nombre>.job.json`.
 - **WORKER**: codifica cada preparado de forma desatendida (audio → vídeo → multiplexado) y deja el MKV en `Convertido\`.
 - **Paralelo**: cuando todos tienen `.job`, puedes abrir varias ventanas de `Convert.cmd`; cada una toma archivos libres mediante un lock atómico.
+
+## Funcionalidades
+
+Todo es configurable en `config.json` (detalle en [ref-configuracion.md](docs/ref-configuracion.md)). Resumen por áreas:
+
+### Vídeo
+
+| Funcionalidad | Opciones |
+|---|---|
+| **Recodificación** | H.264 (`libx264` CPU / `h264_nvenc` GPU), H.265 (`libx265` / `hevc_nvenc`), AV1 (`libsvtav1` CPU / `av1_nvenc` GPU), o `copy` (sin recodificar) |
+| **Perfil Auto** | Elige el mejor encoder soportado por el equipo (AV1 > H.265 > H.264, GPU antes que CPU), también como `videoEncoder: "auto"` en un perfil; filtros de solo-GPU y tope de códec |
+| **Control de tasa** | CRF (CPU, 0-51) · CRF AV1 (0-63) · QP mín/máx (NVENC) |
+| **Profundidad / perfil / level** | 8 o 10 bits (`main10`), perfil y level del códec |
+| **2-pass NVENC** | Off · ¼ de resolución · resolución completa |
+| **Tuning** | Preset por familia de encoder, `rc-lookahead`, `refs`, `tier` |
+| **Detección/recorte de bandas negras** | `cropdetect` con muestreo en varios puntos + preview; por perfil: no / sí / auto |
+| **Reescalado (resize)** | Ancho máximo (solo reduce) o escalado fijo (p. ej. `1920:-2`) |
+| **FPS** | Forzar el fps de salida o conservar el del origen |
+| **HDR → SDR (tone-mapping)** | Auto u off con `libplacebo` + curva configurable (`bt.2390`…) |
+| **Vídeo anamórfico (SAR ≠ 1)** | Conservar · cuadrar por ancho · cuadrar por alto |
+| **Control de calidad** | SSIM o VMAF de la salida frente al origen |
+| **Animación** | `-tune animation` (libx264/libx265); PREPARAR pregunta por archivo |
+| **Selección de pista de vídeo** | Menú con preview cuando hay varias pistas |
+
+### Audio
+
+| Funcionalidad | Opciones |
+|---|---|
+| **Recodificación** | AAC, AC-3, E-AC-3, MP3, FLAC, Opus, o `copy` (sin recodificar) |
+| **Canales / downmix** | Estéreo / 5.1 / 7.1 como **máximo** (no hace upmix); downmix 5.1→estéreo estándar o con voz reforzada (coeficientes) |
+| **Frecuencia** | Hz de salida (Opus fuerza 48000) |
+| **Normalización de volumen** | Pico (`peak`) · `loudnorm` (EBU R128) · `aacgain` |
+| **Sincronía A/V** | Silencio inicial con `adelay` (1 pasada) o WAV clásico; detección de audio **adelantado** con aviso y preview |
+| **Multipista** | Conservar varias pistas del idioma preferido y elegir la predeterminada |
+| **Selección por idioma** | Idioma preferido con *fallback* + preview; conservar (o no) el título de la pista |
+
+### Subtítulos
+
+| Funcionalidad | Opciones |
+|---|---|
+| **Selección automática** | Conserva forzados + completos del idioma preferido; clasifica por flag o por tamaño de cues; *fallback* para elegir cuáles conservar |
+| **Preview / contenido** | Previsualizar con ffplay o ver el `.srt` extraído |
+| **FixSyncSub** (`.srt` externos) | Re-sincronización lineal, OCR (`l`→`I`), espaciado y detección de codificación |
+
+### Contenedor, salida y post-proceso
+
+| Funcionalidad | Opciones |
+|---|---|
+| **Contenedor de salida** | MKV (recomendado) · MP4/MOV (con `+faststart`) |
+| **Extensiones de entrada** | Lista configurable |
+| **Adjuntos** | Conservar fuentes / carátulas / otros al multiplexar |
+| **Limpieza** | Quita metadatos heredados y etiquetas `DURATION` con `mkvpropedit`; conserva los capítulos |
+
+### Flujo y operación
+
+| Funcionalidad | Opciones |
+|---|---|
+| **Preparar → worker** | Congela las decisiones en `Proceso\<nombre>.job.json` y codifica desatendido |
+| **Ejecución en paralelo** | Varias ventanas con lock atómico; reintentos por archivo |
+| **Progreso en vivo** | % + ETA + velocidad + bitrate + cuantizador `q` |
+| **Perfiles** | 13 de serie + propios en `config.json` + builder custom interactivo |
+| **Una sola pasada** 🧪 | Audio + vídeo + multiplexado en un único ffmpeg (beta) |
+| **Validación de encoders por GPU** | Sondea qué NVENC soporta la GPU real y lo cachea |
+| **Timeouts de prompt** | Auto-aceptar por tipo de pregunta tras N segundos |
+| **Descarga de FFmpeg** | Automática, verificada con SHA256 |
+| **Modo test / debug** | Recortar la codificación a N minutos · log detallado |
 
 ## Requisitos
 
@@ -70,7 +136,7 @@ La documentación técnica y detallada (cómo trabaja, flujos, diagramas y **los
 - [Arquitectura](docs/ref-arquitectura.md) — módulos, contexto, fuentes de verdad.
 - [Flujo de trabajo](docs/ref-flujo.md) — clasificar → preparar → worker, con diagramas.
 - [Comandos de las herramientas](docs/ref-comandos.md) — ffmpeg/ffprobe/ffplay/aacgain por fase.
-- [Perfiles](docs/ref-perfiles.md) — perfiles 1–11, propios de `config.json` y custom.
+- [Perfiles](docs/ref-perfiles.md) — perfiles de serie, propios de `config.json` y custom.
 - [Configuración](docs/ref-configuracion.md) — referencia de `config.json`.
 - [Herramientas](docs/ref-herramientas.md) — versiones, plataforma, descargas y versión por job.
 - [Setup](docs/ref-setup.md) — utilidad `setup` (menú, editor de config, `-Config`, debug, fallback NVENC).

@@ -24,7 +24,7 @@ flowchart LR
 ## Cómo lo resuelve el conversor
 
 1. **Detección (fase PREPARAR).** En `Invoke-VideoAsk` (`lib/Video.psm1`) se compara el ancho **mostrado** (`Get-CvDisplayWidth`, en `lib/MediaInfo.psm1`) con el almacenado. Si difieren, la pista es anamórfica.
-2. **Se pregunta qué hacer** (solo al **recodificar**), preseleccionando el modo configurado en `encode.anamorphic` (`Invoke-CvAnamorphicAsk`); `ENTER` o el auto-timeout (`behavior.promptTimeout.anamorphic`) lo aceptan:
+2. **Se pregunta qué hacer** (solo al **recodificar**), preseleccionando el modo configurado en `encode.video.anamorphic` (`Invoke-CvAnamorphicAsk`); `ENTER` o el auto-timeout (`behavior.promptTimeout.anamorphic`) lo aceptan:
 
    ```
    [VIDEO] [ANAMORFICO] - Almacena 1920x1072 pero SE VE a 2538x1072 (SAR 115:87); el tamano real no es el que reporta el contenedor.
@@ -34,7 +34,7 @@ flowchart LR
 3. **Reescalado (fase WORKER).** El modo elegido se traduce a un `scale=` con `Get-CvResize`. La decisión se congela en el job (`video.resize`), así que el worker solo aplica el filtro.
 4. **Modo `copy`.** No se recodifica → no se puede cambiar el SAR: solo se **avisa** del tamaño real; la pista se copia tal cual.
 
-### Modos (`encode.anamorphic`)
+### Modos (`encode.video.anamorphic`)
 
 | Modo | Qué hace | Salida del ejemplo (`1920x1072` SAR `115:87`) |
 |---|---|---|

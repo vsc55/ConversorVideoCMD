@@ -2,13 +2,13 @@
 
 ## ✅ Sincronía `adelay` — PROMOCIONADA (13/07/2026)
 
-**Estado:** ✅ VALIDADA y promocionada. El silencio de sincronía con `adelay=<ms>:all=1` en **una sola pasada** (encadenado con el volumen) es ahora el **método por defecto**: `encode.syncAdelay = true` (antes la beta `test.syncAdelay`). Se conservan **los dos modos**: `true` (adelay, por defecto) y `false` (clásico WAV). Comprobado a nivel PCM (11/07: 220 vs 221 muestras para 5 ms, diff 0,023 ms, inaudible) y en uso real. Único matiz: `adelay` cuantiza a ms enteros (documentado en `docs/ref-gotchas.md`). Config `encode.syncAdelay` → `Context.SyncAdelay` → rama en `Invoke-AudioRun`.
+**Estado:** ✅ VALIDADA y promocionada. El silencio de sincronía con `adelay=<ms>:all=1` en **una sola pasada** (encadenado con el volumen) es ahora el **método por defecto**: `encode.audio.syncAdelay = true` (antes la beta `test.syncAdelay`). Se conservan **los dos modos**: `true` (adelay, por defecto) y `false` (clásico WAV). Comprobado a nivel PCM (11/07: 220 vs 221 muestras para 5 ms, diff 0,023 ms, inaudible) y en uso real. Único matiz: `adelay` cuantiza a ms enteros (documentado en `docs/ref-gotchas.md`). Config `encode.audio.syncAdelay` → `Context.SyncAdelay` → rama en `Invoke-AudioRun`.
 
 ---
 
 ## Validar/afinar el downmix `dialogue` con voz reforzada (🧪 beta → estable)
 
-**Estado:** 🧪 BETA. `encode.downmixMode = "dialogue"` baja 5.1 → estéreo con un filtro `pan` que sube el central (diálogos) y baja los surrounds. **Doble llave:** solo refuerza la voz si además `test.betaDownmix = true`; si no, `dialogue` cae al downmix estándar. El worker marca el modo reforzado con `[beta]`. Al promocionar, quitar el flag `test.betaDownmix` y el `[beta]`.
+**Estado:** 🧪 BETA. `encode.audio.downmixMode = "dialogue"` baja 5.1 → estéreo con un filtro `pan` que sube el central (diálogos) y baja los surrounds. **Doble llave:** solo refuerza la voz si además `test.betaDownmix = true`; si no, `dialogue` cae al downmix estándar. El worker marca el modo reforzado con `[beta]`. Al promocionar, quitar el flag `test.betaDownmix` y el `[beta]`.
 
 **Qué falta:** los coeficientes son **provisionales** — `pan=stereo|c0=0.5*c2+0.35*c0+0.15*c4|c1=0.5*c2+0.35*c1+0.15*c5` (central 0,5 · frontal 0,35 · surround 0,15; LFE descartado). Validar de oído y con medidas sobre **varios tipos de mezcla** (cine de acción, diálogo, música) que:
 
@@ -16,7 +16,7 @@
 2. No hay recorte: los coeficientes suman 1,0 por canal, así que el pico no debería superar al del origen; confirmarlo con `volumedetect` (pico downmix ≤ pico 5.1) en material con surrounds fuertes.
 3. Comparar contra el downmix `default` de ffmpeg en los mismos clips.
 
-**Ya hecho:** los coeficientes son **configurables** en `encode.downmixCoeffs` (`center`/`front`/`surround`), así que afinarlos no requiere tocar código.
+**Ya hecho:** los coeficientes son **configurables** en `encode.audio.downmixCoeffs` (`center`/`front`/`surround`), así que afinarlos no requiere tocar código.
 
 **Decisión:** si los coeficientes por defecto convencen → promocionar (quitar el flag `test.betaDownmix` y el `[beta]`); si no, ajustar los defaults.
 
@@ -26,7 +26,7 @@
 
 ## ✅ Audio multipista (conservar varias pistas del idioma preferido) — PROMOCIONADA (13/07/2026)
 
-**Estado:** ✅ VALIDADA y promocionada. Se retira la doble llave: la multipista la gobierna solo el toggle **`encode.multiAudio`** (por defecto `true`); eliminado el flag beta `test.betaMultiAudio` y las marcas `[beta]`. Con 2+ pistas del idioma preferido se conservan varias y se elige la predeterminada (menú `Select-AudioMulti`, un temporal por pista `<name>_aN.*`, multiplex con la predeterminada primero, idioma + título por pista; `copy` también conserva el set). Verificado E2E + tests unitarios + batería. **Mejora futura opcional:** extender a **varios idiomas** (hoy solo lista las del idioma preferido).
+**Estado:** ✅ VALIDADA y promocionada. Se retira la doble llave: la multipista la gobierna solo el toggle **`encode.audio.multiAudio`** (por defecto `true`); eliminado el flag beta `test.betaMultiAudio` y las marcas `[beta]`. Con 2+ pistas del idioma preferido se conservan varias y se elige la predeterminada (menú `Select-AudioMulti`, un temporal por pista `<name>_aN.*`, multiplex con la predeterminada primero, idioma + título por pista; `copy` también conserva el set). Verificado E2E + tests unitarios + batería. **Mejora futura opcional:** extender a **varios idiomas** (hoy solo lista las del idioma preferido).
 
 ---
 
@@ -47,7 +47,9 @@
 
 ## Sistema de ejecución única (todo en un solo ffmpeg)
 
-**Estado:** pendiente (idea validada, sin implementar).
+**Estado:** 🧪 BETA (implementado en v4.5.0). `test.betaOnePass` (off por defecto) activa el modo; `lib/OnePass.psm1` (`Test-CvOnePassEligible`/`Get-CvOnePassArgs`/`Invoke-CvOnePass`) funde audio+vídeo+multiplexado en un único ffmpeg con `-filter_complex` cuando el job es elegible (encode+encode, sincronía `adelay`, volumen `loudnorm`, sin HDR); en el resto, pipeline por etapas. Verificado con tests unitarios y **batería E2E** (`run-tests.ps1 -OnePass`, 15/15 con `libx264`). **Qué falta para promocionar:** validar en uso real (con recorte de bordes, subtítulos ASS + adjuntos de fuentes, capítulos, multipista y HDR→SDR excluido correctamente); comparar tamaño/tiempo frente al pipeline por etapas; decidir si se extiende a `peak`/`aacgain` (hoy fuera por diseño). Las decisiones de diseño de abajo quedan resueltas así: (1) **convive** con el pipeline actual (no lo sustituye); (2) **multipista** soportada (una rama de audio por pista); (3) **error** de una pasada = falla el archivo y reintenta según la política del worker; (4) modo pruebas (`-t`) soportado, `copy` va por etapas.
+
+**Historial (idea validada antes de implementar):**
 
 **Qué:** fundir las tres etapas actuales (audio → vídeo → multiplexado, cada una un proceso ffmpeg
 con temporales `.m4a`/`.mka` y `.mkv`) en **una sola llamada a ffmpeg** que haga a la vez: reencodar

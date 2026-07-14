@@ -4,14 +4,14 @@
 #>
 
 # Estilo de las marcas/avisos: $true => ASCII puro ([OK]/[ERROR], corchetes []); $false =>
-# simbolos y badge de medio bloque. Lo fija el arranque desde config (behavior.asciiMarks) via
+# simbolos y badge de medio bloque. Lo fija el arranque desde config (console.asciiMarks) via
 # Set-CvMarkStyle, util en consolas/fuentes que no tengan los glifos (se verian como cuadros).
 $script:CvAsciiMarks = $false
 function Set-CvMarkStyle { param([bool]$Ascii) $script:CvAsciiMarks = [bool]$Ascii }
 
 function Get-CvMark {
     <#
-        Marca de estado (check/cruz). Con behavior.asciiMarks -> texto ASCII ([OK]/[ERROR]); si no,
+        Marca de estado (check/cruz). Con console.asciiMarks -> texto ASCII ([OK]/[ERROR]); si no,
         simbolos U+2713 (check) y U+00D7 (cruz x) via ConvertFromUtf32 (no depende de la codificacion
         del fichero ni de que la fuente tenga la cruz Dingbats U+2717).
     #>
@@ -29,7 +29,7 @@ function Write-CvBadge {
         Escribe INLINE (sin salto de linea) una etiqueta resaltada tipo badge: interior con fondo de
         color y unos CAPS a los lados cuyo fondo es el POR DEFECTO, de modo que la celda del borde NO
         lleva fondo -> evita el bug de la consola de Windows de "estirar" el fondo hasta el margen al
-        redimensionar. Con behavior.asciiMarks usa corchetes '[ ]'; si no, medios bloques (▐ ▌). El
+        redimensionar. Con console.asciiMarks usa corchetes '[ ]'; si no, medios bloques (▐ ▌). El
         llamador decide el salto de linea y lo que va antes/despues. Reutilizado por Write-CvLog
         (avisos/errores) y por los menus (marcador 'NO SOPORTADO' de una opcion no disponible).
     #>

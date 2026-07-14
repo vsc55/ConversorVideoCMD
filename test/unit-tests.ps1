@@ -35,6 +35,7 @@ $modules = @(
     'SubtitleSRT'
     'Attachment'
     'Multiplex'
+    'OnePass'
 )
 foreach ($m in $modules) {
     Import-Module (Join-Path $Lib ("{0}.psm1" -f $m)) -Force
@@ -136,22 +137,78 @@ Write-Host "`nGet-CvConfigDefaultValue (Config)" -ForegroundColor Cyan
 Assert-Eq 'console/sepWidth = 64'         64  (Get-CvConfigDefaultValue 'console/sepWidth')
 Assert-Eq 'console/progressBarWidth = 20' 20  (Get-CvConfigDefaultValue 'console/progressBarWidth')
 Assert-Eq 'console/windowWidth = 150'    150  (Get-CvConfigDefaultValue 'console/windowWidth')
+Assert-Eq 'console/asciiMarks def false' $false (Get-CvConfigDefaultValue 'console/asciiMarks')
+Assert-Eq 'behavior/asciiMarks ya no existe' $null (Get-CvConfigDefaultValue 'behavior/asciiMarks')
+Assert-True 'help console/asciiMarks'    ((Get-CvConfigHelp).Contains('console/asciiMarks'))
 Assert-Eq 'behavior/promptTimeoutStopOnType def true' $true (Get-CvConfigDefaultValue 'behavior/promptTimeoutStopOnType')
 Assert-True 'help promptTimeoutStopOnType' ((Get-CvConfigHelp).Contains('behavior/promptTimeoutStopOnType'))
-Assert-Eq 'encode/anamorphic def square' 'square' (Get-CvConfigDefaultValue 'encode/anamorphic')
+Assert-Eq 'encode/video/anamorphic def square' 'square' (Get-CvConfigDefaultValue 'encode/video/anamorphic')
 Assert-Eq 'promptTimeout/anamorphic def 10' 10 (Get-CvConfigDefaultValue 'behavior/promptTimeout/anamorphic')
-Assert-True 'help encode/anamorphic' ((Get-CvConfigHelp).Contains('encode/anamorphic'))
-Assert-Eq 'encode/syncAdelay def true'      $true (Get-CvConfigDefaultValue 'encode/syncAdelay')
-Assert-True 'help encode/syncAdelay'        ((Get-CvConfigHelp).Contains('encode/syncAdelay'))
-Assert-Eq 'encode/autoGpuOnly def false'    $false (Get-CvConfigDefaultValue 'encode/autoGpuOnly')
-Assert-Eq 'encode/autoMaxCodec def vacio'   ''     (Get-CvConfigDefaultValue 'encode/autoMaxCodec')
-Assert-True 'help encode/autoGpuOnly'       ((Get-CvConfigHelp).Contains('encode/autoGpuOnly'))
-Assert-True 'help encode/autoMaxCodec'      ((Get-CvConfigHelp).Contains('encode/autoMaxCodec'))
-Assert-Eq 'encode/qualityCheck def off'     'off' (Get-CvConfigDefaultValue 'encode/qualityCheck')
-Assert-True 'help encode/qualityCheck'      ((Get-CvConfigHelp).Contains('encode/qualityCheck'))
-Assert-Eq 'encode/audioSyncThreshold def 2' 2.0 (Get-CvConfigDefaultValue 'encode/audioSyncThreshold')
+Assert-True 'help encode/video/anamorphic' ((Get-CvConfigHelp).Contains('encode/video/anamorphic'))
+Assert-Eq 'encode/audio/syncAdelay def true' $true (Get-CvConfigDefaultValue 'encode/audio/syncAdelay')
+Assert-True 'help encode/audio/syncAdelay'   ((Get-CvConfigHelp).Contains('encode/audio/syncAdelay'))
+Assert-Eq 'encode/video/auto/gpuOnly def false'  $false (Get-CvConfigDefaultValue 'encode/video/auto/gpuOnly')
+Assert-Eq 'encode/video/auto/maxCodec def vacio' ''     (Get-CvConfigDefaultValue 'encode/video/auto/maxCodec')
+Assert-True 'help encode/video/auto/gpuOnly'     ((Get-CvConfigHelp).Contains('encode/video/auto/gpuOnly'))
+Assert-True 'help encode/video/auto/maxCodec'    ((Get-CvConfigHelp).Contains('encode/video/auto/maxCodec'))
+Assert-Eq 'encode/video/auto/crf def 21'         21  (Get-CvConfigDefaultValue 'encode/video/auto/crf')
+Assert-Eq 'encode/video/auto/crfAv1 def 30'      30  (Get-CvConfigDefaultValue 'encode/video/auto/crfAv1')
+Assert-Eq 'encode/video/auto/qmin def 1'         1   (Get-CvConfigDefaultValue 'encode/video/auto/qmin')
+Assert-Eq 'encode/video/auto/qmax def 23'        23  (Get-CvConfigDefaultValue 'encode/video/auto/qmax')
+Assert-Eq 'encode/video/auto/level def 5'        '5' (Get-CvConfigDefaultValue 'encode/video/auto/level')
+Assert-True 'help encode/video/auto/crf'         ((Get-CvConfigHelp).Contains('encode/video/auto/crf'))
+Assert-True 'help encode/video/auto/level'       ((Get-CvConfigHelp).Contains('encode/video/auto/level'))
+# Tuning del encoder de video (fuente unica encode.video.tuning).
+Assert-Eq 'encode/video/tuning/presetNvenc def' 'slow' (Get-CvConfigDefaultValue 'encode/video/tuning/presetNvenc')
+Assert-Eq 'encode/video/tuning/presetSvtav1 def' '6'   (Get-CvConfigDefaultValue 'encode/video/tuning/presetSvtav1')
+Assert-Eq 'encode/video/tuning/rcLookahead def'  32    (Get-CvConfigDefaultValue 'encode/video/tuning/rcLookahead')
+Assert-Eq 'encode/video/tuning/refs def'         4     (Get-CvConfigDefaultValue 'encode/video/tuning/refs')
+Assert-Eq 'encode/video/tuning/tier def'         'high' (Get-CvConfigDefaultValue 'encode/video/tuning/tier')
+Assert-True 'help encode/video/tuning/presetNvenc' ((Get-CvConfigHelp).Contains('encode/video/tuning/presetNvenc'))
+Assert-Eq 'encode/audio/aacCoder def' 'twoloop' (Get-CvConfigDefaultValue 'encode/audio/aacCoder')
+Assert-True 'help encode/audio/aacCoder' ((Get-CvConfigHelp).Contains('encode/audio/aacCoder'))
+Assert-Eq 'encode/audio/encoder def' 'aac_coder' (Get-CvConfigDefaultValue 'encode/audio/encoder')
+Assert-Eq 'encode/audio/codec def'   'aac'       (Get-CvConfigDefaultValue 'encode/audio/codec')
+Assert-Eq 'encode/audio/bitrate def' '192k'      (Get-CvConfigDefaultValue 'encode/audio/bitrate')
+Assert-Eq 'encode/video/tonemapCurve def' 'bt.2390' (Get-CvConfigDefaultValue 'encode/video/tonemapCurve')
+Assert-True 'help encode/video/tonemapCurve' ((Get-CvConfigHelp).Contains('encode/video/tonemapCurve'))
+Assert-Eq 'preview/syncSeconds def 20' 20 (Get-CvConfigDefaultValue 'preview/syncSeconds')
+Assert-True 'help encode/audio/codec' ((Get-CvConfigHelp).Contains('encode/audio/codec'))
+# customProfile hereda la salida de audio de encode.audio.* (fuente unica).
+$cpDef = (Get-CvConfigDefaults).customProfile
+Assert-Eq 'customProfile.audioCodec <- encode.audio.codec' 'aac' $cpDef.audioCodec
+Assert-Eq 'customProfile.audioBitrate <- encode.audio.bitrate' '192k' $cpDef.audioBitrate
+Assert-Eq 'customProfile.audioEncoder <- encode.audio.encoder' 'aac_coder' $cpDef.audioEncoder
+Assert-Eq 'customProfile.crf <- encode.video.auto.crf' 21 $cpDef.crf
+# customProfile hereda tambien el codec de video de encode.video.* (fuente unica).
+Assert-Eq 'encode/video/videoEncoder def'  'hevc_nvenc' (Get-CvConfigDefaultValue 'encode/video/videoEncoder')
+Assert-Eq 'encode/video/videoProfile def'  'main10'     (Get-CvConfigDefaultValue 'encode/video/videoProfile')
+Assert-Eq 'encode/video/videoLevel def'    '5.0'        (Get-CvConfigDefaultValue 'encode/video/videoLevel')
+Assert-Eq 'customProfile.videoEncoder <- encode.video.videoEncoder' 'hevc_nvenc' $cpDef.videoEncoder
+Assert-Eq 'customProfile.videoProfile <- encode.video.videoProfile' 'main10'     $cpDef.videoProfile
+Assert-Eq 'customProfile.videoLevel <- encode.video.videoLevel'     '5.0'        $cpDef.videoLevel
+Assert-True 'help encode/video/videoEncoder' ((Get-CvConfigHelp).Contains('encode/video/videoEncoder'))
+Assert-Eq 'encode/video/qualityCheck def off' 'off' (Get-CvConfigDefaultValue 'encode/video/qualityCheck')
+Assert-True 'help encode/video/qualityCheck'  ((Get-CvConfigHelp).Contains('encode/video/qualityCheck'))
+Assert-Eq 'encode/audio/syncThreshold def 2' 2.0 (Get-CvConfigDefaultValue 'encode/audio/syncThreshold')
 Assert-Eq 'promptTimeout/audioSync def 15'  15  (Get-CvConfigDefaultValue 'behavior/promptTimeout/audioSync')
-Assert-True 'help encode/audioSyncThreshold' ((Get-CvConfigHelp).Contains('encode/audioSyncThreshold'))
+Assert-True 'help encode/audio/syncThreshold' ((Get-CvConfigHelp).Contains('encode/audio/syncThreshold'))
+# customProfile: paridad de campos con un profiles[] (nuevos defaults + 'auto' en videoEncoder).
+Assert-Eq 'customProfile/detectBorder def' $false      (Get-CvConfigDefaultValue 'customProfile/detectBorder')
+Assert-Eq 'customProfile/changeSize def'   ''           (Get-CvConfigDefaultValue 'customProfile/changeSize')
+Assert-Eq 'customProfile/maxWidth def 0'   0            (Get-CvConfigDefaultValue 'customProfile/maxWidth')
+Assert-Eq 'customProfile/audioEncoder def' 'aac_coder'  (Get-CvConfigDefaultValue 'customProfile/audioEncoder')
+Assert-Eq 'customProfile/audioHz def'      44100        (Get-CvConfigDefaultValue 'customProfile/audioHz')
+Assert-Eq 'customProfile/audioChannels def' 2           (Get-CvConfigDefaultValue 'customProfile/audioChannels')
+Assert-Eq 'customProfile/downmixMode def'  'default'    (Get-CvConfigDefaultValue 'customProfile/downmixMode')
+Assert-Eq 'customProfile/downmixCoeffs/center def' 0.5  (Get-CvConfigDefaultValue 'customProfile/downmixCoeffs/center')
+Assert-True 'help customProfile/detectBorder' ((Get-CvConfigHelp).Contains('customProfile/detectBorder'))
+Assert-True 'help customProfile/audioHz'      ((Get-CvConfigHelp).Contains('customProfile/audioHz'))
+# Paridad estricta: customProfile debe traer TODOS los campos que acepta un perfil de profiles[].
+$cpKeys = @((Get-CvConfigDefaults).customProfile.Keys)
+foreach ($f in @('videoEncoder','videoProfile','videoLevel','qmin','qmax','crf','detectBorder','changeSize','maxWidth','multipass','audioEncoder','audioCodec','audioBitrate','audioHz','audioChannels','downmixMode','downmixCoeffs')) {
+    Assert-True ("customProfile tiene '$f'") ($cpKeys -contains $f)
+}
 Assert-Eq 'test.syncAdelay ya no existe'    $null (Get-CvConfigDefaultValue 'test/syncAdelay')
 Assert-Eq 'debug/enabled def false'         $false (Get-CvConfigDefaultValue 'debug/enabled')
 Assert-Eq 'debug/pausePerCommand def true'  $true  (Get-CvConfigDefaultValue 'debug/pausePerCommand')
@@ -163,6 +220,8 @@ Assert-Eq 'ruta inexistente -> null'    $null (Get-CvConfigDefaultValue 'no/exis
 # ================================================================================================
 Write-Host "`nMetodos de volumen y coeficientes (Config)" -ForegroundColor Cyan
 Assert-Eq 'volume methods'  @('peak','loudnorm','aacgain') (Get-CvVolumeMethods)
+Assert-Eq   'tonemapCurve 1a = bt.2390' 'bt.2390' (@(Get-CvTonemapCurves)[0])
+Assert-True 'tonemapCurve incluye mobius' (@(Get-CvTonemapCurves) -contains 'mobius')
 Assert-Eq 'fallback = 1o (peak)' 'peak' (Get-CvVolumeMethods)[0]
 $dc = Get-CvDefaultDownmixCoeffs
 Assert-Eq 'downmix center 0.5'  0.5  $dc.Center
@@ -199,14 +258,16 @@ Assert-Eq   'all sin duplicados'       $all.Count ($all | Select-Object -Unique)
 Write-Host "`nFuentes unicas (Context / Profile)" -ForegroundColor Cyan
 Assert-Eq 'Get-CvAppName' 'ConvertVideo' (Get-CvAppName)
 Assert-Eq 'Get-CvVersion' '4.5.0'        (Get-CvVersion)
-Assert-Eq 'perfiles de serie = 11' 11 ((Get-CvProfiles | ForEach-Object { $_.Profiles } | Measure-Object).Count)
+Assert-Eq 'perfiles de serie = 13' 13 ((Get-CvProfiles | ForEach-Object { $_.Profiles } | Measure-Object).Count)
 
 # ================================================================================================
 Write-Host "`nMultipista de audio (Config / Job / MediaInfo)" -ForegroundColor Cyan
-Assert-Eq 'encode.multiAudio def true'    $true  (Get-CvConfigDefaultValue 'encode/multiAudio')
-Assert-True 'help encode/multiAudio'   ((Get-CvConfigHelp).Contains('encode/multiAudio'))
+Assert-Eq 'encode.multiAudio def true'    $true  (Get-CvConfigDefaultValue 'encode/audio/multiAudio')
+Assert-True 'help encode/audio/multiAudio'   ((Get-CvConfigHelp).Contains('encode/audio/multiAudio'))
 Assert-Eq 'test.betaMultiAudio ya no existe' $null (Get-CvConfigDefaultValue 'test/betaMultiAudio')
 Assert-Eq 'test.betaAv1 ya no existe'  $null (Get-CvConfigDefaultValue 'test/betaAv1')
+Assert-Eq 'test.betaOnePass def false' $false (Get-CvConfigDefaultValue 'test/betaOnePass')
+Assert-True 'help test/betaOnePass'    ((Get-CvConfigHelp).Contains('test/betaOnePass'))
 
 # Get-CvJobAudioTracks - formato nuevo (multipista): default primero, campos normalizados
 $jobNew = [pscustomobject]@{ skip = $false; tracks = @(
@@ -293,8 +354,8 @@ Assert-Eq 'default marcado gana'      2 (Select-CvDefaultAudio @($sA, $sB)).inde
 Assert-Eq 'sin default -> mas canales' 3 (Select-CvDefaultAudio @($sA, $sC)).index
 
 # Resolve-CvAudioTitle: borrar (Keep=false -> '') vs mantener (Keep=true -> titulo del origen)
-Assert-Eq 'audioKeepTitle def false' $false (Get-CvConfigDefaultValue 'encode/audioKeepTitle')
-Assert-True 'help encode/audioKeepTitle' ((Get-CvConfigHelp).Contains('encode/audioKeepTitle'))
+Assert-Eq 'audioKeepTitle def false' $false (Get-CvConfigDefaultValue 'encode/audio/keepTitle')
+Assert-True 'help encode/audio/keepTitle' ((Get-CvConfigHelp).Contains('encode/audio/keepTitle'))
 $infoT = [pscustomobject]@{ streams = @(
     [pscustomobject]@{
         index      = 1
@@ -628,6 +689,30 @@ Assert-Eq   'Resolve gpuOnly+h265'       'hevc_nvenc' (Resolve-CvAutoEncoder -Co
 $autoP = New-CvAutoProfile -Context $null
 Assert-Eq   'AutoProfile main10'   'main10' $autoP.VideoProfile
 Assert-True 'AutoProfile con tasa' (($null -ne $autoP.Qmax) -or ($null -ne $autoP.Crf))
+# Get-CvAutoRate: control de tasa por encoder (fuente unica de New-CvAutoProfile / Resolve-CvProfileAuto).
+Assert-Eq   'AutoRate libx264 crf 21'      21     (Get-CvAutoRate -Encoder 'libx264').Crf
+Assert-Eq   'AutoRate libsvtav1 crf 30'    30     (Get-CvAutoRate -Encoder 'libsvtav1').Crf
+Assert-Eq   'AutoRate hevc_nvenc qmax 23'  23     (Get-CvAutoRate -Encoder 'hevc_nvenc').Qmax
+Assert-Eq   'AutoRate h264_nvenc profile'  'high' (Get-CvAutoRate -Encoder 'h264_nvenc').VideoProfile
+Assert-Eq   'AutoRate av1_nvenc sin level' ''     (Get-CvAutoRate -Encoder 'av1_nvenc').VideoLevel
+# Los valores salen de config (no hardcodeados): un Context con otros valores cambia la tasa.
+$rateCtx = [pscustomobject]@{ AutoCrf = 18; AutoCrfAv1 = 26; AutoQmin = 2; AutoQmax = 20; AutoLevel = '4.1' }
+Assert-Eq   'AutoRate Context CRF x264'    18     (Get-CvAutoRate -Encoder 'libx264'    -Context $rateCtx).Crf
+Assert-Eq   'AutoRate Context CRF av1'     26     (Get-CvAutoRate -Encoder 'libsvtav1'  -Context $rateCtx).Crf
+Assert-Eq   'AutoRate Context Qmax NVENC'  20     (Get-CvAutoRate -Encoder 'hevc_nvenc' -Context $rateCtx).Qmax
+Assert-Eq   'AutoRate Context level NVENC' '4.1'  (Get-CvAutoRate -Encoder 'hevc_nvenc' -Context $rateCtx).VideoLevel
+# Resolve-CvProfileAuto: videoEncoder "auto" en config.json -> encoder concreto conservando el resto.
+$fakeFfCtx = [pscustomobject]@{ AutoGpuOnly = $false; AutoMaxCodec = ''; FFmpeg = 'Z:\no\existe\ffmpeg.exe' }
+$pAuto = New-CvProfile -VideoEncoder 'auto' -AudioCodec 'ac3' -AudioBitrate '256k' -ChangeSize '1280:-2'
+$rAuto = Resolve-CvProfileAuto -Context $fakeFfCtx -Prof $pAuto
+Assert-True 'ProfileAuto ya no es auto'     ($rAuto.VideoEncoder -ne 'auto')
+Assert-Eq   'ProfileAuto sin tope -> av1'   'av1_nvenc' $rAuto.VideoEncoder
+Assert-Eq   'ProfileAuto conserva audio'    'ac3'       $rAuto.AudioCodec
+Assert-Eq   'ProfileAuto conserva resize'   '1280:-2'   $rAuto.ChangeSize
+$rAutoH264 = Resolve-CvProfileAuto -Context ([pscustomobject]@{ AutoGpuOnly = $false; AutoMaxCodec = 'h264'; FFmpeg = 'Z:\no\existe\ffmpeg.exe' }) -Prof (New-CvProfile -VideoEncoder 'auto')
+Assert-Eq   'ProfileAuto tope h264'         'h264_nvenc' $rAutoH264.VideoEncoder
+Assert-True 'ProfileAuto rellena QP'        (($null -ne $rAutoH264.Qmin) -and ($null -ne $rAutoH264.Qmax))
+Assert-Eq   'ProfileAuto no-op si concreto' 'libx264'   (Resolve-CvProfileAuto -Context $fakeFfCtx -Prof (New-CvProfile -VideoEncoder 'libx264' -Crf 23)).VideoEncoder
 Assert-Eq   'Av1Encoders = 2'      2 (@(Get-CvAv1Encoders)).Count
 Assert-True 'Av1Encoders svtav1'   (@(Get-CvAv1Encoders) -contains 'libsvtav1')
 Assert-True 'Av1Encoders nvenc'    (@(Get-CvAv1Encoders) -contains 'av1_nvenc')
@@ -667,6 +752,22 @@ $vaNoFps = (Get-VideoArgs -Context ([pscustomobject]@{
     Multipass = 'off'
 }) -Prof $np)
 Assert-Eq 'VideoArgs sin -r (forceFps=false)' $false ($vaNoFps -contains '-r')
+# Tuning configurable (encode.video.tuning): preset/tier/lookahead/refs vienen del Context, no hardcodeado.
+$ctxTune = [pscustomobject]@{
+    Fps = '23.976'; ForceFps = $true; Multipass = 'off'
+    PresetNvenc = 'p5'; PresetX26x = 'veryslow'; PresetSvtav1 = '4'; PresetAv1Nvenc = 'p4'
+    RcLookahead = 48; Refs = 6; Tier = 'main'
+}
+$vaTn = (Get-VideoArgs -Context $ctxTune -Prof (New-CvProfile -VideoEncoder 'hevc_nvenc' -VideoProfile 'main10' -Qmin 1 -Qmax 23))
+Assert-True 'VideoArgs tuning preset NVENC' (($vaTn -join ' ') -match '-preset p5')
+Assert-True 'VideoArgs tuning tier'         (($vaTn -join ' ') -match '-tier main')
+Assert-True 'VideoArgs tuning rc-lookahead' (($vaTn -join ' ') -match '-rc-lookahead:v 48')
+$vaTx = (Get-VideoArgs -Context $ctxTune -Prof (New-CvProfile -VideoEncoder 'libx264' -Crf 23))
+Assert-True 'VideoArgs tuning preset x264'  (($vaTx -join ' ') -match '-preset veryslow')
+Assert-True 'VideoArgs tuning refs'         (($vaTx -join ' ') -match '-refs 6')
+# Fallback: sin tuning en el Context (contexto minimo), cae a los defaults de config (slow/high).
+Assert-True 'VideoArgs preset fallback slow' (($vaN -join ' ') -match '-preset slow')
+Assert-True 'VideoArgs tier fallback high'   (($vaN -join ' ') -match '-tier high')
 # Control de calidad (SSIM/VMAF): filtro -lavfi y parseo de la puntuacion.
 Assert-True 'QualityLavfi ssim'    ((Get-CvQualityLavfi -Metric 'ssim') -match 'scale2ref.*\bssim$')
 Assert-True 'QualityLavfi vmaf'    ((Get-CvQualityLavfi -Metric 'vmaf') -match 'libvmaf$')
@@ -674,6 +775,84 @@ Assert-True 'QualityLavfi sin fps' ((Get-CvQualityLavfi -Metric 'ssim') -notmatc
 Assert-Eq 'QualityScore ssim' 0.987654 (Get-CvQualityScore -Metric 'ssim' -Text '[Parsed_ssim_0 @ 0x1] SSIM Y:0.99 U:0.98 V:0.98 All:0.987654 (18.4dB)')
 Assert-Eq 'QualityScore vmaf' 95.12    (Get-CvQualityScore -Metric 'vmaf' -Text '[libvmaf @ 0x1] VMAF score: 95.12')
 Assert-True 'QualityScore invalido -> null' ($null -eq (Get-CvQualityScore -Metric 'ssim' -Text 'sin datos'))
+
+# ================================================================================================
+Write-Host "`nUna sola pasada (beta)" -ForegroundColor Cyan
+# Context sintetico con los campos que leen Test-CvOnePassEligible y Get-CvOnePassArgs (por defecto
+# elegibles: encode+encode, sincronia adelay, volumen loudnorm, sin HDR).
+function New-OpCtx {
+    param([bool]$Beta = $true, [bool]$SyncAdelay = $true, [string]$Volume = 'loudnorm', [string]$Tonemap = 'off')
+    [pscustomobject]@{
+        BetaOnePass    = $Beta
+        SyncAdelay     = $SyncAdelay
+        VolumeMethod   = $Volume
+        TonemapHdr     = $Tonemap
+        Threads        = 4
+        DefaultAudioHz = 44100
+        LoudnormI      = -16.0
+        LoudnormTP     = -1.5
+        LoudnormLRA    = 11.0
+        AudioChannels  = 2
+        DownmixMode    = 'default'
+        DownmixCoeffs  = [pscustomobject]@{ Center = 0.5; Front = 0.35; Surround = 0.15 }
+        BetaDownmix    = $false
+        AudioKeepTitle = $false
+        Attachments    = $null
+        Fps            = '23.976'
+        ForceFps       = $true
+        Multipass      = 'off'
+    }
+}
+$opProf = New-CvProfile -VideoEncoder 'libx264' -Crf 23 -AudioCodec 'aac' -AudioBitrate '192k' -AudioHz 44100
+$opJob = [pscustomobject]@{
+    video     = [pscustomobject]@{ skip = $false; index = 0; crop = ''; resize = '1920:-2'; anim = $false; hdr = $false }
+    audio     = [pscustomobject]@{ skip = $false; tracks = @([pscustomobject]@{ index = 1; is51 = $true; sync = 5.1; lang = 'spa'; default = $true }) }
+    subtitles = @()
+}
+$opInfo = [pscustomobject]@{ streams = @(
+    [pscustomobject]@{ index = 0; codec_type = 'video'; codec_name = 'h264' }
+    [pscustomobject]@{ index = 1; codec_type = 'audio'; codec_name = 'ac3'; channels = 6 }
+) }
+$opJobVCopy = [pscustomobject]@{ video = [pscustomobject]@{ skip = $true;  index = 0; crop = ''; resize = ''; anim = $false; hdr = $false }; audio = $opJob.audio; subtitles = @() }
+$opJobACopy = [pscustomobject]@{ video = $opJob.video; audio = [pscustomobject]@{ skip = $true; tracks = $opJob.audio.tracks }; subtitles = @() }
+$opJobHdr   = [pscustomobject]@{ video = [pscustomobject]@{ skip = $false; index = 0; crop = ''; resize = ''; anim = $false; hdr = $true };  audio = $opJob.audio; subtitles = @() }
+
+# Elegibilidad
+Assert-True 'OnePass elegible'              (Test-CvOnePassEligible -Context (New-OpCtx) -Job $opJob -Prof $opProf).Ok
+Assert-Eq   'OnePass no si beta off'  $false (Test-CvOnePassEligible -Context (New-OpCtx -Beta $false)       -Job $opJob -Prof $opProf).Ok
+Assert-Eq   'OnePass no si sync WAV'  $false (Test-CvOnePassEligible -Context (New-OpCtx -SyncAdelay $false) -Job $opJob -Prof $opProf).Ok
+Assert-Eq   'OnePass no si vol peak'  $false (Test-CvOnePassEligible -Context (New-OpCtx -Volume 'peak')     -Job $opJob -Prof $opProf).Ok
+Assert-Eq   'OnePass no si video copy' $false (Test-CvOnePassEligible -Context (New-OpCtx) -Job $opJobVCopy -Prof $opProf).Ok
+Assert-Eq   'OnePass no si audio copy' $false (Test-CvOnePassEligible -Context (New-OpCtx) -Job $opJobACopy -Prof $opProf).Ok
+Assert-Eq   'OnePass no si HDR tonemap' $false (Test-CvOnePassEligible -Context (New-OpCtx -Tonemap 'auto') -Job $opJobHdr -Prof $opProf).Ok
+Assert-True 'OnePass reason no vacio' (-not [string]::IsNullOrEmpty((Test-CvOnePassEligible -Context (New-OpCtx -Beta $false) -Job $opJob -Prof $opProf).Reason))
+
+# Constructor de args (puro): un solo comando con filtergraph y mapeos.
+$opArgs = Get-CvOnePassArgs -Context (New-OpCtx) -Prof $opProf -File 'X:\in.mkv' -Info $opInfo -Job $opJob -Out 'X:\out.mkv'
+$opStr  = ($opArgs -join ' ')
+Assert-True 'OnePassArgs filter_complex'   ($opArgs -contains '-filter_complex')
+Assert-True 'OnePassArgs loudnorm'         ($opStr -match 'loudnorm=')
+Assert-True 'OnePassArgs adelay (sync>0)'  ($opStr -match 'adelay=')
+Assert-True 'OnePassArgs video filtrado'   ($opStr -match '\[v\]')
+Assert-True 'OnePassArgs -ac por pista'    ($opArgs -contains '-ac:a:0')
+Assert-True 'OnePassArgs -b:a por pista'   ($opArgs -contains '-b:a:0')
+Assert-True 'OnePassArgs map_chapters 0'   (($opArgs -contains '-map_chapters') -and ($opArgs -contains '0'))
+Assert-True 'OnePassArgs -c:a aac'         (($opArgs -contains '-c:a') -and ($opArgs -contains 'aac'))
+Assert-True 'OnePassArgs -c:v libx264'     (($opArgs -contains '-c:v') -and ($opArgs -contains 'libx264'))
+Assert-True 'OnePassArgs salida matroska'  (($opArgs -contains 'matroska') -and ($opArgs[-1] -eq 'X:\out.mkv'))
+# Sin resize -> el video se mapea directo (sin etiqueta [v] del filtergraph).
+$opArgs2 = Get-CvOnePassArgs -Context (New-OpCtx) -Prof $opProf -File 'X:\in.mkv' -Info $opInfo -Job $opJobHdr -Out 'X:\out.mkv'
+Assert-True 'OnePassArgs sin resize -> map 0:0' (($opArgs2 -join ' ') -match '-map 0:0')
+# Anamorfico (SAR != 1) 'cuadrar por ancho': el resize (W:H,setsar=1) que calcula Get-CvResize en PREPARAR
+# se guarda en job.video.resize y el one-pass lo aplica en la rama de video (scale=...,setsar=1). El
+# squaring NO obliga a pipeline por etapas (solo el tonemap HDR lo hace). Regresion: bug reportado.
+$opRz     = Get-CvResize -Width 1918 -Height 1040 -Sar '962:959' -MaxWidth 0 -Anamorphic 'square'
+$opJobAnam = [pscustomobject]@{ video = [pscustomobject]@{ skip=$false; index=0; crop=''; resize=$opRz; anim=$false; hdr=$false }; audio = $opJob.audio; subtitles = @() }
+$opArgs3  = Get-CvOnePassArgs -Context (New-OpCtx) -Prof $opProf -File 'X:\in.mkv' -Info $opInfo -Job $opJobAnam -Out 'X:\out.mkv'
+$opFc3    = $opArgs3[([array]::IndexOf([object[]]$opArgs3,'-filter_complex')) + 1]
+Assert-True 'OnePass anamorfico square -> setsar' ($opRz -match 'setsar=1')
+Assert-True 'OnePass anamorfico filter_complex setsar' ($opFc3 -match 'scale=\d+:\d+,setsar=1\[v\]')
+Assert-Eq   'OnePass anamorfico elegible (SAR no bloquea)' $true (Test-CvOnePassEligible -Context (New-OpCtx) -Job $opJobAnam -Prof $opProf).Ok
 $defM = [ordered]@{
     a   = 1
     sub = [ordered]@{
@@ -795,6 +974,8 @@ Assert-Eq 'vf crop+scale orden' 'crop=10:10:0:0|scale=1280:-2' ($fc2 -join '|')
 $fc3 = Get-CvVideoFilterChain -Resize '1280:-2' -Tonemap $true -Fmt 'p010le'
 Assert-True 'vf tonemap libplacebo' (($fc3 -join '|') -match 'libplacebo')
 Assert-True 'vf tonemap format' ($fc3 -contains 'format=p010le')
+Assert-True 'vf tonemap algo def bt.2390' (($fc3 -join '|') -match 'tonemapping=bt\.2390')
+Assert-True 'vf tonemap algo configurable' (((Get-CvVideoFilterChain -Tonemap $true -TonemapCurve 'mobius') -join '|') -match 'tonemapping=mobius')
 Assert-Eq 'vf vacio -> 0' 0 (Get-CvVideoFilterChain).Count
 # Resolve-CvOneOf
 Assert-Eq 'oneof valido'      'qres' (Resolve-CvOneOf 'qres' @('off','qres','fullres') 'off')
