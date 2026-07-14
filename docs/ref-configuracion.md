@@ -34,7 +34,7 @@ Esquema completo (tras la fusión con los defaults):
   "languages":   { "audio": [...], "subtitle": [...] },
   "encode":      { "outputExtension": "mkv", "extensions": ["avi","flv","mp4","mov","mkv"], "threads": 0,
                    "video": { "videoEncoder": "hevc_nvenc", "videoProfile": "main10", "videoLevel": "5.0", "fps": "23.976", "forceFps": true, "multipass": "off", "tonemapHdr": "auto", "tonemapCurve": "bt.2390", "anamorphic": "square", "qualityCheck": "off",
-                              "auto": { "gpuOnly": false, "maxCodec": "", "crf": 23, "crfAv1": 30, "qmin": 1, "qmax": 23, "level": "5" },
+                              "auto": { "gpuOnly": false, "maxCodec": "", "crf": 23, "crfAv1": 30, "qmin": 1, "qmax": 23, "level": "5.0" },
                               "tuning": { "presetNvenc": "slow", "presetX26x": "slow", "presetSvtav1": "6", "presetAv1Nvenc": "p6", "rcLookahead": 32, "refs": 4, "tier": "high" },
                               "border": { "start": 120, "duration": 120, "samples": 6, "autoAcceptPct": 60, "autoAcceptMinMargin": 2, "autoSamples": 3, "autoDuration": 5, "minCropPct": 2 } },
                    "audio": { "hz": 44100, "channels": 2, "encoder": "aac_coder", "codec": "aac", "bitrate": "192k", "downmixMode": "default", "downmixCoeffs": { "center": 0.5, "front": 0.35, "surround": 0.15 }, "syncAdelay": true, "multiAudio": true, "keepTitle": false, "syncThreshold": 2.0, "aacCoder": "twoloop",
@@ -95,7 +95,7 @@ Las claves de vídeo van bajo **`encode.video`** y las de audio bajo **`encode.a
 |---|---|---|
 | `video.videoEncoder` | `"hevc_nvenc"` | **Codec de vídeo por defecto** (semilla del builder custom): `libx264` / `h264_nvenc` / `libx265` / `hevc_nvenc` / `libsvtav1` / `av1_nvenc` / `copy` / `auto`. Fuente única; **la hereda `customProfile.videoEncoder`**. **Ojo:** los perfiles de serie y los de `profiles[]` declaran **su propio** encoder, así que este global **no** los sustituye — solo siembra el constructor CUSTOM (opción `0`). |
 | `video.videoProfile` | `"main10"` | Perfil de codec por defecto (`main`/`main10`…); la hereda `customProfile.videoProfile`. Se ignora si no aplica al codec. |
-| `video.videoLevel` | `"5.0"` | Level por defecto (`4.0`/`4.1`/`5.0`…); la hereda `customProfile.videoLevel`. Formato del catálogo del builder (`"5.0"`), distinto de `video.auto.level` (`"5"`, para `-level:v`). |
+| `video.videoLevel` | `"5.0"` | Level por defecto (`4.0`/`4.1`/`5.0`…); la hereda `customProfile.videoLevel`. Mismo formato `"5.0"` que `video.auto.level` (ffmpeg trata `"5"`=`"5.0"`). |
 | `video.fps` | `"23.976"` | Fps de salida cuando `forceFps` está activo (`-r`). |
 | `video.forceFps` | `true` | Si `true` (por defecto), fuerza la salida a `fps` con `-r` (reajusta dup/drop los vídeos de otro fps de origen). Si `false`, **se conserva el fps de cada archivo** (no se pasa `-r`) — recomendable si tus fuentes ya vienen a distintos fps y no quieres reajustarlas. |
 | `video.multipass` | `"off"` | **2-pass de NVENC** (`-multipass`), solo `hevc_nvenc`/`h264_nvenc`: `"off"` (por defecto) · `"qres"` (1ª pasada a ¼ de resolución) · `"fullres"` (a resolución completa). Más calidad a costa de más tiempo de GPU. **No** afecta a los encoders de CPU (libx264/libx265 lo ignoran). Es el valor **global**; un perfil (custom o de `config.json`) puede **sobreescribirlo** con su propio `multipass`. |
@@ -110,7 +110,7 @@ Las claves de vídeo van bajo **`encode.video`** y las de audio bajo **`encode.a
 | `video.auto.crfAv1` | `30` | **Perfil Auto**: CRF que usa con `libsvtav1`/AV1 (**escala 0-63**, distinta a H.26x; `30` ≈ calidad de `23` en x265). |
 | `video.auto.qmin` | `1` | **Perfil Auto**: `Qmin` de los encoders **NVENC** (control por QP). |
 | `video.auto.qmax` | `23` | **Perfil Auto**: `Qmax` de los encoders **NVENC** (control por QP). |
-| `video.auto.level` | `"5"` | **Perfil Auto**: `-level:v` de H.264/H.265 **NVENC** (AV1 no usa level). |
+| `video.auto.level` | `"5.0"` | **Perfil Auto**: `-level:v` de H.264/H.265 (CPU **y** NVENC: `libx264`/`libx265`/`h264_nvenc`/`hevc_nvenc`; AV1 no usa level). ffmpeg trata `"5"`=`"5.0"`. |
 | `video.tuning` | objeto | **Tuning del encoder de vídeo** (fuente única; lo usa `Get-VideoArgs`): preset por familia, `rc-lookahead` (NVENC), `refs` (x264/x265) y `tier` (hevc). Claves abajo. |
 | `video.tuning.presetNvenc` | `"slow"` | Preset de `hevc_nvenc`/`h264_nvenc` (p. ej. `slow`, o `p1`-`p7`). |
 | `video.tuning.presetX26x` | `"slow"` | Preset de `libx264`/`libx265` (`ultrafast`…`placebo`). |
@@ -271,7 +271,7 @@ Codifica solo un tramo del principio de cada archivo, para validar un perfil/aju
 | `enabled` | `false` | Activa el modo pruebas: codifica solo los **primeros `minutes` minutos** de cada archivo (el resto se descarta). Se avisa al arrancar y en el resumen (la salida es un **recorte**, no el archivo completo). Funciona con todos los perfiles, incluido `copy` (recorta también el vídeo copiado del original y los subtítulos/capítulos al mismo tramo). | `test_on` |
 | `minutes` | `5` | Minutos que se codifican por archivo cuando `enabled` está activo (mínimo 1). | — |
 | `betaDownmix` | `false` | **🧪 BETA.** Activador del downmix `dialogue` (voz reforzada). **Doble llave**: `encode.audio.downmixMode = "dialogue"` fija el modo, pero solo refuerza la voz si además `betaDownmix = true`. Con `false`, `dialogue` cae al downmix **estándar** de ffmpeg (el worker lo avisa). Ver [explica-audio.md](explica-audio.md). | — |
-| `betaOnePass` | `false` | **🧪 BETA.** Funde audio + vídeo + multiplexado en **una sola ejecución de ffmpeg** (`-filter_complex`), evitando los temporales intermedios y dos arranques de ffmpeg. Solo aplica si **vídeo y audio se codifican** (ninguno en `copy`), la sincronía es **`adelay`** (`encode.audio.syncAdelay = true`), el volumen es **`loudnorm`** (una pasada) y **no hay tone-mapping HDR→SDR**; en cualquier otro caso se usa el pipeline por etapas. Con `false` (por defecto) **siempre** por etapas. Ver [ref-flujo.md](ref-flujo.md). | — |
+| `betaOnePass` | `false` | **🧪 BETA.** Funde audio + vídeo + multiplexado en **una sola ejecución de ffmpeg** (evita los temporales intermedios y dos arranques). `false` (por defecto) = **siempre** por etapas. La **elegibilidad** (códec/sincronía/volumen/HDR) y el flujo están en [ref-flujo.md](ref-flujo.md) (fuente única). | — |
 
 Se aplica con `-t` en la codificación de vídeo, en la de audio (incluidos el wav de sincronía y la medición de pico) y en el multiplex final. `TestLimit` (segundos) en el contexto.
 

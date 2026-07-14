@@ -18,8 +18,9 @@ function Test-CvOnePassEligible {
           - test.betaOnePass activo (doble llave beta).
           - Video y audio se CODIFICAN (ni video.skip ni audio.skip: 'copy' va por etapas).
           - Sincronia por 'adelay' (el modo clasico genera un WAV intermedio -> 2 pasadas).
-          - Volumen 'loudnorm' (una pasada); 'peak' (mide antes) y 'aacgain' (aplica despues) obligan
-            a una pasada extra por diseno.
+          - Volumen 'loudnorm' (una pasada) o 'peak' (mide con volumedetect en una pasada de analisis
+            previa —barata, como el pipeline por etapas— y aplica 'volume=XdB' en el filtergraph). Solo
+            'aacgain' queda fuera: aplica ReplayGain sobre el .m4a intermedio, que en una pasada no existe.
           - Sin tone-mapping HDR->SDR (usa un hw device Vulkan/libplacebo que complica el filtergraph).
     #>
     param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)]$Job, [Parameter(Mandatory)]$Prof)
@@ -29,7 +30,7 @@ function Test-CvOnePassEligible {
     if (-not $Context.SyncAdelay)  { return [pscustomobject]@{ Ok = $false; Reason = 'sincronia clasica (WAV), no adelay' } }
     $codec = "$($Prof.AudioCodec)".ToLower(); if (-not $codec) { $codec = 'aac' }
     $vm = Resolve-CvVolumeMethod -Method $Context.VolumeMethod -Codec $codec
-    if ($vm.Method -ne 'loudnorm') { return [pscustomobject]@{ Ok = $false; Reason = ("volumen '{0}' (requiere loudnorm)" -f $vm.Method) } }
+    if ($vm.Method -notin @('loudnorm','peak')) { return [pscustomobject]@{ Ok = $false; Reason = ("volumen '{0}' (loudnorm/peak)" -f $vm.Method) } }
     if ([bool]$Job.video.hdr -and ("$($Context.TonemapHdr)".ToLower() -ne 'off')) { return [pscustomobject]@{ Ok = $false; Reason = 'tone-mapping HDR->SDR (requiere hw device)' } }
     return [pscustomobject]@{ Ok = $true; Reason = '' }
 }
@@ -46,70 +47,51 @@ function Get-CvOnePassArgs {
     param(
         [Parameter(Mandatory)]$Context, [Parameter(Mandatory)]$Prof,
         [Parameter(Mandatory)][string]$File, [Parameter(Mandatory)]$Info,
-        [Parameter(Mandatory)]$Job, [Parameter(Mandatory)][string]$Out
+        [Parameter(Mandatory)]$Job, [Parameter(Mandatory)][string]$Out,
+        # Filtro de volumen POR PISTA (alineado a spec.Audio), resuelto en runtime por Invoke-CvOnePass
+        # cuando el metodo es 'peak' (mide el pico y calcula la ganancia). Si no se pasa, se usa el
+        # loudnorm del spec para todas (metodo 'loudnorm').
+        [string[]]$VolumeFilters = $null
     )
-    $inv = [System.Globalization.CultureInfo]::InvariantCulture
+    # Todas las DECISIONES (video/audio/subs/adjuntos/codecs) salen del spec de render (fuente unica,
+    # Resolve-CvRenderSpec); aqui solo se EMITE el comando de una pasada a partir de el.
+    $spec = Resolve-CvRenderSpec -Context $Context -Prof $Prof -Job $Job -Info $Info
 
     # ----- rama de VIDEO (crop -> scale; sin tonemap: la elegibilidad excluye HDR) -----
-    $vIdx = if ($null -ne $Job.video.index) { [int]$Job.video.index } else { -1 }
-    $vSrc = if ($vIdx -ge 0) { "0:$vIdx" } else { '0:v:0' }
-    $vf   = Get-CvVideoFilterChain -Crop "$($Job.video.crop)" -Resize "$($Job.video.resize)" -Tonemap:$false
-    $fc   = @()
-    if ($vf.Count -gt 0) {
-        $fc  += ("[{0}]{1}[v]" -f $vSrc, ($vf -join ','))
+    $fc = @()
+    if ($spec.Video.Filters.Count -gt 0) {
+        $fc  += ("[{0}]{1}[v]" -f $spec.Video.SrcPad, ($spec.Video.Filters -join ','))
         $vmap = '[v]'
     } else {
-        $vmap = $vSrc
+        $vmap = $spec.Video.SrcPad
     }
 
     # ----- ramas de AUDIO (una por pista) -----
-    $codec = "$($Prof.AudioCodec)".ToLower(); if (-not $codec) { $codec = 'aac' }
-    $hz    = if ($Prof.AudioHz) { $Prof.AudioHz } else { $Context.DefaultAudioHz }
-    $arOut = if ($codec -eq 'libopus') { 48000 } else { $hz }   # Opus solo admite 8/12/16/24/48 kHz
-    $li    = ([double]$Context.LoudnormI).ToString($inv)
-    $ltp   = ([double]$Context.LoudnormTP).ToString($inv)
-    $llra  = ([double]$Context.LoudnormLRA).ToString($inv)
-    $dmMode = Resolve-CvDownmixMode $Prof.DownmixMode $Context.DownmixMode
-    $coeffs = if ($null -ne $Prof.DownmixCoeffs) { $Prof.DownmixCoeffs } else { $Context.DownmixCoeffs }
-
-    $aTracks = @(Get-CvJobAudioTracks -Audio $Job.audio)
     $aMaps   = @()   # -map + metadata + disposition por pista de salida
     $aCodec  = @()   # -ac:a:N / -ar:a:N / -b:a:N por pista (cada una con sus canales de origen)
-    for ($ti = 0; $ti -lt $aTracks.Count; $ti++) {
-        $t   = $aTracks[$ti]
-        $idx = [int]$t.Index
-        $aStream = @($Info.streams | Where-Object { [int]$_.index -eq $idx })[0]
-        $srcCh   = if ($aStream -and $aStream.channels) { [int]$aStream.channels } else { 0 }
-        # Canales de salida (MAXIMO, sin upmix): igual que Invoke-AudioRun.
-        $chInfo  = Resolve-CvAudioChannels -ProfChannels $Prof.AudioChannels -GlobalChannels $Context.AudioChannels -SourceChannels $srcCh
-        $ch = $chInfo.Channels
-        # Downmix 5.1 -> estereo con voz reforzada (BETA, doble llave): solo si ch=2 + origen 5.1 +
-        # downmixMode='dialogue' + test.betaDownmix. Si no, el downmix estandar lo hace '-ac:a:N'.
-        $wantDialogue = ($ch -eq 2) -and [bool]$t.Is51 -and ($dmMode -eq 'dialogue')
-        $downmix      = $wantDialogue -and $Context.BetaDownmix
-
-        # Rama del filtro: sincronia (adelay) + downmix (pan) + volumen (loudnorm). loudnorm SIEMPRE
-        # (la elegibilidad lo exige), asi que la rama nunca queda vacia.
-        $parts = @()
-        if ([double]$t.Sync -gt 0) { $parts += (Get-CvAdelayFilter ([double]$t.Sync)) }
-        if ($downmix)              { $parts += (Get-CvDownmixPan -Coeffs $coeffs) }
-        $parts += ('loudnorm=I={0}:TP={1}:LRA={2}' -f $li, $ltp, $llra)
-        $fc += ("[0:{0}]{1}[a{2}]" -f $idx, ($parts -join ','), $ti)
+    for ($ti = 0; $ti -lt $spec.Audio.Count; $ti++) {
+        $tr = $spec.Audio[$ti]
+        # Rama del filtro (fuente unica Get-CvAudioFilterChain): sincronia (adelay) -> downmix (pan) ->
+        # volumen. El filtro de volumen es el loudnorm del spec, salvo que se pasen VolumeFilters (metodo
+        # 'peak': 'volume=XdB' o '' si no hay ganancia). Si la rama queda vacia (peak sin ganancia, sin
+        # sync ni downmix) se usa 'anull' para conservar la etiqueta [aN] que exige el filtergraph.
+        $volF  = if ($null -ne $VolumeFilters) { "$($VolumeFilters[$ti])" } else { $spec.Loudnorm }
+        $syncF = if ($tr.Sync -gt 0) { Get-CvAdelayFilter ([double]$tr.Sync) } else { '' }
+        $parts = Get-CvAudioFilterChain -SyncFilter $syncF -DownmixPan $tr.DownmixPan -VolumeFilter $volF
+        $chainStr = if (@($parts).Count -gt 0) { @($parts) -join ',' } else { 'anull' }
+        $fc += ("[0:{0}]{1}[a{2}]" -f $tr.Index, $chainStr, $ti)
 
         $aMaps += @('-map', ("[a{0}]" -f $ti))
-        $aMaps += @(('-metadata:s:a:{0}' -f $ti), ("language={0}" -f $(if ($t.Lang) { $t.Lang } else { 'und' })))
-        $aMaps += @(('-metadata:s:a:{0}' -f $ti), ("title={0}" -f (Resolve-CvAudioTitle -Keep $Context.AudioKeepTitle -Info $Info -Index $idx)))
-        $aMaps += @(('-disposition:a:{0}' -f $ti), $(if ([bool]$t.Default) { 'default' } else { '0' }))
+        $aMaps += @(('-metadata:s:a:{0}' -f $ti), ("language={0}" -f $tr.Lang))
+        $aMaps += @(('-metadata:s:a:{0}' -f $ti), ("title={0}" -f $tr.Title))
+        $aMaps += @(('-disposition:a:{0}' -f $ti), $(if ($tr.Default) { 'default' } else { '0' }))
 
         # Opciones de codec POR PISTA (-ac:a:N etc.): cada pista puede tener distintos canales de origen.
-        $aCodec += @(('-ac:a:{0}' -f $ti), "$ch", ('-ar:a:{0}' -f $ti), "$arOut")
-        if ($Prof.AudioBitrate -and $codec -ne 'flac') { $aCodec += @(('-b:a:{0}' -f $ti), "$($Prof.AudioBitrate)") }
+        $aCodec += @(('-ac:a:{0}' -f $ti), "$($tr.Channels)", ('-ar:a:{0}' -f $ti), "$($tr.Ar)")
+        if ($tr.Bitrate) { $aCodec += @(('-b:a:{0}' -f $ti), "$($tr.Bitrate)") }
     }
 
-    # ----- SUBTITULOS / ADJUNTOS (copiados del original, input 0) -----
-    $subs    = @($Job.subtitles | Where-Object { $_ })
-    $hasSubs = $subs.Count -gt 0
-    $keepAtt = @(Select-Attachments -Context $Context -Info $Info)
+    $hasSubs = $spec.Subtitles.Count -gt 0
 
     # ----- ensamblar el comando -----
     $ff  = @('-hide_banner','-y','-threads',"$($Context.Threads)",'-i',$File)
@@ -121,36 +103,19 @@ function Get-CvOnePassArgs {
     $ff += @('-map',$vmap,'-metadata:s:v','title=','-metadata:s:v','language=und')
     # audio (mapas + metadatos por pista)
     $ff += $aMaps
-    # subtitulos (idioma + titulo Forzados/'' + disposition forced/default)
-    if ($hasSubs) {
-        $oi = 0
-        foreach ($s in $subs) {
-            $ff += @('-map', ("0:{0}?" -f [int]$s.Index))
-            $ff += @(('-metadata:s:s:{0}' -f $oi), ("language={0}" -f $(if ($s.Lang) { $s.Lang } else { 'und' })))
-            $ff += @(('-metadata:s:s:{0}' -f $oi), ("title={0}" -f $(if ($s.Forced) { 'Forzados' } else { '' })))
-            $disp = @(); if ($s.Default) { $disp += 'default' }; if ($s.Forced) { $disp += 'forced' }
-            $ff += @(('-disposition:s:{0}' -f $oi), $(if ($disp.Count -gt 0) { $disp -join '+' } else { '0' }))
-            $oi++
-        }
-    }
-    # adjuntos (Matroska EXIGE 'filename'; el -map_metadata -1 lo borra, se re-fija)
-    $aj = 0
-    foreach ($a in $keepAtt) {
-        $ff += @('-map', ("0:{0}?" -f [int]$a.index))
-        $fn = "$(Get-Tag $a 'filename')"; $mt = "$(Get-Tag $a 'mimetype')"
-        if ($fn) { $ff += @(('-metadata:s:t:{0}' -f $aj), ("filename={0}" -f $fn)) }
-        if ($mt) { $ff += @(('-metadata:s:t:{0}' -f $aj), ("mimetype={0}" -f $mt)) }
-        $aj++
-    }
+    # subtitulos y adjuntos: misma fuente unica que el multiplex (Get-CvSubtitleMapArgs /
+    # Get-CvAttachmentMapArgs). Aqui todo viene del unico input 0 (el original).
+    $ff += (Get-CvSubtitleMapArgs   -Subtitles $spec.Subtitles    -InputIndex 0)
+    $ff += (Get-CvAttachmentMapArgs -Attachments $spec.Attachments -InputIndex 0)
     # codecs: video (Get-VideoArgs) + audio (codec global; -ac/-ar/-b:a por pista) + copy subs/adjuntos.
-    $ff += (Get-VideoArgs -Context $Context -Prof $Prof -Anim ([bool]$Job.video.anim))
-    $ff += @('-c:a',$codec)
-    if ($codec -eq 'aac') { $ff += @('-aac_coder', $(if ("$($Context.AacCoder)") { "$($Context.AacCoder)" } else { 'twoloop' })) }   # coder AAC nativo (config)
+    $ff += (Get-VideoArgs -Context $Context -Prof $Prof -Anim $spec.Video.Anim)
+    $ff += @('-c:a',$spec.AudioCodec)
+    if ($spec.AacCoder) { $ff += @('-aac_coder', $spec.AacCoder) }   # coder AAC nativo (config)
     $ff += $aCodec
-    if ($hasSubs)             { $ff += @('-c:s','copy') }
-    if ($keepAtt.Count -gt 0) { $ff += @('-c:t','copy') }
+    if ($hasSubs)                    { $ff += @('-c:s','copy') }
+    if ($spec.Attachments.Count -gt 0) { $ff += @('-c:t','copy') }
     # Modo pruebas: acotar la salida a los primeros TestLimit segundos.
-    if ($Context.TestLimit -gt 0) { $ff += @('-t',"$($Context.TestLimit)") }
+    if ($spec.TestLimit -gt 0) { $ff += @('-t',"$($spec.TestLimit)") }
     $ff += @('-f','matroska',$Out)
     return ,$ff
 }
@@ -169,7 +134,34 @@ function Invoke-CvOnePass {
     )
     $name = [System.IO.Path]::GetFileNameWithoutExtension($File)
     $out  = Get-OutputPath $Context $name
-    $ff   = Get-CvOnePassArgs -Context $Context -Prof $Prof -File $File -Info $Info -Job $Job -Out $out
+
+    # Volumen 'peak': una pasada de ANALISIS previa por pista (volumedetect) para calcular la ganancia
+    # ('volume=XdB'); el resto (video+audio+mux) sigue siendo UN solo comando. 'loudnorm' no mide (es
+    # dinamico en el propio filtergraph). Los VolumeFilters resueltos se pasan al emisor.
+    $codec  = "$($Prof.AudioCodec)".ToLower(); if (-not $codec) { $codec = 'aac' }
+    $method = (Resolve-CvVolumeMethod -Method $Context.VolumeMethod -Codec $codec).Method
+    $volFilters = $null
+    if ($method -eq 'peak') {
+        $spec   = Resolve-CvRenderSpec -Context $Context -Prof $Prof -Job $Job -Info $Info
+        $target = [double]$Context.PeakTarget
+        $inv    = [System.Globalization.CultureInfo]::InvariantCulture
+        $volFilters = @()
+        foreach ($tr in $spec.Audio) {
+            $measure = @('-i',$File,'-map',("0:{0}" -f $tr.Index),'-vn','-sn','-map_chapters','-1')
+            if ($Context.TestLimit -gt 0) { $measure += @('-t',"$($Context.TestLimit)") }
+            Start-CvStep $Context 'UNA-PASADA' 'Analizando volumen...'
+            $peak = Get-MaxVolume -Context $Context -InputArgs $measure
+            $peakTxt = if ($null -ne $peak) { '(pico {0} dB)' -f $peak } else { '(pico desconocido)' }
+            Stop-CvStep $Context 'UNA-PASADA' $true -Extra $peakTxt -OkMsg ("[OK] - Volumen analizado {0}" -f $peakTxt)
+            $gain = if ($null -ne $peak -and $peak -lt $target) { [math]::Round($target - $peak, 1) } else { 0.0 }
+            $volFilters += $(if ($gain -gt 0) { 'volume={0}dB:precision=fixed' -f $gain.ToString($inv) } else { '' })
+        }
+    }
+    $ff = if ($null -ne $volFilters) {
+        Get-CvOnePassArgs -Context $Context -Prof $Prof -File $File -Info $Info -Job $Job -Out $out -VolumeFilters $volFilters
+    } else {
+        Get-CvOnePassArgs -Context $Context -Prof $Prof -File $File -Info $Info -Job $Job -Out $out
+    }
 
     # Total del progreso: duracion (+ el mayor silencio de sincronia, que alarga la pista), acotado a -t.
     $aTracks = @(Get-CvJobAudioTracks -Audio $Job.audio)

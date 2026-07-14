@@ -43,6 +43,19 @@ Reglas:
 - `README.md` (este índice) no lleva prefijo.
 - Al añadir un documento nuevo: elige el prefijo por su tipo y añádelo a la tabla del índice de arriba.
 
+## Fuente única (no duplicar el detalle)
+
+Para que un cambio en el código **no obligue a tocar N documentos**, cada dato transversal tiene **un solo hogar canónico**; el resto de docs lo mencionan de pasada y **enlazan**, sin repetir la lista/tabla/número completos:
+
+| Dato | Hogar canónico | El resto |
+|---|---|---|
+| Args de ffmpeg por encoder (profile/level, `-pix_fmt`/profundidad, preset, lookahead, multipass) | [ref-comandos.md](ref-comandos.md) §8 | mención + enlace |
+| Nº y lista de perfiles de serie | [ref-perfiles.md](ref-perfiles.md) (tabla, autogenerada de `Get-CvProfiles`) | "de serie" + enlace; **no** escribir el número |
+| Claves y valores válidos de `config.json` (enums) | [ref-configuracion.md](ref-configuracion.md) | enlace (los valores válidos ya viven en catálogos únicos del código: `Get-Cv*Modes`/`Get-Cv*Options`) |
+| Elegibilidad/flujo de la una-pasada y por etapas | [ref-flujo.md](ref-flujo.md) | enlace |
+
+Regla: si vas a copiar una tabla/lista de otro doc, **enlaza** en su lugar. Si un valor sale de un catálogo del código (`lib\Config.psm1`/`lib\Profile.psm1`), ese catálogo es la fuente; los docs no lo re-enumeran salvo el canónico.
+
 ## Resumen en una frase
 
 `Convert.cmd` lanza `Convert.ps1`, que en una primera pasada **pregunta** toda la configuración de cada vídeo de `Original\` y la congela en un `Proceso\<nombre>.job.json`; después, en la misma ventana (o en otras ventanas en paralelo), un **worker** codifica cada archivo preparado de forma desatendida, reclamándolo con un lock atómico.

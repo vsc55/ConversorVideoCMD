@@ -69,6 +69,52 @@ function Get-CvDownmixModes {
     )
 }
 
+function Get-CvAudioEncoders {
+    <# Catalogo de la salida de audio (campo audioEncoder / encode.audio.encoder): recodificar o copiar. #>
+    @(
+        @{ Value = 'aac_coder'; Text = 'recodificar (AAC nativo)' }
+        @{ Value = 'copy';      Text = 'copiar la pista sin recodificar' }
+    )
+}
+
+function Get-CvDetectBorderModes {
+    <#
+        Catalogo de la deteccion de bordes de un perfil (detectBorder): No / Si (interactivo) / Auto.
+        Value CONSERVA el tipo real que espera el perfil: $false / $true (bool) y 'auto' (string). Lo usan
+        el builder custom (New-CustomProfile) y el editor de setup.
+    #>
+    @(
+        @{ Value = $false; Text = 'No detectar bordes' }
+        @{ Value = $true;  Text = 'Si (interactivo, con preview)' }
+        @{ Value = 'auto'; Text = 'Auto (pre-escaneo decide solo)' }
+    )
+}
+
+function Get-CvVideoProfileOptions {
+    <#
+        UNION de los perfiles (-profile:v) de todas las familias de codec (fuente unica Get-CvCodecOptions),
+        para el editor de config, que edita la clave sin saber el codec. Dedup por Value, conserva orden.
+    #>
+    $seen = @{}; $out = @()
+    foreach ($enc in @('libx265', 'libx264')) {
+        foreach ($p in (Get-CvCodecOptions -Encoder $enc).Profiles) {
+            if (-not $seen.ContainsKey("$($p.Value)")) { $seen["$($p.Value)"] = $true; $out += [pscustomobject]@{ Value = $p.Value; Text = $p.Text } }
+        }
+    }
+    return , $out
+}
+
+function Get-CvVideoLevelOptions {
+    <# UNION de los levels (-level:v) de todas las familias de codec (fuente unica Get-CvCodecOptions). #>
+    $seen = @{}; $out = @()
+    foreach ($enc in @('libx265', 'libx264')) {
+        foreach ($l in (Get-CvCodecOptions -Encoder $enc).Levels) {
+            if (-not $seen.ContainsKey("$($l.Value)")) { $seen["$($l.Value)"] = $true; $out += [pscustomobject]@{ Value = $l.Value; Text = $l.Text } }
+        }
+    }
+    return , $out
+}
+
 function ConvertTo-CvDownmixCoeffs {
     <#
         Convierte un objeto de coeficientes de config.json (camelCase center/front/surround) en
@@ -256,10 +302,12 @@ function Get-CvAutoRate {
     $isAv1  = $Encoder -in (Get-CvAv1Encoders)
     $isH264 = $Encoder -in @('libx264', 'h264_nvenc')
     $vp = if ($isH264) { 'high' } else { 'main10' }
+    # Nivel: lo llevan todos los codecs H.26x (CPU y GPU); AV1 no usa level (queda vacio).
+    $vl = if ($isAv1) { '' } else { $level }
     if ($isCpu) {
-        [pscustomobject]@{ VideoProfile = $vp; VideoLevel = ''; Qmin = $null; Qmax = $null; Crf = $(if ($isAv1) { $crfAv1 } else { $crf26x }) }
+        [pscustomobject]@{ VideoProfile = $vp; VideoLevel = $vl; Qmin = $null; Qmax = $null; Crf = $(if ($isAv1) { $crfAv1 } else { $crf26x }) }
     } else {
-        [pscustomobject]@{ VideoProfile = $vp; VideoLevel = $(if ($isAv1) { '' } else { $level }); Qmin = $qmin; Qmax = $qmax; Crf = $null }
+        [pscustomobject]@{ VideoProfile = $vp; VideoLevel = $vl; Qmin = $qmin; Qmax = $qmax; Crf = $null }
     }
 }
 
@@ -989,7 +1037,7 @@ function Select-Profile {
             Show-Menu -Title 'USAR PERFIL:' -Lines $menuLines
             $show = $false
         }
-        $sel = (Read-Host '[GLOBAL] - [PROFILE] - OPCION NUMERO (A = auto, X = salir)').Trim()
+        $sel = (Read-Host '[GLOBAL] [PROFILE] - OPCION NUMERO (A = auto, X = salir)').Trim()
         if ($sel -match '^[Xx]$') { return $null }                 # salir
         if ($sel -eq '0') {
             $custom = New-CustomProfile -Context $Context

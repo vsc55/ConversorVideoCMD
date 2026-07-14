@@ -35,7 +35,9 @@ $modules = @(
     'SubtitleSRT'
     'Attachment'
     'Multiplex'
+    'Render'
     'OnePass'
+    'ConfigEditor'
 )
 foreach ($m in $modules) {
     Import-Module (Join-Path $Lib ("{0}.psm1" -f $m)) -Force
@@ -155,7 +157,7 @@ Assert-Eq 'encode/video/auto/crf def 21'         21  (Get-CvConfigDefaultValue '
 Assert-Eq 'encode/video/auto/crfAv1 def 30'      30  (Get-CvConfigDefaultValue 'encode/video/auto/crfAv1')
 Assert-Eq 'encode/video/auto/qmin def 1'         1   (Get-CvConfigDefaultValue 'encode/video/auto/qmin')
 Assert-Eq 'encode/video/auto/qmax def 23'        23  (Get-CvConfigDefaultValue 'encode/video/auto/qmax')
-Assert-Eq 'encode/video/auto/level def 5'        '5' (Get-CvConfigDefaultValue 'encode/video/auto/level')
+Assert-Eq 'encode/video/auto/level def 5.0'      '5.0' (Get-CvConfigDefaultValue 'encode/video/auto/level')
 Assert-True 'help encode/video/auto/crf'         ((Get-CvConfigHelp).Contains('encode/video/auto/crf'))
 Assert-True 'help encode/video/auto/level'       ((Get-CvConfigHelp).Contains('encode/video/auto/level'))
 # Tuning del encoder de video (fuente unica encode.video.tuning).
@@ -227,6 +229,36 @@ $dc = Get-CvDefaultDownmixCoeffs
 Assert-Eq 'downmix center 0.5'  0.5  $dc.Center
 Assert-Eq 'downmix front 0.35'  0.35 $dc.Front
 Assert-Eq 'downmix surround .15' 0.15 $dc.Surround
+
+# ================================================================================================
+Write-Host "`nCatalogo de opciones del editor (ConfigEditor)" -ForegroundColor Cyan
+# Claves de valor libre (numero/texto) -> sin menu (null).
+Assert-Eq 'editor opts fps null'     $null (Get-CvEditorOptions -Key 'fps')
+Assert-Eq 'editor opts crf null'     $null (Get-CvEditorOptions -Key 'crf')
+Assert-Eq 'editor opts bitrate null' $null (Get-CvEditorOptions -Key 'bitrate')
+# Enums cerrados: valores esperados.
+Assert-Eq 'editor anamorphic vals' 'square,squareheight,keep' (((Get-CvEditorOptions -Key 'anamorphic').Items | ForEach-Object { $_.Value }) -join ',')
+Assert-Eq 'editor tonemapHdr vals' 'auto,off' (((Get-CvEditorOptions -Key 'tonemapHdr').Items | ForEach-Object { $_.Value }) -join ',')
+Assert-Eq 'editor qualityCheck vals' 'off,ssim,vmaf' (((Get-CvEditorOptions -Key 'qualityCheck').Items | ForEach-Object { $_.Value }) -join ',')
+# maxCodec incluye el valor '' (sin tope) con label '(vacio)'.
+$mc = (Get-CvEditorOptions -Key 'maxCodec').Items
+Assert-Eq 'editor maxCodec 1o vacio' '' $mc[0].Value
+Assert-Eq 'editor maxCodec 1o label' '(vacio)' $mc[0].Label
+# channels: Value ENTERO (no string), para conservar el tipo al guardar.
+$ch2 = (Get-CvEditorOptions -Key 'channels').Items[0]
+Assert-Eq 'editor channels tipo int' 'Int32' $ch2.Value.GetType().Name
+Assert-Eq 'editor channels 1o = 2' 2 $ch2.Value
+# detectBorder: 3 opciones incl. bool + 'auto'.
+$db = (Get-CvEditorOptions -Key 'detectBorder').Items
+Assert-Eq 'editor detectBorder 3 opts' 3 $db.Count
+Assert-Eq 'editor detectBorder false bool' 'Boolean' $db[0].Value.GetType().Name
+Assert-Eq 'editor detectBorder auto'   'auto' $db[2].Value
+# videoEncoder incluye 'auto'; tonemapCurve permite custom.
+Assert-True 'editor videoEncoder incluye auto' (((Get-CvEditorOptions -Key 'videoEncoder').Items | ForEach-Object { "$($_.Value)" }) -contains 'auto')
+Assert-Eq   'editor tonemapCurve AllowCustom' $true (Get-CvEditorOptions -Key 'tonemapCurve').AllowCustom
+Assert-Eq   'editor anamorphic cerrado'       $false (Get-CvEditorOptions -Key 'anamorphic').AllowCustom
+# codec/channels comparten catalogo con sus gemelos audioCodec/audioChannels.
+Assert-Eq 'editor codec == audioCodec' (((Get-CvEditorOptions -Key 'codec').Items | ForEach-Object { $_.Value }) -join ',') (((Get-CvEditorOptions -Key 'audioCodec').Items | ForEach-Object { $_.Value }) -join ',')
 
 # ================================================================================================
 Write-Host "`nConvertTo-CvDownmixCoeffs (Profile)" -ForegroundColor Cyan
@@ -695,6 +727,11 @@ Assert-Eq   'AutoRate libsvtav1 crf 30'    30     (Get-CvAutoRate -Encoder 'libs
 Assert-Eq   'AutoRate hevc_nvenc qmax 23'  23     (Get-CvAutoRate -Encoder 'hevc_nvenc').Qmax
 Assert-Eq   'AutoRate h264_nvenc profile'  'high' (Get-CvAutoRate -Encoder 'h264_nvenc').VideoProfile
 Assert-Eq   'AutoRate av1_nvenc sin level' ''     (Get-CvAutoRate -Encoder 'av1_nvenc').VideoLevel
+# Nivel en TODOS los H.26x, incluidos los de CPU (antes CPU quedaba sin level); AV1 CPU sigue sin level.
+Assert-Eq   'AutoRate libx264 level 5.0'   '5.0'  (Get-CvAutoRate -Encoder 'libx264').VideoLevel
+Assert-Eq   'AutoRate libx265 level 5.0'   '5.0'  (Get-CvAutoRate -Encoder 'libx265').VideoLevel
+Assert-Eq   'AutoRate libx265 profile'     'main10' (Get-CvAutoRate -Encoder 'libx265').VideoProfile
+Assert-Eq   'AutoRate libsvtav1 sin level' ''     (Get-CvAutoRate -Encoder 'libsvtav1').VideoLevel
 # Los valores salen de config (no hardcodeados): un Context con otros valores cambia la tasa.
 $rateCtx = [pscustomobject]@{ AutoCrf = 18; AutoCrfAv1 = 26; AutoQmin = 2; AutoQmax = 20; AutoLevel = '4.1' }
 Assert-Eq   'AutoRate Context CRF x264'    18     (Get-CvAutoRate -Encoder 'libx264'    -Context $rateCtx).Crf
@@ -745,6 +782,32 @@ Assert-True 'VideoArgs libsvtav1 crf'    (($vaSvt -contains '-c:v') -and ($vaSvt
 Assert-True 'VideoArgs libsvtav1 10-bit' ($vaSvt -contains 'yuv420p10le')
 $vaAv1 = (Get-VideoArgs -Context $ctxV -Prof (New-CvProfile -VideoEncoder 'av1_nvenc' -Qmin 20 -Qmax 20))
 Assert-True 'VideoArgs av1_nvenc'        (($vaAv1 -contains 'av1_nvenc') -and ($vaAv1 -contains 'constqp'))
+# AV1 (svtav1/nvenc) NO emite -profile:v/-level:v (el codec no los usa; los 10 bits van por pix_fmt).
+Assert-Eq 'VideoArgs libsvtav1 sin profile' $false ($vaSvt -contains '-profile:v')
+Assert-Eq 'VideoArgs libsvtav1 sin level'   $false ($vaSvt -contains '-level:v')
+Assert-Eq 'VideoArgs av1_nvenc sin profile' $false ($vaAv1 -contains '-profile:v')
+# h264_nvenc SI emite -profile:v/-level:v cuando el perfil los trae (bug corregido: antes los ignoraba).
+$vaH264 = (Get-VideoArgs -Context $ctxV -Prof (New-CvProfile -VideoEncoder 'h264_nvenc' -VideoProfile 'high' -VideoLevel '5' -Qmin 1 -Qmax 23))
+Assert-True 'VideoArgs h264_nvenc profile' (($vaH264 -join ' ') -match '-profile:v high')
+Assert-True 'VideoArgs h264_nvenc level'   (($vaH264 -join ' ') -match '-level:v 5')
+# Get-CvVideoCopyRemuxWarning: avisa al copiar video desde AVI (stream-copy a MKV falla por timestamps).
+Assert-True 'copy remux warn avi'      (-not [string]::IsNullOrEmpty((Get-CvVideoCopyRemuxWarning -Path 'X:\peli.avi')))
+Assert-True 'copy remux warn avi mayus'(-not [string]::IsNullOrEmpty((Get-CvVideoCopyRemuxWarning -Path 'X:\PELI.AVI')))
+Assert-Eq   'copy remux sin aviso mkv' '' (Get-CvVideoCopyRemuxWarning -Path 'X:\peli.mkv')
+Assert-Eq   'copy remux sin aviso mp4' '' (Get-CvVideoCopyRemuxWarning -Path 'X:\peli.mp4')
+# libx264 tambien emite -profile:v/-level:v cuando el perfil los trae (antes los ignoraba).
+$vaX264 = (Get-VideoArgs -Context $ctxV -Prof (New-CvProfile -VideoEncoder 'libx264' -VideoProfile 'high' -VideoLevel '5' -Crf 21))
+Assert-True 'VideoArgs libx264 profile' (($vaX264 -join ' ') -match '-profile:v high')
+Assert-True 'VideoArgs libx264 level'   (($vaX264 -join ' ') -match '-level:v 5')
+# pix_fmt segun profundidad en CPU x26x: 10 bits (main10/high10) -> yuv420p10le; 8 bits -> yuv420p.
+# (Emitir -profile:v 10-bit con pix_fmt de 8 bits hacia que x264/x265 IGNORARAN el perfil -> bug.)
+Assert-True 'VideoArgs libx264 high => 8bit'  (($vaX264 -contains 'yuv420p') -and -not ($vaX264 -contains 'yuv420p10le'))
+$vaX264_10 = (Get-VideoArgs -Context $ctxV -Prof (New-CvProfile -VideoEncoder 'libx264' -VideoProfile 'high10' -Crf 21))
+Assert-True 'VideoArgs libx264 high10 => 10le' ($vaX264_10 -contains 'yuv420p10le')
+$vaX265_8  = (Get-VideoArgs -Context $ctxV -Prof (New-CvProfile -VideoEncoder 'libx265' -VideoProfile 'main' -Crf 21))
+Assert-True 'VideoArgs libx265 main => 8bit'   (($vaX265_8 -contains 'yuv420p') -and -not ($vaX265_8 -contains 'yuv420p10le'))
+$vaX265_10 = (Get-VideoArgs -Context $ctxV -Prof (New-CvProfile -VideoEncoder 'libx265' -VideoProfile 'main10' -Crf 21))
+Assert-True 'VideoArgs libx265 main10 => 10le' ($vaX265_10 -contains 'yuv420p10le')
 Assert-True 'VideoArgs tune animation' (($vaX -join ' ') -match 'tune animation')
 $vaNoFps = (Get-VideoArgs -Context ([pscustomobject]@{
     Fps       = '23.976'
@@ -752,6 +815,16 @@ $vaNoFps = (Get-VideoArgs -Context ([pscustomobject]@{
     Multipass = 'off'
 }) -Prof $np)
 Assert-Eq 'VideoArgs sin -r (forceFps=false)' $false ($vaNoFps -contains '-r')
+# GOLDEN Get-CvVideoRunArgs (emisor puro del comando de video; libx264 + resize + indice, sin HDR)
+$vrCtx = [pscustomobject]@{ Threads=4; TonemapHdr='auto'; TonemapCurve='bt.2390'; TestLimit=0; Fps='23.976'; ForceFps=$true; Multipass='off'
+    PresetNvenc='slow'; PresetX26x='slow'; PresetSvtav1='6'; PresetAv1Nvenc='p6'; RcLookahead=32; Refs=4; Tier='high' }
+$vrArgs = Get-CvVideoRunArgs -Context $vrCtx -Prof (New-CvProfile -VideoEncoder 'libx264' -Crf 23) -File 'in.mkv' -OutTmp 'v.mkv' -Crop '' -Resize '1280:-2' -Anim $false -Index 0 -Hdr $false
+Assert-Eq 'GOLDEN video-run args' '-hide_banner -y -threads 4 -i in.mkv -an -sn -map_chapters -1 -metadata title= -metadata:s:v title= -metadata:s:v language=und -vf scale=1280:-2 -c:v libx264 -pix_fmt yuv420p -crf 23 -preset slow -refs 4 -r 23.976 -movflags +faststart -map 0:0 -f matroska v.mkv' ($vrArgs -join ' ')
+# HDR -> tonemap: init_hw_device vulkan + libplacebo + etiquetado bt709
+$vrHdr = Get-CvVideoRunArgs -Context $vrCtx -Prof (New-CvProfile -VideoEncoder 'libx264' -Crf 23) -File 'in.mkv' -OutTmp 'v.mkv' -Hdr $true
+Assert-True 'GOLDEN video-run HDR vulkan'   (($vrHdr -join ' ') -match '-init_hw_device vulkan')
+Assert-True 'GOLDEN video-run HDR libplacebo' (($vrHdr -join ' ') -match 'libplacebo=tonemapping=bt\.2390')
+Assert-True 'GOLDEN video-run HDR bt709'    (($vrHdr -join ' ') -match '-colorspace bt709')
 # Tuning configurable (encode.video.tuning): preset/tier/lookahead/refs vienen del Context, no hardcodeado.
 $ctxTune = [pscustomobject]@{
     Fps = '23.976'; ForceFps = $true; Multipass = 'off'
@@ -781,7 +854,8 @@ Write-Host "`nUna sola pasada (beta)" -ForegroundColor Cyan
 # Context sintetico con los campos que leen Test-CvOnePassEligible y Get-CvOnePassArgs (por defecto
 # elegibles: encode+encode, sincronia adelay, volumen loudnorm, sin HDR).
 function New-OpCtx {
-    param([bool]$Beta = $true, [bool]$SyncAdelay = $true, [string]$Volume = 'loudnorm', [string]$Tonemap = 'off')
+    param([bool]$Beta = $true, [bool]$SyncAdelay = $true, [string]$Volume = 'loudnorm', [string]$Tonemap = 'off',
+          [string]$DownmixMode = 'default', [bool]$BetaDownmix = $false, $Attachments = $null)
     [pscustomobject]@{
         BetaOnePass    = $Beta
         SyncAdelay     = $SyncAdelay
@@ -793,16 +867,21 @@ function New-OpCtx {
         LoudnormTP     = -1.5
         LoudnormLRA    = 11.0
         AudioChannels  = 2
-        DownmixMode    = 'default'
+        DownmixMode    = $DownmixMode
         DownmixCoeffs  = [pscustomobject]@{ Center = 0.5; Front = 0.35; Surround = 0.15 }
-        BetaDownmix    = $false
+        BetaDownmix    = $BetaDownmix
         AudioKeepTitle = $false
-        Attachments    = $null
+        Attachments    = $Attachments
         Fps            = '23.976'
         ForceFps       = $true
         Multipass      = 'off'
+        AacCoder       = 'twoloop'
+        TestLimit      = 0
+        TonemapCurve   = 'bt.2390'
     }
 }
+# Helper: extrae el valor de -filter_complex de un comando ffmpeg (para los golden de una pasada).
+function Get-OpFc($cmd) { $i = [array]::IndexOf([object[]]$cmd, '-filter_complex'); return $cmd[$i + 1] }
 $opProf = New-CvProfile -VideoEncoder 'libx264' -Crf 23 -AudioCodec 'aac' -AudioBitrate '192k' -AudioHz 44100
 $opJob = [pscustomobject]@{
     video     = [pscustomobject]@{ skip = $false; index = 0; crop = ''; resize = '1920:-2'; anim = $false; hdr = $false }
@@ -821,7 +900,8 @@ $opJobHdr   = [pscustomobject]@{ video = [pscustomobject]@{ skip = $false; index
 Assert-True 'OnePass elegible'              (Test-CvOnePassEligible -Context (New-OpCtx) -Job $opJob -Prof $opProf).Ok
 Assert-Eq   'OnePass no si beta off'  $false (Test-CvOnePassEligible -Context (New-OpCtx -Beta $false)       -Job $opJob -Prof $opProf).Ok
 Assert-Eq   'OnePass no si sync WAV'  $false (Test-CvOnePassEligible -Context (New-OpCtx -SyncAdelay $false) -Job $opJob -Prof $opProf).Ok
-Assert-Eq   'OnePass no si vol peak'  $false (Test-CvOnePassEligible -Context (New-OpCtx -Volume 'peak')     -Job $opJob -Prof $opProf).Ok
+Assert-True 'OnePass SI con vol peak'        (Test-CvOnePassEligible -Context (New-OpCtx -Volume 'peak')      -Job $opJob -Prof $opProf).Ok
+Assert-Eq   'OnePass no si vol aacgain' $false (Test-CvOnePassEligible -Context (New-OpCtx -Volume 'aacgain') -Job $opJob -Prof $opProf).Ok
 Assert-Eq   'OnePass no si video copy' $false (Test-CvOnePassEligible -Context (New-OpCtx) -Job $opJobVCopy -Prof $opProf).Ok
 Assert-Eq   'OnePass no si audio copy' $false (Test-CvOnePassEligible -Context (New-OpCtx) -Job $opJobACopy -Prof $opProf).Ok
 Assert-Eq   'OnePass no si HDR tonemap' $false (Test-CvOnePassEligible -Context (New-OpCtx -Tonemap 'auto') -Job $opJobHdr -Prof $opProf).Ok
@@ -840,6 +920,73 @@ Assert-True 'OnePassArgs map_chapters 0'   (($opArgs -contains '-map_chapters') 
 Assert-True 'OnePassArgs -c:a aac'         (($opArgs -contains '-c:a') -and ($opArgs -contains 'aac'))
 Assert-True 'OnePassArgs -c:v libx264'     (($opArgs -contains '-c:v') -and ($opArgs -contains 'libx264'))
 Assert-True 'OnePassArgs salida matroska'  (($opArgs -contains 'matroska') -and ($opArgs[-1] -eq 'X:\out.mkv'))
+# GOLDEN (red de seguridad del refactor a fuente unica): filter_complex EXACTO del job canonico
+# (vídeo scale=1920:-2 + audio adelay 5.1s -> loudnorm). Cualquier deriva lo rompe.
+$opFcIdx = [array]::IndexOf([object[]]$opArgs, '-filter_complex')
+Assert-Eq 'OnePass filter_complex EXACTO' '[0:0]scale=1920:-2[v];[0:1]adelay=5100:all=1,loudnorm=I=-16:TP=-1.5:LRA=11[a0]' $opArgs[$opFcIdx + 1]
+# Resolve-CvRenderSpec (job -> decisiones estructuradas; lo consume el emisor de una pasada)
+$spec = Resolve-CvRenderSpec -Context (New-OpCtx) -Prof $opProf -Job $opJob -Info $opInfo
+Assert-Eq 'spec video srcpad'   '0:0'          $spec.Video.SrcPad
+Assert-Eq 'spec video filtro'   'scale=1920:-2' ($spec.Video.Filters -join ',')
+Assert-Eq 'spec audio pistas'   1               $spec.Audio.Count
+Assert-Eq 'spec audio canales'  2               $spec.Audio[0].Channels   # origen 5.1 capado a 2
+Assert-Eq 'spec audio srcCh'    6               $spec.Audio[0].SourceChannels  # entrada de la decision (la reusa etapas)
+Assert-Eq 'spec audio is51'     $true           $spec.Audio[0].Is51
+Assert-Eq 'spec audio sync'     5.1             $spec.Audio[0].Sync
+Assert-Eq 'spec audio lang'     'spa'           $spec.Audio[0].Lang
+Assert-Eq 'spec audio default'  $true           $spec.Audio[0].Default
+Assert-Eq 'spec audio bitrate'  '192k'          $spec.Audio[0].Bitrate
+Assert-Eq 'spec codec'          'aac'           $spec.AudioCodec
+Assert-Eq 'spec aaccoder'       'twoloop'       $spec.AacCoder
+Assert-Eq 'spec loudnorm'       'loudnorm=I=-16:TP=-1.5:LRA=11' $spec.Loudnorm
+# --- GOLDEN adicionales de una pasada (red de seguridad Fase 0) ---
+# Multipista: 2 pistas (default 1a); pista 2 con sync 0.5s (adelay 500). Ambas 5.1/estereo -> -ac 2.
+$goM = Get-CvOnePassArgs -Context (New-OpCtx) -Prof $opProf -File 'X:\in.mkv' -Out 'X:\out.mkv' -Job ([pscustomobject]@{
+    video     = [pscustomobject]@{ skip=$false; index=0; crop=''; resize=''; anim=$false; hdr=$false }
+    audio     = [pscustomobject]@{ skip=$false; tracks=@(
+        [pscustomobject]@{ index=1; is51=$true;  sync=0;   lang='spa'; default=$true },
+        [pscustomobject]@{ index=2; is51=$false; sync=0.5; lang='eng'; default=$false }) }
+    subtitles = @() }) -Info ([pscustomobject]@{ streams=@(
+        [pscustomobject]@{ index=0; codec_type='video'; codec_name='h264' }
+        [pscustomobject]@{ index=1; codec_type='audio'; codec_name='ac3'; channels=6 }
+        [pscustomobject]@{ index=2; codec_type='audio'; codec_name='aac'; channels=2 }) })
+Assert-Eq 'GOLDEN multipista fc' '[0:1]loudnorm=I=-16:TP=-1.5:LRA=11[a0];[0:2]adelay=500:all=1,loudnorm=I=-16:TP=-1.5:LRA=11[a1]' (Get-OpFc $goM)
+Assert-True 'GOLDEN multipista acodec' (($goM -join ' ') -match ([regex]::Escape('-ac:a:0 2 -ar:a:0 44100 -b:a:0 192k -ac:a:1 2 -ar:a:1 44100 -b:a:1 192k')))
+# Downmix dialogue (beta on): la rama de la pista 5.1 lleva el pan de voz reforzada antes del loudnorm.
+$goD = Get-CvOnePassArgs -Context (New-OpCtx -DownmixMode 'dialogue' -BetaDownmix $true) -Prof $opProf -File 'X:\in.mkv' -Out 'X:\out.mkv' -Job ([pscustomobject]@{
+    video     = [pscustomobject]@{ skip=$false; index=0; crop=''; resize=''; anim=$false; hdr=$false }
+    audio     = [pscustomobject]@{ skip=$false; tracks=@([pscustomobject]@{ index=1; is51=$true; sync=0; lang='spa'; default=$true }) }
+    subtitles = @() }) -Info ([pscustomobject]@{ streams=@(
+        [pscustomobject]@{ index=0; codec_type='video'; codec_name='h264' }
+        [pscustomobject]@{ index=1; codec_type='audio'; codec_name='ac3'; channels=6 }) })
+Assert-Eq 'GOLDEN downmix dialogue fc' '[0:1]pan=stereo|c0=0.5*c2+0.35*c0+0.15*c4|c1=0.5*c2+0.35*c1+0.15*c5,loudnorm=I=-16:TP=-1.5:LRA=11[a0]' (Get-OpFc $goD)
+# Subtitulos (forzado+completo) + adjunto (fuente): mapeo exacto en el comando de una pasada.
+$goS = Get-CvOnePassArgs -Context (New-OpCtx -Attachments ([pscustomobject]@{ Keep=$true; Fonts=$true; Covers=$false; Other=$false })) -Prof $opProf -File 'X:\in.mkv' -Out 'X:\out.mkv' -Job ([pscustomobject]@{
+    video     = [pscustomobject]@{ skip=$false; index=0; crop=''; resize=''; anim=$false; hdr=$false }
+    audio     = [pscustomobject]@{ skip=$false; tracks=@([pscustomobject]@{ index=1; is51=$false; sync=0; lang='spa'; default=$true }) }
+    subtitles = @(
+        [pscustomobject]@{ Index=3; Lang='spa'; Forced=$true;  Default=$true },
+        [pscustomobject]@{ Index=4; Lang='spa'; Forced=$false; Default=$false }) }) -Info ([pscustomobject]@{ streams=@(
+        [pscustomobject]@{ index=0; codec_type='video'; codec_name='h264' }
+        [pscustomobject]@{ index=1; codec_type='audio'; codec_name='aac'; channels=2 }
+        [pscustomobject]@{ index=3; codec_type='subtitle' }
+        [pscustomobject]@{ index=4; codec_type='subtitle' }
+        [pscustomobject]@{ index=5; codec_type='attachment'; tags=[pscustomobject]@{ filename='f.ttf'; mimetype='application/x-truetype-font' } }) })
+Assert-True 'GOLDEN subs+adjuntos mapeo' (($goS -join ' ') -match ([regex]::Escape('-map 0:3? -metadata:s:s:0 language=spa -metadata:s:s:0 title=Forzados -disposition:s:0 default+forced -map 0:4? -metadata:s:s:1 language=spa -metadata:s:s:1 title= -disposition:s:1 0 -map 0:5? -metadata:s:t:0 filename=f.ttf -metadata:s:t:0 mimetype=application/x-truetype-font')))
+Assert-True 'GOLDEN subs -> -c:s copy' (($goS -join ' ') -match '-c:s copy')
+Assert-True 'GOLDEN adjuntos -> -c:t copy' (($goS -join ' ') -match '-c:t copy')
+# Peak en una pasada: VolumeFilters por pista (resueltos en runtime). Con ganancia -> volume=XdB;
+# ganancia 0 pero con sync -> solo adelay; ganancia 0 sin sync/downmix -> 'anull' (conserva [aN]).
+$goPk = Get-CvOnePassArgs -Context (New-OpCtx -Volume 'peak') -Prof $opProf -File 'X:\in.mkv' -Out 'X:\out.mkv' -VolumeFilters @('volume=3dB:precision=fixed') -Job $opJob -Info $opInfo
+Assert-Eq 'GOLDEN peak fc (gain)' '[0:0]scale=1920:-2[v];[0:1]adelay=5100:all=1,volume=3dB:precision=fixed[a0]' (Get-OpFc $goPk)
+$goPk0 = Get-CvOnePassArgs -Context (New-OpCtx -Volume 'peak') -Prof $opProf -File 'X:\in.mkv' -Out 'X:\out.mkv' -VolumeFilters @('') -Job $opJob -Info $opInfo
+Assert-Eq 'GOLDEN peak fc (gain 0, con sync)' '[0:0]scale=1920:-2[v];[0:1]adelay=5100:all=1[a0]' (Get-OpFc $goPk0)
+# ganancia 0 + sin sync + sin downmix -> anull
+$goPkNull = Get-CvOnePassArgs -Context (New-OpCtx -Volume 'peak') -Prof $opProf -File 'X:\in.mkv' -Out 'X:\out.mkv' -VolumeFilters @('') -Info $opInfo -Job ([pscustomobject]@{
+    video     = [pscustomobject]@{ skip=$false; index=0; crop=''; resize=''; anim=$false; hdr=$false }
+    audio     = [pscustomobject]@{ skip=$false; tracks=@([pscustomobject]@{ index=1; is51=$false; sync=0; lang='spa'; default=$true }) }
+    subtitles = @() })
+Assert-Eq 'GOLDEN peak fc (anull)' '[0:1]anull[a0]' (Get-OpFc $goPkNull)
 # Sin resize -> el video se mapea directo (sin etiqueta [v] del filtergraph).
 $opArgs2 = Get-CvOnePassArgs -Context (New-OpCtx) -Prof $opProf -File 'X:\in.mkv' -Info $opInfo -Job $opJobHdr -Out 'X:\out.mkv'
 Assert-True 'OnePassArgs sin resize -> map 0:0' (($opArgs2 -join ' ') -match '-map 0:0')
@@ -942,6 +1089,30 @@ Assert-Eq 'pan downmix' 'pan=stereo|c0=0.5*c2+0.35*c0+0.15*c4|c1=0.5*c2+0.35*c1+
     Front    = 0.35
     Surround = 0.15
 }))
+# Resolve-CvAudioTrackPlan (decision por pista compartida etapas/one-pass)
+$planCtx = [pscustomobject]@{ AudioChannels = 2; DownmixMode = 'dialogue'; BetaDownmix = $true
+    DownmixCoeffs = [pscustomobject]@{ Center = 0.5; Front = 0.35; Surround = 0.15 } }
+$planProf = New-CvProfile -AudioChannels 0   # 0 -> usa el global (2)
+$plan51   = Resolve-CvAudioTrackPlan -Context $planCtx -Prof $planProf -SourceChannels 6 -Is51 $true
+Assert-Eq 'plan 5.1->2 canales'   2     $plan51.Channels
+Assert-Eq 'plan 5.1 downmix on'   $true $plan51.Downmix
+Assert-True 'plan 5.1 pan no vacio' ($plan51.DownmixPan -match '^pan=stereo')
+# beta off: se pidio dialogue pero no se refuerza (pan vacio), downmix estandar via -ac
+$planCtxOff = [pscustomobject]@{ AudioChannels = 2; DownmixMode = 'dialogue'; BetaDownmix = $false
+    DownmixCoeffs = $planCtx.DownmixCoeffs }
+$planOff = Resolve-CvAudioTrackPlan -Context $planCtxOff -Prof $planProf -SourceChannels 6 -Is51 $true
+Assert-Eq 'plan beta off wantdialogue' $true  $planOff.WantDialogue
+Assert-Eq 'plan beta off downmix'      $false $planOff.Downmix
+Assert-Eq 'plan beta off pan vacio'    ''     $planOff.DownmixPan
+# origen estereo (no 5.1): sin downmix aunque el modo sea dialogue
+$planStereo = Resolve-CvAudioTrackPlan -Context $planCtx -Prof $planProf -SourceChannels 2 -Is51 $false
+Assert-Eq 'plan estereo sin downmix' $false $planStereo.Downmix
+# no upmix: objetivo 6 pero origen 2 -> capado a 2
+$planCapCtx = [pscustomobject]@{ AudioChannels = 6; DownmixMode = 'default'; BetaDownmix = $false
+    DownmixCoeffs = $planCtx.DownmixCoeffs }
+$planCap = Resolve-CvAudioTrackPlan -Context $planCapCtx -Prof $planProf -SourceChannels 2 -Is51 $false
+Assert-Eq 'plan capado canales' 2     $planCap.Channels
+Assert-Eq 'plan capado flag'    $true $planCap.Capped
 # Resolve-CvVolumeMethod
 Assert-Eq 'vol peak/aac' 'peak' (Resolve-CvVolumeMethod -Method 'peak' -Codec 'aac').Method
 Assert-Eq 'vol aacgain/aac ok' 'aacgain' (Resolve-CvVolumeMethod -Method 'aacgain' -Codec 'aac').Method
@@ -954,6 +1125,26 @@ Assert-True 'vol invalido -> valido' ((Resolve-CvVolumeMethod -Method 'xxx' -Cod
 Assert-Eq 'adelay 5s'     'adelay=5000:all=1' (Get-CvAdelayFilter 5.0)
 Assert-Eq 'adelay 0.005s' 'adelay=5:all=1'    (Get-CvAdelayFilter 0.005)
 Assert-Eq 'adelay redondeo' 'adelay=1:all=1'  (Get-CvAdelayFilter 0.0011)
+# Get-CvLoudnormFilter (string exacto, locale-safe) — fuente unica de etapas + one-pass
+Assert-Eq 'loudnorm string' 'loudnorm=I=-16:TP=-1.5:LRA=11' (Get-CvLoudnormFilter -I -16.0 -TP -1.5 -LRA 11.0)
+# Get-CvAudioFilterChain (ORDEN sync -> downmix -> volumen; omite las partes vacias). Asignacion
+# directa (como Get-CvVideoFilterChain): la funcion hace 'return ,$parts', no envolver en @().
+$acOrden = Get-CvAudioFilterChain -SyncFilter 'adelay=5000:all=1' -DownmixPan 'PAN' -VolumeFilter 'loudnorm=X'
+Assert-Eq 'audiochain orden' 'adelay=5000:all=1,PAN,loudnorm=X' ($acOrden -join ',')
+$acVol = Get-CvAudioFilterChain -VolumeFilter 'loudnorm=X'
+Assert-Eq 'audiochain solo vol' 'loudnorm=X' ($acVol -join ',')
+$acNoDmx = Get-CvAudioFilterChain -SyncFilter 'adelay=5000:all=1' -VolumeFilter 'loudnorm=X'
+Assert-Eq 'audiochain sin downmix' 'adelay=5000:all=1,loudnorm=X' ($acNoDmx -join ',')
+$acEmpty = Get-CvAudioFilterChain
+Assert-Eq 'audiochain vacio -> 0' 0 ($acEmpty.Count)
+# GOLDEN Get-CvAudioEncodeArgs (emisor puro del encode de audio)
+$aeCtx = [pscustomobject]@{ Threads=4; AacCoder='twoloop'; TestLimit=0 }
+$aeChain = Get-CvAudioFilterChain -SyncFilter 'adelay=5000:all=1' -VolumeFilter 'loudnorm=I=-16:TP=-1.5:LRA=11'
+$aeFilt = Get-CvAudioEncodeArgs -Context $aeCtx -Codec 'aac' -Channels 2 -Ar 44100 -Bitrate '192k' -SourceInput @('-i','in.mkv') -MapPre @('-map','0:1','-vn','-sn','-map_chapters','-1') -ALabel '0:1' -ChainParts $aeChain -FromWav $false -OutFile 'a0.m4a'
+Assert-Eq 'GOLDEN audio-encode filtro' '-hide_banner -y -threads 4 -i in.mkv -filter_complex [0:1]adelay=5000:all=1,loudnorm=I=-16:TP=-1.5:LRA=11[a] -map [a] -c:a aac -aac_coder twoloop -ac 2 -ar 44100 -b:a 192k a0.m4a' ($aeFilt -join ' ')
+# sin filtro (mapeo directo) + flac sin bitrate
+$aeDir = Get-CvAudioEncodeArgs -Context $aeCtx -Codec 'flac' -Channels 6 -Ar 48000 -Bitrate '' -SourceInput @('-i','in.mkv') -MapPre @('-map','0:2','-vn','-sn','-map_chapters','-1') -ALabel '0:2' -ChainParts @() -FromWav $false -OutFile 'a0.mka'
+Assert-Eq 'GOLDEN audio-encode directo' '-hide_banner -y -threads 4 -i in.mkv -map 0:2 -vn -sn -map_chapters -1 -c:a flac -ac 6 -ar 48000 a0.mka' ($aeDir -join ' ')
 # Resolve-CvAudioAhead (audio adelantado = acaba antes que el video)
 Assert-Eq 'audioAhead 5.1s'        5.1  (Resolve-CvAudioAhead -VideoEnd 5726.22 -AudioEnd 5721.12 -Threshold 2.0)
 Assert-Eq 'audioAhead bajo umbral' 0.0  (Resolve-CvAudioAhead -VideoEnd 5726.0 -AudioEnd 5725.5 -Threshold 2.0)
@@ -988,6 +1179,48 @@ Assert-Eq 'mux chap encode'    3 $mi1.Chap
 $mi2 = Resolve-CvMuxInputIndex -TempAudioCount 0 -IsEncode $false
 Assert-Eq 'mux orig (copy)'    1 $mi2.Orig
 Assert-Eq 'mux chap copy -> 0' 0 $mi2.Chap
+# Get-CvSubtitleMapArgs / Get-CvAttachmentMapArgs (fuente unica multiplex + one-pass)
+$smSubs = @([pscustomobject]@{ Index=5; Lang='spa'; Forced=$true; Default=$true }, [pscustomobject]@{ Index=6; Lang='eng'; Forced=$false; Default=$false })
+$sm = Get-CvSubtitleMapArgs -Subtitles $smSubs -InputIndex 3
+Assert-Eq 'submap exacto' '-map 3:5? -metadata:s:s:0 language=spa -metadata:s:s:0 title=Forzados -disposition:s:0 default+forced -map 3:6? -metadata:s:s:1 language=eng -metadata:s:s:1 title= -disposition:s:1 0' ($sm -join ' ')
+Assert-Eq 'submap input0' '-map 0:5?' (((Get-CvSubtitleMapArgs -Subtitles @($smSubs[0]) -InputIndex 0))[0..1] -join ' ')
+Assert-Eq 'submap vacio -> 0' 0 (Get-CvSubtitleMapArgs -Subtitles @() -InputIndex 0).Count
+# aplanado con += (patron return ,$a como Get-VideoArgs)
+$smFF = @('X'); $smFF += (Get-CvSubtitleMapArgs -Subtitles $smSubs -InputIndex 0)
+Assert-Eq 'submap += aplana' 17 $smFF.Count
+$amAtt = @([pscustomobject]@{ index=7; tags=[pscustomobject]@{ filename='f.ttf'; mimetype='font/ttf' } })
+Assert-Eq 'attmap exacto' '-map 3:7? -metadata:s:t:0 filename=f.ttf -metadata:s:t:0 mimetype=font/ttf' ((Get-CvAttachmentMapArgs -Attachments $amAtt -InputIndex 3) -join ' ')
+Assert-Eq 'attmap vacio -> 0' 0 (Get-CvAttachmentMapArgs -Attachments @() -InputIndex 0).Count
+# GOLDEN Get-CvMultiplexArgs (emisor puro del multiplex; encode + 1 audio temp + 1 sub, sin adjuntos)
+$muxCtx  = [pscustomobject]@{ Threads=4; AudioKeepTitle=$false; TestLimit=0 }
+$muxInfo = [pscustomobject]@{ streams=@([pscustomobject]@{index=0;codec_type='video'}, [pscustomobject]@{index=1;codec_type='audio'}) }
+$muxPlan = [pscustomobject]@{
+    File='X:\in.mkv'; Out='X:\out.mkv'; VideoSrc='X:\proc\v.mkv'; Vmap='0:v:0'
+    TempAudio=@([pscustomobject]@{ File='X:\proc\a0.m4a'; Index=1; Lang='spa'; Default=$true })
+    CopyAudio=@(); LegacyCopy=$false
+    Subs=@([pscustomobject]@{ Index=3; Lang='spa'; Forced=$false; Default=$true }); KeepAtt=@()
+    OrigInput=2; ChapInput=2; NeedOrig=$true; HasSubs=$true }
+Assert-Eq 'GOLDEN multiplex args' '-hide_banner -y -threads 4 -i X:\proc\v.mkv -i X:\proc\a0.m4a -i X:\in.mkv -map_metadata -1 -fflags +bitexact -map_chapters 2 -metadata title= -map 0:v:0 -metadata:s:v title= -metadata:s:v language=und -map 1:a:0 -metadata:s:a:0 language=spa -metadata:s:a:0 title= -disposition:a:0 default -map 2:3? -metadata:s:s:0 language=spa -metadata:s:s:0 title= -disposition:s:0 default -c:v copy -c:a copy -c:s copy -f matroska X:\out.mkv' ((Get-CvMultiplexArgs -Context $muxCtx -Info $muxInfo -Plan $muxPlan) -join ' ')
+# copy clasico monopista: el audio se mapea del ORIGINAL por su input (OrigInput), NO del input 0.
+# full-copy: video=original en input0 y original tambien en input1 (NeedOrig) -> OrigInput=1.
+$muxPlanCopy = [pscustomobject]@{ File='X:\in.mkv'; Out='X:\out.mkv'; VideoSrc='X:\in.mkv'; Vmap='0:v:0'
+    TempAudio=@(); CopyAudio=@(); LegacyCopy=$true; Subs=@(); KeepAtt=@(); OrigInput=1; ChapInput=0; NeedOrig=$true; HasSubs=$false; HasOrigAudio=$true }
+Assert-True 'GOLDEN multiplex copy (full) audio de OrigInput' (((Get-CvMultiplexArgs -Context $muxCtx -Info $muxInfo -Plan $muxPlanCopy) -join ' ') -match ([regex]::Escape('-map 1:a:0? -map_metadata:s:a:0 1:s:a:0')))
+# REGRESION (bug): recodificar video + copy audio monopista -> input0 es el temporal de video SIN audio;
+# el audio DEBE venir del original (OrigInput=1), no de 0:a:0 (que no existe y hacia fallar ffmpeg).
+$muxPlanEncCopy = [pscustomobject]@{ File='X:\in.mkv'; Out='X:\out.mkv'; VideoSrc='X:\proc\v.mkv'; Vmap='0:v:0'
+    TempAudio=@(); CopyAudio=@(); LegacyCopy=$true; Subs=@(); KeepAtt=@(); OrigInput=1; ChapInput=1; NeedOrig=$true; HasSubs=$false; HasOrigAudio=$true }
+$muxEncCopyStr = ((Get-CvMultiplexArgs -Context $muxCtx -Info $muxInfo -Plan $muxPlanEncCopy) -join ' ')
+Assert-True 'GOLDEN multiplex encode+copy audio de OrigInput' ($muxEncCopyStr -match ([regex]::Escape('-map 1:a:0? -map_metadata:s:a:0 1:s:a:0')))
+Assert-Eq   'GOLDEN multiplex encode+copy NO mapea 0:a:0' $false ($muxEncCopyStr -match '-map 0:a:0')
+# REGRESION (bug): fuente MUDA (sin audio) -> NO se mapea audio (ni -map ni -map_metadata:s:a:0), salida
+# solo-video; si se emitiera, ffmpeg abortaria con -22 ("matches no streams" / metadata a stream inexistente).
+$muxPlanSilent = [pscustomobject]@{ File='X:\in.mkv'; Out='X:\out.mkv'; VideoSrc='X:\proc\v.mkv'; Vmap='0:v:0'
+    TempAudio=@(); CopyAudio=@(); LegacyCopy=$true; Subs=@(); KeepAtt=@(); OrigInput=1; ChapInput=1; NeedOrig=$true; HasSubs=$false; HasOrigAudio=$false }
+$muxSilentStr = ((Get-CvMultiplexArgs -Context $muxCtx -Info $muxInfo -Plan $muxPlanSilent) -join ' ')
+Assert-Eq 'GOLDEN multiplex mudo sin -map a:0'      $false ($muxSilentStr -match '-map 1:a:0')
+Assert-Eq 'GOLDEN multiplex mudo sin map_metadata a' $false ($muxSilentStr -match '-map_metadata:s:a:0')
+Assert-True 'GOLDEN multiplex mudo mapea video'      ($muxSilentStr -match '-map 0:v:0')
 
 # ================================================================================================
 Write-Host "`nGet-CvNvencFallbackCandidates (Tools)" -ForegroundColor Cyan

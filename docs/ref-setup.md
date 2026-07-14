@@ -47,7 +47,7 @@ El bucle lo hace `setup.ps1` (en `Ensure-Tool`), iterando los candidatos de `Get
 
 Recorre el árbol del config en uso (se muestra su **nombre real** en el título: `config.json`, `config.debug.json`…):
 
-- **Escalares**: edición por tipo, con selectores especiales para colores (`background`/`foreground`), método de volumen (`method`) y booleanos. Cada opción muestra su **ayuda** (catálogo `Get-CvConfigHelp`) y su **valor por defecto** de fábrica.
+- **Escalares**: las claves con un **conjunto fijo de valores** (enums) se editan **eligiendo de un menú** en vez de teclear —bool, colores (`background`/`foreground`), método de volumen, códec/canales/encoder de audio, encoder/perfil/level/tonemap/anamórfico/qualityCheck/tier/multipass de vídeo, detección de bordes…—; el catálogo de opciones sale de `Get-CvEditorOptions` (que reutiliza las fuentes únicas de Config/Profile). Las claves abiertas (curva de tonemap, perfil/level) ofrecen además "custom" para teclear otro valor; las de valor libre (fps, bitrate, dimensiones, rutas, números…) siguen pidiendo el valor. Cada opción muestra su **ayuda** (catálogo `Get-CvConfigHelp`) y marca el **valor por defecto** de fábrica.
 - **Listas** (idiomas): añadir / eliminar / editar elementos.
 - **Objetos**: se navegan hacia dentro.
 

@@ -29,7 +29,7 @@ El material **SDR no se toca**: `Test-CvHdr` da `false` y el vídeo se recodific
 | `encode.video.tonemapHdr` | `auto` (por defecto) | Convierte a SDR BT.709 **solo** si el origen es HDR. |
 | `encode.video.tonemapHdr` | `off` | No convierte nunca; el vídeo se recodifica sin tocar el color (conserva el HDR, con el riesgo de verse lavado en SDR). |
 
-- **Profundidad de bits:** la salida SDR mantiene **10 bits** (`p010le`) si el perfil es `main10` en HEVC (evita *banding* en cielos/degradados que puede introducir el tone-mapping); 8 bits (`yuv420p`) en el resto.
+- **Profundidad de bits:** la salida SDR mantiene **10 bits** si el perfil lo pide (`main10`/`high10`), lo que evita *banding* en cielos/degradados que puede introducir el tone-mapping. El `-pix_fmt` concreto por encoder lo fija `Get-CvTonemapFormat` (ver [ref-comandos.md](ref-comandos.md) §8).
 - **Requisito:** el filtro `libplacebo` necesita una GPU con **Vulkan** (en NVIDIA, el driver normal lo trae). Por eso `Invoke-VideoRun` añade `-init_hw_device vulkan` solo cuando toca convertir. En este proyecto se eligió `libplacebo` porque `zscale`+`tonemap` (zimg) aborta en el build de ffmpeg incluido.
 
 ## Verificado (empírico)

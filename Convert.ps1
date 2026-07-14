@@ -44,6 +44,7 @@ $modules = @(
     'SubtitleSRT'
     'Attachment'
     'Multiplex'
+    'Render'
     'OnePass'
 )
 foreach ($m in $modules) {
@@ -282,6 +283,12 @@ if ($needPrepare) {
         }
 
         $vAsk   = Invoke-VideoAsk -Context $ctx -Prof $cfgProfile -Info $info -ForceBorder $forceBorder
+        # Aviso si se COPIA el vídeo desde un contenedor problemático (p. ej. AVI): el stream-copy a MKV
+        # puede fallar por timestamps. Se avisa aquí para que se sepa antes de codificar (no se bloquea).
+        if ($vAsk.Skip) {
+            $copyWarn = Get-CvVideoCopyRemuxWarning -Path $f.FullName
+            if ($copyWarn) { Write-CvLog 'VIDEO' ("[AVISO] - {0}" -f $copyWarn) -Indent 3 }
+        }
         $aAsk   = Invoke-AudioAsk -Context $ctx -Prof $cfgProfile -Info $info
         $subManual = $false
         $subSel = Select-Subtitles -Context $ctx -Info $info -Manual ([ref]$subManual)
@@ -474,8 +481,9 @@ while ($didAny) {
             }
 
             # ---------- CONVERSION ----------
-            # $aTracks lo usan tanto el pipeline por etapas como el resumen final (indice predeterminado).
-            $aTracks = @(Get-CvJobAudioTracks -Audio $job.audio)   # normaliza multipista o job antiguo monopista
+            # Spec de render (job -> decisiones): fuente unica de las pistas de audio (canales/downmix/
+            # idioma/titulo/default ya resueltos), que usan el pipeline por etapas y el resumen final.
+            $spec = Resolve-CvRenderSpec -Context $jctx -Prof $prof -Job $job -Info $info
             $failReason = ''
             $ok = $false
             # Ejecucion en UNA sola pasada (BETA) si el job es elegible; si no, pipeline por etapas.
@@ -496,7 +504,7 @@ while ($didAny) {
                 # copy: no se recodifica. Con pistas elegidas (multipista beta en copy) se copian esas del
                 # original; sin pistas (copy clasico) el multiplex cae a 0:a:0.
                 if ($jctx.Debug) { Write-CvLog 'AUDIO' '[SKIP] - se omite recodificar (copy)' } else { Write-Host ' - Audio (copy)' }
-                foreach ($t in $aTracks) {
+                foreach ($t in $spec.Audio) {
                     $audioTracks += [pscustomobject]@{
                         Source  = 'copy'
                         File    = ''
@@ -509,13 +517,11 @@ while ($didAny) {
             else {
                 # Recodificar CADA pista a su temporal (<name>_aN.*). pos 0 = predeterminada (va 1a).
                 $adur = Get-MediaDuration $info
-                for ($ti = 0; $ti -lt $aTracks.Count; $ti++) {
-                    $t = $aTracks[$ti]
-                    if ($aTracks.Count -gt 1) { Write-CvInfoStep $jctx 'AUDIO' ("Pista {0}/{1} (idioma={2}{3})" -f ($ti + 1), $aTracks.Count, $t.Lang, $(if ($t.Default) { ', predeterminada' } else { '' })) }
-                    # Canales de origen (para que audioChannels no haga upmix: es un maximo).
-                    $aStream = @($info.streams | Where-Object { [int]$_.index -eq [int]$t.Index })[0]
-                    $srcCh = if ($aStream -and $aStream.channels) { [int]$aStream.channels } else { 0 }
-                    $outA = Invoke-AudioRun -Context $jctx -Prof $prof -File $f.FullName -Sync ([double]$t.Sync) -Index ([int]$t.Index) -Is51 ([bool]$t.Is51) -Duration $adur -SourceChannels $srcCh -Pos $ti
+                for ($ti = 0; $ti -lt $spec.Audio.Count; $ti++) {
+                    $t = $spec.Audio[$ti]
+                    if ($spec.Audio.Count -gt 1) { Write-CvInfoStep $jctx 'AUDIO' ("Pista {0}/{1} (idioma={2}{3})" -f ($ti + 1), $spec.Audio.Count, $t.Lang, $(if ($t.Default) { ', predeterminada' } else { '' })) }
+                    # Canales de origen (para que audioChannels no haga upmix: es un maximo) ya resueltos en el spec.
+                    $outA = Invoke-AudioRun -Context $jctx -Prof $prof -File $f.FullName -Sync ([double]$t.Sync) -Index ([int]$t.Index) -Is51 ([bool]$t.Is51) -Duration $adur -SourceChannels ([int]$t.SourceChannels) -Pos $ti
                     if (-not $outA) { $audioOk = $false; break }
                     $audioTracks += [pscustomobject]@{
                         Source  = 'temp'
@@ -563,7 +569,7 @@ while ($didAny) {
                 }
                 # Indice de audio de origen para el resumen: la pista predeterminada (1a de la lista);
                 # con varias pistas el resumen las enumera todas de la salida (no usa este indice).
-                $sumAIdx = if ($aTracks.Count -gt 0) { [int]$aTracks[0].Index } else { -1 }
+                $sumAIdx = if ($spec.Audio.Count -gt 0) { [int]$spec.Audio[0].Index } else { -1 }
                 Write-ConversionSummary -Context $jctx -File $f.FullName -Info $info -Output $out -Elapsed $sw.Elapsed -Prof $prof -AudioIndex $sumAIdx
 
                 # Control de calidad de la salida vs origen (encode.qualityCheck; no en 'copy'). Es una

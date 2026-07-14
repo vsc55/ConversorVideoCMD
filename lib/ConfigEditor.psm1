@@ -9,6 +9,65 @@
 
 $script:CvEditDirty = $false
 
+function Get-CvEditorOptions {
+    <#
+        Catalogo de OPCIONES válidas de una clave escalar de config, para que el editor de setup muestre
+        un MENÚ en vez de pedir que se escriba el valor a mano. Se indexa por el NOMBRE de la clave (hoja).
+        Devuelve $null si la clave no tiene un conjunto fijo de opciones (número/texto libre), o un objeto
+        { AllowCustom=[bool]; Items=@([pscustomobject]@{ Value; Label; Desc }) }:
+          - Value = valor real que se guarda (con su TIPO: int para canales, '' para "sin tope", etc.).
+          - Label = texto del menú (por defecto el propio Value; especial para '' u opciones con matiz).
+          - Desc  = descripción corta que se muestra junto a la opción.
+          - AllowCustom = $true si además se permite teclear un valor no listado (p. ej. tonemapCurve, level).
+        Reutiliza los catálogos existentes (Get-CvVolumeMethods/Get-CvTonemapCurves/Get-CvVideoEncoders/
+        Get-CvAudioCodecs/Get-CvAudioChannels/Get-CvNvencMultipass/Get-CvDownmixModes) como fuente única.
+    #>
+    param([Parameter(Mandatory)][string]$Key)
+    # Convierte un catálogo @{Value;Text} (o valores planos) en Items {Value;Label;Desc}. NO define
+    # valores aquí: TODO sale de catálogos centrales (fuente única) de Config.psm1 / Profile.psm1.
+    #  - Config:  Get-CvOutputContainers/TonemapHdrModes/AnamorphicModes/QualityCheckModes/MaxCodecOptions/
+    #             NvencTiers, Get-CvVolumeMethods, Get-CvTonemapCurves.
+    #  - Profile: Get-CvVideoEncoders, Get-CvVideoProfileOptions/LevelOptions, Get-CvNvencMultipass,
+    #             Get-CvAudioEncoders, Get-CvAudioCodecs, Get-CvAudioChannels, Get-CvDownmixModes,
+    #             Get-CvDetectBorderModes.
+    $items = {
+        param($cat) @($cat | ForEach-Object {
+            if ($_ -is [string]) { [pscustomobject]@{ Value = $_; Label = "$_"; Desc = '' } }
+            else { [pscustomobject]@{ Value = $_.Value; Label = $(if ("$($_.Value)" -eq '') { '(vacio)' } else { "$($_.Value)" }); Desc = "$($_.Text)" } }
+        })
+    }
+    $ret = { param($cat, [bool]$custom) [pscustomobject]@{ AllowCustom = $custom; Items = (& $items $cat) } }
+    switch ($Key) {
+        # --- contenedor / vídeo ---
+        'outputExtension' { return (& $ret (Get-CvOutputContainers) $false) }
+        'videoEncoder'    { return [pscustomobject]@{ AllowCustom = $false; Items = ((& $items (Get-CvVideoEncoders)) + [pscustomobject]@{ Value = 'auto'; Label = 'auto'; Desc = 'mejor encoder del equipo (se resuelve al preparar)' }) } }
+        'videoProfile'    { return (& $ret (Get-CvVideoProfileOptions) $true) }   # codec-dependiente -> permite custom
+        'videoLevel'      { return (& $ret (Get-CvVideoLevelOptions)   $true) }
+        'level'           { return (& $ret (Get-CvVideoLevelOptions)   $true) }
+        'multipass'       { return (& $ret (Get-CvNvencMultipass) $false) }
+        'tonemapHdr'      { return (& $ret (Get-CvTonemapHdrModes) $false) }
+        'tonemapCurve'    { return (& $ret (Get-CvTonemapCurves) $true) }         # libplacebo admite más -> custom
+        'anamorphic'      { return (& $ret (Get-CvAnamorphicModes) $false) }
+        'qualityCheck'    { return (& $ret (Get-CvQualityCheckModes) $false) }
+        'maxCodec'        { return (& $ret (Get-CvMaxCodecOptions) $false) }
+        'tier'            { return (& $ret (Get-CvNvencTiers) $false) }
+        'detectBorder'    { return (& $ret (Get-CvDetectBorderModes) $false) }
+        # --- audio ---
+        'method'          { return (& $ret (Get-CvVolumeMethods) $false) }
+        'encoder'         { return (& $ret (Get-CvAudioEncoders) $false) }
+        'audioEncoder'    { return (& $ret (Get-CvAudioEncoders) $false) }
+        'codec'           { return (& $ret (Get-CvAudioCodecs) $false) }
+        'audioCodec'      { return (& $ret (Get-CvAudioCodecs) $false) }
+        'channels'        { return [pscustomobject]@{ AllowCustom = $false; Items = @(Get-CvAudioChannels | ForEach-Object { [pscustomobject]@{ Value = [int]$_.Value; Label = "$($_.Value)"; Desc = "$($_.Text)" } }) } }
+        'audioChannels'   { return [pscustomobject]@{ AllowCustom = $false; Items = @(Get-CvAudioChannels | ForEach-Object { [pscustomobject]@{ Value = [int]$_.Value; Label = "$($_.Value)"; Desc = "$($_.Text)" } }) } }
+        'downmixMode'     { return (& $ret (Get-CvDownmixModes) $false) }
+        # --- consola (colores del .NET ConsoleColor, no un literal de datos) ---
+        'background'      { return (& $ret ([enum]::GetNames([System.ConsoleColor])) $false) }
+        'foreground'      { return (& $ret ([enum]::GetNames([System.ConsoleColor])) $false) }
+    }
+    return $null
+}
+
 function Read-CvEditorPause {
     <# Pausa "ENTER para continuar" propia del editor (equivalente a la de setup), para poder leer un
        mensaje antes de que el siguiente Clear-Host lo borre. #>
@@ -25,6 +84,37 @@ function Edit-Scalar {
     param([string]$Key, $Current, [string]$Kind, $Default = $null)
     $inv = [System.Globalization.CultureInfo]::InvariantCulture
 
+    # 1) Opciones ENUMERADAS: si la clave tiene un catálogo de valores, se ofrece un MENÚ (en vez de
+    #    escribir a mano). Va ANTES que 'bool' para cubrir casos de 3 opciones (p. ej. detectBorder:
+    #    false/true/auto, que por defecto es bool pero admite 'auto').
+    $spec = Get-CvEditorOptions -Key $Key
+    if ($null -ne $spec) {
+        $items  = @($spec.Items)
+        $labels = @($items | ForEach-Object { $_.Label })
+        $descs  = @($items | ForEach-Object { $_.Desc })
+        $custom = 'custom (escribir otro valor)'
+        # Índice por defecto: marca el DEFAULT de fábrica (o, si no está, el actual).
+        $byVal = { param($v) $i = 0; for (; $i -lt $items.Count; $i++) { if ("$($items[$i].Value)" -eq "$v") { return $i } }; return -1 }
+        $di = & $byVal $Default
+        if ($di -lt 0) { $di = & $byVal $Current }
+        if ($di -lt 0) { $di = 0 }
+        $menuOpts  = if ($spec.AllowCustom) { $labels + $custom } else { $labels }
+        $menuDescs = if ($spec.AllowCustom) { $descs  + 'teclear un valor no listado' } else { $descs }
+        $p = Select-FromList -Title ("{0} (actual: {1})" -f $Key, $Current) -Options $menuOpts -Descriptions $menuDescs -NoneLabel 'cancelar (dejar actual)' -DefaultIndex ($di + 1)
+        if ($p -eq '') { return @{ changed = $false } }
+        if ($spec.AllowCustom -and $p -eq $custom) {
+            $c = (Read-Host ("   {0}: nuevo valor [ENTER=cancelar]" -f $Key)).Trim()
+            if ($c -eq '') { return @{ changed = $false } }
+            return @{ changed = $true; value = "$c" }
+        }
+        # Mapear la etiqueta elegida de vuelta a su Value (conserva el TIPO: int, bool, string...).
+        $sel = $items | Where-Object { $_.Label -eq $p } | Select-Object -First 1
+        return @{
+            changed = $true
+            value   = $sel.Value
+        }
+    }
+
     if ($Kind -eq 'bool') {
         $def = if ($Default) { 1 } else { 2 }   # marca el DEFAULT de fabrica (no el actual)
         $p = Select-FromList -Title ("{0} (actual: {1})" -f $Key, "$Current".ToLower()) -Options @('true','false') -NoneLabel 'cancelar (dejar actual)' -DefaultIndex $def
@@ -32,54 +122,6 @@ function Edit-Scalar {
         return @{
             changed = $true
             value   = ($p -eq 'true')
-        }
-    }
-    # Selectores especiales por nombre de clave.
-    $colorKeys = @(
-        'background'
-        'foreground'
-    )
-    if ($Key -in $colorKeys) {
-        $colors = [enum]::GetNames([System.ConsoleColor])
-        $def = [array]::IndexOf($colors, "$Default") + 1
-        if ($def -lt 1) { $def = [array]::IndexOf($colors, "$Current") + 1 }
-        if ($def -lt 1) { $def = 1 }
-        $p = Select-FromList -Title ("{0} (actual: {1})" -f $Key, $Current) -Options $colors -NoneLabel 'cancelar (dejar actual)' -DefaultIndex $def
-        if ($p -eq '') { return @{ changed = $false } }
-        return @{
-            changed = $true
-            value   = "$p"
-        }
-    }
-    if ($Key -eq 'method') {
-        $opts = @(Get-CvVolumeMethods)
-        $def = [array]::IndexOf($opts, "$Default") + 1
-        if ($def -lt 1) { $def = [array]::IndexOf($opts, "$Current") + 1 }
-        if ($def -lt 1) { $def = 1 }
-        $p = Select-FromList -Title ("method (actual: {0})" -f $Current) -Options $opts -NoneLabel 'cancelar (dejar actual)' -DefaultIndex $def
-        if ($p -eq '') { return @{ changed = $false } }
-        return @{
-            changed = $true
-            value   = "$p"
-        }
-    }
-    if ($Key -eq 'tonemapCurve') {
-        # Curvas de libplacebo (Get-CvTonemapCurves). NO es lista cerrada: 'custom' deja escribir otra.
-        $opts   = @(Get-CvTonemapCurves)
-        $custom = 'custom (escribir otra)'
-        $def = [array]::IndexOf($opts, "$Default") + 1
-        if ($def -lt 1) { $def = [array]::IndexOf($opts, "$Current") + 1 }
-        if ($def -lt 1) { $def = 1 }
-        $p = Select-FromList -Title ("tonemapCurve (actual: {0})" -f $Current) -Options ($opts + $custom) -NoneLabel 'cancelar (dejar actual)' -DefaultIndex $def
-        if ($p -eq '') { return @{ changed = $false } }
-        if ($p -eq $custom) {
-            $c = (Read-Host '   Curva de tonemapping de libplacebo (p. ej. st2094-40)').Trim()
-            if ($c -eq '') { return @{ changed = $false } }
-            return @{ changed = $true; value = "$c" }
-        }
-        return @{
-            changed = $true
-            value   = "$p"
         }
     }
 
@@ -186,7 +228,7 @@ function Edit-Node {
             # Perfiles propios: array de objetos; el editor de listas (escalares) los corromperia.
             Clear-Host
             Write-CvLog 'SETUP' ("Los perfiles propios se editan a mano en {0} (seccion 'profiles')." -f $CfgName)
-            Write-CvLog 'SETUP' 'Se anaden al menu USAR PERFIL como 8, 9, ... (ver docs/ref-comandos.md).'
+            Write-CvLog 'SETUP' 'Se anaden al menu USAR PERFIL a continuacion de los de serie (14, 15, ...; ver docs/ref-perfiles.md).'
             Read-CvEditorPause
             continue
         }

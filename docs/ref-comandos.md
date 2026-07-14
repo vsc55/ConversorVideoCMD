@@ -196,21 +196,24 @@ ffmpeg -hide_banner -y -threads <N> -i <file> -an -sn -map_chapters -1 \
 ### h264_nvenc (H.264 GPU)
 ```
 -c:v h264_nvenc -pix_fmt yuv420p -preset slow
+[-profile:v <profile>] [-level:v <level>]
 <-rc constqp -qp <q>  |  -qmin <qmin> -qmax <qmax>>
 [-multipass <qres|fullres>] -rc-lookahead:v 32 [-r <fps>] -movflags +faststart
 ```
 
 ### libx264 (H.264 CPU)
 ```
--c:v libx264 -pix_fmt yuv420p [-crf <crf>] -preset slow [-tune animation] -refs 4 -r <fps> -movflags +faststart
+-c:v libx264 -pix_fmt <yuv420p10le|yuv420p> [-crf <crf>] -preset slow [-profile:v <p>] [-level:v <l>] [-tune animation] -refs 4 -r <fps> -movflags +faststart
 ```
 
 ### libx265 (H.265 CPU)
 ```
--c:v libx265 -pix_fmt yuv420p [-crf <crf>] -preset slow [-profile:v <p>] [-level:v <l>] [-tune animation] -refs 4 -r <fps> -movflags +faststart
+-c:v libx265 -pix_fmt <yuv420p10le|yuv420p> [-crf <crf>] -preset slow [-profile:v <p>] [-level:v <l>] [-tune animation] -refs 4 -r <fps> -movflags +faststart
 ```
 
 Notas:
+- **profile/level en todos los H.26x**: `-profile:v`/`-level:v` se emiten cuando el perfil los define, tanto en NVENC (`hevc_nvenc`/`h264_nvenc`) como en CPU (`libx264`/`libx265`). AV1 (`libsvtav1`/`av1_nvenc`) no los usa.
+- **10 bits en CPU**: con perfil `main10` (x265) o `high10` (x264) el `pix_fmt` es `yuv420p10le` (si no, `yuv420p` 8 bits). Debe casar con el perfil: emitir un perfil de 10 bits con `pix_fmt` de 8 bits hace que el encoder **descarte el perfil**.
 - `-tune animation` solo se añade si en PREPARAR se respondió que el vídeo es animación (solo se pregunta con `libx264`/`libx265`).
 - `constqp` se usa cuando `qmin == qmax`; si no, `-qmin`/`-qmax`.
 - Qué significan `crf`/`qmin`/`qmax`/`qp`, para qué sirven y cómo elegirlos (escala 0–51): [explica-control-tasa.md](explica-control-tasa.md).
@@ -225,11 +228,11 @@ Une vídeo (temporal recodificado, o el original si es `copy`) + audio (`.m4a`, 
 ffmpeg -hide_banner -y -threads <N> \
   -i <video>            # input 0 (temporal .mkv o el original)
   [-i <name>.m4a]       # input 1 (audio recodificado, si existe)
-  [-i <file>]           # input N (subtítulos/adjuntos/capítulos del original)
+  [-i <file>]           # input N (subtítulos/adjuntos/capítulos + audio en copy, del original)
   -map_metadata -1 -fflags +bitexact -map_chapters <in> \       # limpieza de metadatos + capítulos del original
   -metadata title= \
   <-map 0:v:0 (encode: intermedio, 1 pista)   |   -map 0:<idx_video> (copy: pista elegida del original)> -metadata:s:v title= -metadata:s:v language=und \
-  <-map 1:a:0 -metadata:s:a title= -metadata:s:a language=<lang>   |   -map 0:a:0 -map_metadata:s:a:0 0:s:a:0> \
+  <-map 1:a:0 -metadata:s:a title= -metadata:s:a language=<lang>   |   -map <N>:a:0? -map_metadata:s:a:0 <N>:s:a:0 (copy: del original, input N)> \
   # subtítulos: primero forzados, luego completos:
   -map <sub_input>:<idx>? -metadata:s:s:<n> language=<lang> -metadata:s:s:<n> title=<"Forzados"|""> -disposition:s:<n> <default+forced|0> \
   # por cada adjunto conservado (si postprocess.attachments.keep):
@@ -240,6 +243,8 @@ ffmpeg -hide_banner -y -threads <N> \
 **Subtítulos:** del idioma preferido se conservan **todos**, clasificados en **forzado** y **completo** (por flag/título o por tamaño de cues; ver [ref-perfiles.md](ref-perfiles.md)). El **forzado** → título `Forzados` y disposition `default+forced`; el **completo** → título en blanco y **sin** disposition (`0`, ni default ni forced). Orden: forzados antes que completos. Si ninguno es del idioma preferido, se pregunta cuáles conservar. La lógica está en `Select-Subtitles`/`Split-CvSubtitlesByRole`/`ConvertTo-SubSel` en [Subtitle.psm1](../lib/Subtitle.psm1).
 
 **Capítulos:** se conservan del original con `-map_chapters <in>` (en modo copy el input 0 ya es el original; al recodificar, el intermedio se creó con `-map_chapters -1`, así que se toman del input del original).
+
+**Audio en copy:** la pista se mapea del **original** por su índice de input (`<N>:a:0`, el input del original), **no** de `0:a:0` — al recodificar el vídeo, el input 0 es el temporal (creado con `-an`, sin audio). El `?` lo hace opcional: si la **fuente no tiene audio** (vídeo mudo) el mapeo se **omite** y sale un MKV **solo-vídeo** (emitir el mapa/`-map_metadata` a un stream inexistente haría abortar ffmpeg). Al copiar vídeo desde **AVI**, PREPARAR **avisa** de que el stream-copy a MKV puede fallar por timestamps (usar un perfil que recodifique).
 
 ### Limpieza de metadatos (evitar "Etiquetas" que no están en el original)
 

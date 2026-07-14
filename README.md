@@ -100,7 +100,7 @@ Todo es configurable en `config.json` (detalle en [ref-configuracion.md](docs/re
 | **Preparar → worker** | Congela las decisiones en `Proceso\<nombre>.job.json` y codifica desatendido |
 | **Ejecución en paralelo** | Varias ventanas con lock atómico; reintentos por archivo |
 | **Progreso en vivo** | % + ETA + velocidad + bitrate + cuantizador `q` |
-| **Perfiles** | 13 de serie + propios en `config.json` + builder custom interactivo |
+| **Perfiles** | de serie + propios en `config.json` + builder custom interactivo |
 | **Una sola pasada** 🧪 | Audio + vídeo + multiplexado en un único ffmpeg (beta) |
 | **Validación de encoders por GPU** | Sondea qué NVENC soporta la GPU real y lo cachea |
 | **Timeouts de prompt** | Auto-aceptar por tipo de pregunta tras N segundos |

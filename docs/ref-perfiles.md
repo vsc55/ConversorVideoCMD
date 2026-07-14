@@ -58,7 +58,7 @@ Elige **solo** el mejor encoder que soporta **este equipo** usando la sonda de G
 
 Ejemplos (con `av1_nvenc` no soportado y `hevc_nvenc` sí, como una GTX 1070): sin tope → `libsvtav1` (AV1 por CPU, el códec más alto soportado); `encode.video.auto.maxCodec = "h265"` → `hevc_nvenc` (GPU H.265); `encode.video.auto.gpuOnly = true` → `hevc_nvenc`.
 
-El **control de tasa** que aplica Auto al encoder resuelto sale de `config.json` (no está hardcodeado), todo bajo **`encode.video.auto`**: **`crf`** (libx264/libx265, def. `23`), **`crfAv1`** (libsvtav1/AV1, def. `30` — otra escala 0-63), **`qmin`**/**`qmax`** (QP de los NVENC, def. `1`/`23`) y **`level`** (`-level:v` de H.264/H.265 NVENC, def. `5`; AV1 no usa level). La profundidad (`main10` en H.265/AV1, `high` 8 bits en H.264) la fija el códec.
+El **control de tasa** que aplica Auto al encoder resuelto sale de `config.json` (no está hardcodeado), todo bajo **`encode.video.auto`**: **`crf`** (libx264/libx265, def. `23`), **`crfAv1`** (libsvtav1/AV1, def. `30` — otra escala 0-63), **`qmin`**/**`qmax`** (QP de los NVENC, def. `1`/`23`) y **`level`** (`-level:v` de H.264/H.265, CPU **y** NVENC, def. `5.0`; AV1 no usa level). La profundidad (`main10` en H.265/AV1, `high` 8 bits en H.264) la fija el códec.
 
 ### `videoEncoder: "auto"` en un perfil propio
 
@@ -86,7 +86,7 @@ La sección `profiles` de `config.json` permite definir perfiles **adicionales**
 | Campo | Valores | Uso |
 |---|---|---|
 | `VideoEncoder` | `copy` / `hevc_nvenc` / `libx265` / `h264_nvenc` / `libx264` / `libsvtav1` / `av1_nvenc` / `auto` | Codec de vídeo. `libsvtav1` = AV1 por CPU (SVT-AV1, **validado**); `av1_nvenc` = AV1 por GPU NVIDIA (RTX 40+), etiquetado **`[SIN PROBAR]`** en el menú (sin validar en hardware compatible; el motor lo codifica igual). **`auto`** (solo en perfiles de `config.json`) = resuelve el mejor encoder del equipo al preparar; ver [§ videoEncoder: "auto"](#videoencoder-auto-en-un-perfil-propio). |
-| `VideoProfile` | `main10` / `main` / `''` | En H.264/H.265, `-profile:v`. En AV1 **no** se pasa `-profile:v`: solo selecciona la profundidad de bits (`main10` = 10 bits). `main10` → `-pix_fmt p010le` (NVENC/HEVC) o `yuv420p10le` (SVT-AV1). |
+| `VideoProfile` | `main10` / `main` / `high10` / `high` / `''` | En H.264/H.265, `-profile:v`. En AV1 **no** se pasa `-profile:v`: solo selecciona la profundidad (`main10`/`high10` = 10 bits). El `-pix_fmt` exacto por encoder lo fija `Get-VideoArgs` (ver [ref-comandos.md](ref-comandos.md) §8). |
 | `VideoLevel` | ej. `5`, `4.1`, `''` | `-level:v` (H.264/H.265). **AV1 lo ignora.** |
 | `Qmin`, `Qmax` | 0–51 / `null` | NVENC (incl. `av1_nvenc`): `-qmin`/`-qmax`. Si `Qmin == Qmax` → `-rc constqp -qp`. Qué son y cómo elegirlos: [explica-control-tasa.md](explica-control-tasa.md). |
 | `Crf` | 0–51 (0–63 en AV1) / `null` | CPU (libx264/libx265/**libsvtav1**): `-crf`. Qué es y cómo elegirlo: [explica-control-tasa.md](explica-control-tasa.md). |

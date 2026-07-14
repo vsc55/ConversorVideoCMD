@@ -39,6 +39,35 @@ function Resolve-CvDownmixMode {
     return "$GlobalMode".ToLower()
 }
 
+function Resolve-CvAudioTrackPlan {
+    <#
+        DECISION por pista de audio, compartida por el pipeline por etapas (Invoke-AudioRun) y la
+        ejecucion en una pasada (Get-CvOnePassArgs): canales de salida (MAXIMO, sin upmix) + si procede
+        el downmix 5.1->estereo con VOZ REFORZADA (beta, doble llave) y su filtro 'pan'. PURA (no ffmpeg,
+        no logging): el aviso de canales capados y las lineas de downmix las emite cada llamador con estos
+        campos. Devuelve {Channels;Target;Capped;DownmixMode;WantDialogue;Downmix;DownmixPan}.
+          - WantDialogue = se pidio voz reforzada (ch=2 + origen 5.1 + downmixMode='dialogue'); Downmix =
+            WantDialogue Y el beta activo (Context.BetaDownmix). DownmixPan = filtro 'pan' si Downmix, si no ''.
+    #>
+    param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)]$Prof, [int]$SourceChannels = 0, [bool]$Is51 = $false)
+    $chInfo = Resolve-CvAudioChannels -ProfChannels $Prof.AudioChannels -GlobalChannels $Context.AudioChannels -SourceChannels $SourceChannels
+    $ch     = $chInfo.Channels
+    $dmMode = Resolve-CvDownmixMode $Prof.DownmixMode $Context.DownmixMode
+    $coeffs = if ($null -ne $Prof.DownmixCoeffs) { $Prof.DownmixCoeffs } else { $Context.DownmixCoeffs }
+    $wantDialogue = ($ch -eq 2) -and $Is51 -and ($dmMode -eq 'dialogue')
+    $downmix      = $wantDialogue -and $Context.BetaDownmix
+    $pan          = if ($downmix) { Get-CvDownmixPan -Coeffs $coeffs } else { '' }
+    [pscustomobject]@{
+        Channels     = $ch
+        Target       = $chInfo.Target
+        Capped       = $chInfo.Capped
+        DownmixMode  = $dmMode
+        WantDialogue = $wantDialogue
+        Downmix      = $downmix
+        DownmixPan   = $pan
+    }
+}
+
 function Get-CvDownmixPan {
     <#
         Filtro 'pan' del downmix 5.1->estereo con VOZ REFORZADA, de los coeficientes {Center;Front;
@@ -75,6 +104,33 @@ function Get-CvAdelayFilter {
     <# Filtro de retardo de la sincronia en una pasada: 'adelay=<ms>:all=1' (ms enteros redondeados). #>
     param([double]$Sync)
     'adelay={0}:all=1' -f [int][math]::Round($Sync * 1000)
+}
+
+function Get-CvLoudnormFilter {
+    <#
+        Filtro 'loudnorm' (normalizacion EBU R128, una pasada) con I/TP/LRA en formato INVARIANTE de
+        locale (punto decimal, para ffmpeg). Fuente unica: la usan el pipeline por etapas (Invoke-AudioRun)
+        y la ejecucion en una pasada (Get-CvOnePassArgs).
+    #>
+    param([double]$I, [double]$TP, [double]$LRA)
+    $inv = [System.Globalization.CultureInfo]::InvariantCulture
+    'loudnorm=I={0}:TP={1}:LRA={2}' -f $I.ToString($inv), $TP.ToString($inv), $LRA.ToString($inv)
+}
+
+function Get-CvAudioFilterChain {
+    <#
+        Ensambla, EN ORDEN, la rama de filtros de una pista de audio: sincronia (adelay) -> downmix
+        (pan voz reforzada) -> volumen (loudnorm/volume). Devuelve un array con los filtros no vacios
+        (el llamador lo une con ','); vacio si no hay ninguno. Funcion PURA: cada parte se calcula fuera
+        (el metodo de volumen difiere por ruta: loudnorm inline, peak con ganancia medida, aacgain post),
+        aqui solo se ordena. Fuente unica del ORDEN, compartida por Invoke-AudioRun y Get-CvOnePassArgs.
+    #>
+    param([string]$SyncFilter = '', [string]$DownmixPan = '', [string]$VolumeFilter = '')
+    $parts = @()
+    if ($SyncFilter)   { $parts += $SyncFilter }
+    if ($DownmixPan)   { $parts += $DownmixPan }
+    if ($VolumeFilter) { $parts += $VolumeFilter }
+    return ,$parts
 }
 
 function Get-AudioInitDelay {
@@ -519,7 +575,7 @@ function Invoke-AudioAsk {
             if ($delay -gt 0) {
                 # CASO 1: el audio EMPIEZA mas tarde -> silencio inicial (indentado bajo el archivo).
                 Write-CvLog 'AUDIO' ("[SYNC] - El audio empieza {0}s mas tarde que el video{1}" -f $delay, $lbl) -Indent 3
-                $ans = (Read-CvLine -Prompt ("   [AUDIO] - [SYNC] - Silencio a anadir al inicio en seg [{0}] (ENTER=usar / 0=ninguno)" -f $delay) -TimeoutSec (Get-CvPromptTimeout $Context 'sync')).Trim()
+                $ans = (Read-CvLine -Prompt ("   [AUDIO] [SYNC] - Silencio a anadir al inicio en seg [{0}] (ENTER=usar / 0=ninguno)" -f $delay) -TimeoutSec (Get-CvPromptTimeout $Context 'sync')).Trim()
                 $res.Manual = $true   # se pregunto por el silencio de sincronia
                 if ($ans -eq '') { $sync = $delay }
                 else { $v = ConvertTo-InvDouble $ans; if ($null -ne $v) { $sync = $v } }
@@ -535,7 +591,7 @@ function Invoke-AudioAsk {
                     $prevAt = [Math]::Max($ahead + 5, [Math]::Min($adur * 0.15, [Math]::Max(0, $adur - 60)))
                     $decided = $false
                     while (-not $decided) {
-                        $ans = (Read-CvLine -Prompt ("   [AUDIO] - [SYNC] - Retardo a anadir al audio en seg [{0}] (ENTER=usar / 0=ninguno / P=previsualizar)" -f $ahead) -TimeoutSec (Get-CvPromptTimeout $Context 'audioSync')).Trim()
+                        $ans = (Read-CvLine -Prompt ("   [AUDIO] [SYNC] - Retardo a anadir al audio en seg [{0}] (ENTER=usar / 0=ninguno / P=previsualizar)" -f $ahead) -TimeoutSec (Get-CvPromptTimeout $Context 'audioSync')).Trim()
                         $res.Manual = $true
                         if ($ans -match '^[Pp]$') { Show-CvSyncPreview -Context $Context -File $file -Index ([int]$s.Index) -Delay $ahead -At $prevAt; continue }
                         if ($ans -eq '') { $sync = $ahead; $decided = $true }
@@ -572,6 +628,39 @@ function Get-MaxVolume {
     return $null
 }
 
+function Get-CvAudioEncodeArgs {
+    <#
+        Construye (PURO: sin ejecutar) el comando ffmpeg del ENCODE final de una pista de audio a su
+        temporal, a partir de piezas ya resueltas por Invoke-AudioRun (la medicion de 'peak', el WAV
+        clasico de sincronia y el 'aacgain' posterior son I/O y se quedan fuera). $ChainParts = cadena de
+        filtros ya montada (sincronia+downmix+volumen, via Get-CvAudioFilterChain); si esta vacia, mapeo
+        directo con $MapPre. $FromWav = la fuente es el WAV ya recortado (no se re-aplica -t de pruebas).
+        Golden-testeable.
+    #>
+    param(
+        [Parameter(Mandatory)]$Context, [Parameter(Mandatory)][string]$Codec, [Parameter(Mandatory)][int]$Channels,
+        [Parameter(Mandatory)]$Ar, [string]$Bitrate = '', [Parameter(Mandatory)][string[]]$SourceInput,
+        [string[]]$MapPre = @(), [Parameter(Mandatory)][string]$ALabel, $ChainParts = @(),
+        [bool]$FromWav = $false, [Parameter(Mandatory)][string]$OutFile
+    )
+    $ffArgs = @('-hide_banner','-y','-threads',"$($Context.Threads)") + $SourceInput
+    if (@($ChainParts).Count -gt 0) {
+        $ffArgs += @('-filter_complex', ("[{0}]{1}[a]" -f $ALabel, (@($ChainParts) -join ',')), '-map','[a]')
+    } else {
+        $ffArgs += $MapPre
+    }
+    # Codec de salida. '-aac_coder twoloop' es exclusivo del AAC nativo (coder de mayor calidad).
+    # FLAC es sin perdida (el bitrate no aplica). El resto usa el samplerate dado y el bitrate.
+    $ffArgs += @('-c:a',$Codec)
+    if ($Codec -eq 'aac') { $ffArgs += @('-aac_coder', $(if ("$($Context.AacCoder)") { "$($Context.AacCoder)" } else { 'twoloop' })) }
+    $ffArgs += @('-ac',"$Channels",'-ar',"$Ar")
+    if ($Bitrate -and $Codec -ne 'flac') { $ffArgs += @('-b:a',"$Bitrate") }
+    # Modo pruebas: acotar la salida (si la fuente es el WAV clasico, ya viene recortado).
+    if ($Context.TestLimit -gt 0 -and -not $FromWav) { $ffArgs += @('-t',"$($Context.TestLimit)") }
+    $ffArgs += $OutFile
+    return ,$ffArgs
+}
+
 function Invoke-AudioRun {
     <#
         Extrae/recodifica UNA pista de audio a un temporal (AAC -> .m4a; resto -> .mka), con sincronia y
@@ -605,31 +694,22 @@ function Invoke-AudioRun {
     }
 
     $hz = if ($Prof.AudioHz) { $Prof.AudioHz } else { $Context.DefaultAudioHz }
-    # Canales de salida (perfil->global, MAXIMO sin upmix): Resolve-CvAudioChannels. Avisa si limita.
-    $chInfo = Resolve-CvAudioChannels -ProfChannels $Prof.AudioChannels -GlobalChannels $Context.AudioChannels -SourceChannels $SourceChannels
-    if ($chInfo.Capped) { Write-CvInfoStep $Context 'AUDIO' ("El origen tiene {0} canales; no se hace upmix a {1} (se conservan {0})" -f $SourceChannels, $chInfo.Target) }
-    $ch     = $chInfo.Channels
+    # Plan por pista (canales sin upmix + decision de downmix voz reforzada + pan), fuente unica
+    # Resolve-CvAudioTrackPlan, compartido con la ejecucion en una pasada. El aviso de canales capados
+    # y las lineas de downmix se emiten aqui con los campos del plan.
+    $plan   = Resolve-CvAudioTrackPlan -Context $Context -Prof $Prof -SourceChannels $SourceChannels -Is51 $Is51
+    if ($plan.Capped) { Write-CvInfoStep $Context 'AUDIO' ("El origen tiene {0} canales; no se hace upmix a {1} (se conservan {0})" -f $SourceChannels, $plan.Target) }
+    $ch     = $plan.Channels
     $layout = Get-CvChannelLayout $ch
-    # Modo de downmix y coeficientes: el perfil manda si los fija; si no, el global (encode.downmixMode /
-    # encode.downmixCoeffs). El activador beta (BetaDownmix) es SIEMPRE global (test.betaDownmix).
-    $dmMode = Resolve-CvDownmixMode $Prof.DownmixMode $Context.DownmixMode
-    $coeffs = if ($null -ne $Prof.DownmixCoeffs) { $Prof.DownmixCoeffs } else { $Context.DownmixCoeffs }
-
     # Downmix con VOZ REFORZADA (BETA): solo al bajar 5.1 -> estereo (ch=2) con downmix 'dialogue'.
     # pan por INDICES (vale para 5.1 y 5.1(side)): sube el central (c2 = dialogos) y baja los
     # surrounds (c4/c5); descarta el LFE (c3). Coeficientes clip-safe (suman 1.0), asi el pico del
     # downmix nunca supera el de origen y la normalizacion 'peak' (medida en el origen) sigue valida.
     # BETA: los coeficientes son provisionales, a la espera de validarlos/ajustarlos con mas material.
     # Doble llave mientras sea beta: el modo 'dialogue' solo refuerza la voz si test.betaDownmix ($true).
-    $wantDialogue = ($ch -eq 2) -and $Is51 -and ($dmMode -eq 'dialogue')
-    $downmix = $wantDialogue -and $Context.BetaDownmix
-    $panDown = ''
-    if ($downmix) {
-        # Coeficientes (perfil o global encode.downmixCoeffs). $coeffs SIEMPRE viene completo: lo
-        # rellena la capa de carga (Context.DownmixCoeffs / ConvertTo-CvDownmixCoeffs del perfil, con
-        # sus defaults desde Get-CvDefaultDownmixCoeffs), asi que aqui NO se re-aplican defaults.
-        $panDown = Get-CvDownmixPan -Coeffs $coeffs
-    }
+    $wantDialogue = $plan.WantDialogue
+    $downmix      = $plan.Downmix
+    $panDown      = $plan.DownmixPan
     # Indicar SIEMPRE el downmix 5.1 -> estereo y con que modo: voz reforzada (beta activo), o estandar
     # de ffmpeg (aformat, que atenua el central). Si se pidio 'dialogue' pero el beta esta desactivado,
     # avisar de que sigue en estandar hasta activar test.betaDownmix. Asi se ve en el worker que se hizo.
@@ -694,9 +774,6 @@ function Invoke-AudioRun {
     $method = $vm.Method
     if ($vm.AacgainDowngraded) { Write-CvInfoStep $Context 'AUDIO' ("Volumen: aacgain no aplica a {0}; se usa 'peak'" -f $codec) }
 
-    # Base del comando de codificacion a AAC.
-    $ffArgs = @('-hide_banner','-y','-threads',"$($Context.Threads)") + $sourceInput
-
     # Filtro principal de VOLUMEN (se encadenara con $syncFilter en una sola cadena de filtros).
     $mainFilter = ''
     if ($method -eq 'peak') {
@@ -723,13 +800,10 @@ function Invoke-AudioRun {
         } elseif ($Context.Debug) { Write-CvLog 'AUDIO' '[VOL] - [PEAK] - Sin ajuste de volumen' }
     }
     elseif ($method -eq 'loudnorm') {
-        # LOUDNORM: normalizacion de sonoridad EBU R128 (una pasada). I/TP/LRA desde config.
-        $inv  = [System.Globalization.CultureInfo]::InvariantCulture
-        $li   = ([double]$Context.LoudnormI).ToString($inv)
-        $ltp  = ([double]$Context.LoudnormTP).ToString($inv)
-        $llra = ([double]$Context.LoudnormLRA).ToString($inv)
-        Write-CvInfoStep $Context 'AUDIO' ("Normalizando sonoridad (I={0}, TP={1}, LRA={2})" -f $li, $ltp, $llra)
-        $mainFilter = 'loudnorm=I={0}:TP={1}:LRA={2}' -f $li, $ltp, $llra
+        # LOUDNORM: normalizacion de sonoridad EBU R128 (una pasada). I/TP/LRA desde config (fuente unica
+        # Get-CvLoudnormFilter, compartida con la ejecucion en una pasada).
+        Write-CvInfoStep $Context 'AUDIO' ("Normalizando sonoridad (I={0}, TP={1}, LRA={2})" -f $Context.LoudnormI, $Context.LoudnormTP, $Context.LoudnormLRA)
+        $mainFilter = Get-CvLoudnormFilter -I $Context.LoudnormI -TP $Context.LoudnormTP -LRA $Context.LoudnormLRA
     }
     else {
         # AACGAIN: se codifica sin ajuste y despues se aplica la ganancia sin perdida.
@@ -737,29 +811,14 @@ function Invoke-AudioRun {
     }
 
     # Cadena de filtros = sincronia (adelay, beta) + downmix voz + volumen; si no hay ninguno, mapeo
-    # directo. El downmix pan va DESPUES de la sincronia y ANTES del volumen. Si la fuente es el WAV
-    # clasico, el downmix ya se hizo al generarlo, asi que aqui no se repite.
-    $chainParts = @()
-    if ($syncFilter) { $chainParts += $syncFilter }
-    if ($downmix -and -not $fromWav) { $chainParts += $panDown }
-    if ($mainFilter) { $chainParts += $mainFilter }
-    if ($chainParts.Count -gt 0) {
-        $ffArgs += @('-filter_complex', ("[{0}]{1}[a]" -f $aLabel, ($chainParts -join ',')), '-map','[a]')
-    } else {
-        $ffArgs += $mapPre
-    }
-
-    # Codec de salida. '-aac_coder twoloop' es exclusivo del AAC nativo (coder de mayor calidad).
-    # Opus solo admite 8/12/16/24/48 kHz -> se fuerza 48 kHz (44,1 kHz falla). FLAC es sin perdida
-    # (el bitrate no aplica). El resto usa el samplerate del perfil y el bitrate como los demas.
-    $arOut = if ($codec -eq 'libopus') { 48000 } else { $hz }
-    $ffArgs += @('-c:a',$codec)
-    if ($codec -eq 'aac') { $ffArgs += @('-aac_coder', $(if ("$($Context.AacCoder)") { "$($Context.AacCoder)" } else { 'twoloop' })) }
-    $ffArgs += @('-ac',"$ch",'-ar',"$arOut")
-    if ($Prof.AudioBitrate -and $codec -ne 'flac') { $ffArgs += @('-b:a',"$($Prof.AudioBitrate)") }
-    # Modo pruebas: acotar la salida (si la fuente es el WAV clasico, ya viene recortado).
-    if ($Context.TestLimit -gt 0 -and -not $fromWav) { $ffArgs += @('-t',"$($Context.TestLimit)") }
-    $ffArgs += $outM4a
+    # directo. El downmix pan va DESPUES de la sincronia y ANTES del volumen (orden en la fuente unica
+    # Get-CvAudioFilterChain). Si la fuente es el WAV clasico, el downmix ya se hizo al generarlo.
+    # Cadena de filtros (sincronia -> downmix -> volumen; el downmix del WAV clasico ya se hizo al generarlo)
+    # y comando de encode final (Get-CvAudioEncodeArgs, puro). Opus fuerza 48 kHz (44,1 falla).
+    $panPart    = if ($downmix -and -not $fromWav) { $panDown } else { '' }
+    $chainParts = Get-CvAudioFilterChain -SyncFilter $syncFilter -DownmixPan $panPart -VolumeFilter $mainFilter
+    $arOut      = if ($codec -eq 'libopus') { 48000 } else { $hz }
+    $ffArgs     = Get-CvAudioEncodeArgs -Context $Context -Codec $codec -Channels $ch -Ar $arOut -Bitrate "$($Prof.AudioBitrate)" -SourceInput $sourceInput -MapPre $mapPre -ALabel $aLabel -ChainParts $chainParts -FromWav $fromWav -OutFile $outM4a
 
     # Progreso inline (% + ETA) si esta activo y sabemos la duracion; si no, ventana aparte + ✓.
     # Total aprox. = duracion (+ el silencio de sincronia, que alarga la salida), acotado a TestLimit.

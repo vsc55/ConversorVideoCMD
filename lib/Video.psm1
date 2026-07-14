@@ -542,6 +542,8 @@ function Get-VideoArgs {
         }
         'h264_nvenc' {
             $a += @('-c:v','h264_nvenc','-pix_fmt','yuv420p','-preset',$presetNvenc)
+            if ($Prof.VideoProfile) { $a += @('-profile:v',$Prof.VideoProfile) }
+            if ($Prof.VideoLevel)   { $a += @('-level:v',"$($Prof.VideoLevel)") }
             if ($constqp) { $a += @('-rc','constqp','-qp',"$qmax") }
             else {
                 if ($null -ne $qmin) { $a += @('-qmin',"$qmin") }
@@ -550,14 +552,23 @@ function Get-VideoArgs {
             $a += @('-rc-lookahead:v',$rcLook) + $mpArg + $fpsArg + @('-movflags','+faststart')
         }
         'libx264' {
-            $a += @('-c:v','libx264','-pix_fmt','yuv420p')
+            # pix_fmt segun profundidad: perfil de 10 bits (high10) -> yuv420p10le; si no, 8 bits. OJO:
+            # emitir -profile:v high10 con -pix_fmt yuv420p (8 bits) hace que x264 IGNORE el perfil (sale
+            # 8 bits / perfil equivocado); el pix_fmt debe casar con el perfil.
+            $px = if ($Prof.VideoProfile -in @('high10','main10')) { 'yuv420p10le' } else { 'yuv420p' }
+            $a += @('-c:v','libx264','-pix_fmt',$px)
             if ($null -ne $Prof.Crf) { $a += @('-crf',"$($Prof.Crf)") }
             $a += @('-preset',$presetX26x)
+            if ($Prof.VideoProfile) { $a += @('-profile:v',$Prof.VideoProfile) }
+            if ($Prof.VideoLevel)   { $a += @('-level:v',"$($Prof.VideoLevel)") }
             if ($Anim) { $a += @('-tune','animation') }
             $a += @('-refs',$refs) + $fpsArg + @('-movflags','+faststart')
         }
         'libx265' {
-            $a += @('-c:v','libx265','-pix_fmt','yuv420p')
+            # pix_fmt segun profundidad: perfil main10 -> yuv420p10le; si no, 8 bits. Emitir -profile:v
+            # main10 con -pix_fmt yuv420p (8 bits) hace que x265 IGNORE el perfil (sale "Main", 8 bits).
+            $px = if ($Prof.VideoProfile -in @('main10','high10')) { 'yuv420p10le' } else { 'yuv420p' }
+            $a += @('-c:v','libx265','-pix_fmt',$px)
             if ($null -ne $Prof.Crf) { $a += @('-crf',"$($Prof.Crf)") }
             $a += @('-preset',$presetX26x)
             if ($Prof.VideoProfile) { $a += @('-profile:v',$Prof.VideoProfile) }
@@ -609,6 +620,22 @@ function Get-CvTonemapFormat {
     return 'yuv420p'
 }
 
+function Get-CvVideoCopyRemuxWarning {
+    <#
+        Aviso (texto o '') cuando COPIAR el vídeo (stream-copy, sin recodificar) de este contenedor a MKV
+        es propenso a fallar. Caso conocido: AVI —el vídeo H.264/HEVC en AVI suele traer timestamps que el
+        muxer de Matroska rechaza al copiar (ffmpeg aborta con "Error muxing a packet / -22")—. PURA (solo
+        mira la extensión). El llamador la usa únicamente cuando el vídeo va en modo copy.
+    #>
+    param([Parameter(Mandatory)][string]$Path)
+    $risky = @('.avi')
+    $ext = [System.IO.Path]::GetExtension("$Path").ToLower()
+    if ($ext -in $risky) {
+        return ("Copiar el video de un contenedor {0} a MKV sin recodificar puede fallar (timestamps); si falla, usa un perfil que RECODIFIQUE el video." -f $ext.TrimStart('.').ToUpper())
+    }
+    return ''
+}
+
 function Get-CvVideoFilterChain {
     <#
         Cadena de filtros de video (-vf) en ORDEN: crop -> scale -> (tonemap libplacebo + format).
@@ -628,6 +655,37 @@ function Get-CvVideoFilterChain {
     return ,$vf
 }
 
+function Get-CvVideoRunArgs {
+    <#
+        Construye (PURO: sin ejecutar ni tocar disco) el array de argumentos ffmpeg de la codificacion de
+        VIDEO a su temporal. crop -> scale -> (tonemap HDR->SDR, si el origen es HDR y tonemapHdr != off) +
+        args del encoder (Get-VideoArgs) + mapeo de la pista elegida (0:<Index>, o 0:v:0 si -1). Golden-testeable.
+    #>
+    param(
+        [Parameter(Mandatory)]$Context, [Parameter(Mandatory)]$Prof,
+        [Parameter(Mandatory)][string]$File, [Parameter(Mandatory)][string]$OutTmp,
+        [string]$Crop = '', [string]$Resize = '', [bool]$Anim = $false, [int]$Index = -1, [bool]$Hdr = $false
+    )
+    $tonemap = $Hdr -and ("$($Context.TonemapHdr)".ToLower() -ne 'off')
+    $fmt = Get-CvTonemapFormat -VideoProfile $Prof.VideoProfile -VideoEncoder $Prof.VideoEncoder
+    $vf  = Get-CvVideoFilterChain -Crop $Crop -Resize $Resize -Tonemap $tonemap -Fmt $fmt -TonemapCurve "$($Context.TonemapCurve)"
+    $ffArgs = @('-hide_banner','-y')
+    if ($tonemap) { $ffArgs += @('-init_hw_device','vulkan') }   # necesario para el filtro libplacebo
+    $ffArgs += @('-threads',"$($Context.Threads)",'-i',$File,'-an','-sn','-map_chapters','-1')
+    $ffArgs += @('-metadata','title=', '-metadata:s:v','title=', '-metadata:s:v','language=und')
+    if ($vf.Count -gt 0) { $ffArgs += @('-vf', ($vf -join ',')) }
+    $ffArgs += (Get-VideoArgs -Context $Context -Prof $Prof -Anim $Anim)
+    # Etiquetar la salida como SDR BT.709 (el tonemap ya convirtio el contenido).
+    if ($tonemap) { $ffArgs += @('-color_primaries','bt709','-color_trc','bt709','-colorspace','bt709','-color_range','tv') }
+    # Mapear explicitamente la PISTA DE VIDEO elegida por su indice absoluto ('0:<Index>'), no el primer
+    # stream (0:0) ni '0:v:0' (que incluiria una caratula si va antes). Sin -Index (jobs antiguos) -> '0:v:0'.
+    $vmap = if ($Index -ge 0) { "0:$Index" } else { '0:v:0' }
+    # Modo pruebas: limitar la salida a los primeros TestLimit segundos (-t como opcion de salida).
+    if ($Context.TestLimit -gt 0) { $ffArgs += @('-t',"$($Context.TestLimit)") }
+    $ffArgs += @('-map',$vmap,'-f','matroska',$OutTmp)
+    return ,$ffArgs
+}
+
 function Invoke-VideoRun {
     <# Codifica el video usando la config del job. Devuelve $true si crea la salida temporal. #>
     param(
@@ -642,38 +700,17 @@ function Invoke-VideoRun {
     $outTmp = (Get-CvTempPaths -Context $Context -Name $name).Video
     if (Test-Path -LiteralPath $outTmp) { Remove-Item -Force -LiteralPath $outTmp -ErrorAction SilentlyContinue }
 
-    # Tone-mapping HDR->SDR: solo si el origen es HDR y encode.tonemapHdr != 'off'. Convierte
-    # BT.2020/PQ (o HLG) a BT.709 SDR con libplacebo (GPU/Vulkan), para que no se vea "lavado".
+    # Avisos del worker (el comando lo construye Get-CvVideoRunArgs, puro). Tone-mapping HDR->SDR: solo
+    # si el origen es HDR y encode.tonemapHdr != 'off' (BT.2020/PQ|HLG -> BT.709 SDR con libplacebo).
     $tonemap = $Hdr -and ("$($Context.TonemapHdr)".ToLower() -ne 'off')
-
-    # filtro de video: crop -> scale -> (tonemap). El tonemap va DESPUES del reescalado.
-    # La cadena la construye Get-CvVideoFilterChain (pura); aqui solo se emiten los avisos del worker.
-    $fmt = Get-CvTonemapFormat -VideoProfile $Prof.VideoProfile -VideoEncoder $Prof.VideoEncoder
-    $vf  = Get-CvVideoFilterChain -Crop $Crop -Resize $Resize -Tonemap $tonemap -Fmt $fmt -TonemapCurve "$($Context.TonemapCurve)"
     if ($Resize) {
-        # Indicador en el worker de que se esta reescalando (y a que tamano).
         $rzTxt = "a $Resize"
         if ($Resize -match '^(\d+):(-?\d+)$') { $rzTxt = if ([int]$Matches[2] -lt 0) { "a {0}px de ancho" -f $Matches[1] } else { "a {0}x{1}" -f $Matches[1], $Matches[2] } }
         Write-CvInfoStep $Context 'VIDEO' ("Reescalando $rzTxt")
     }
     if ($tonemap) { Write-CvInfoStep $Context 'VIDEO' 'Tone-mapping HDR -> SDR (BT.709)' }
 
-    $ffArgs = @('-hide_banner','-y')
-    if ($tonemap) { $ffArgs += @('-init_hw_device','vulkan') }   # necesario para el filtro libplacebo
-    $ffArgs += @('-threads',"$($Context.Threads)",'-i',$File,'-an','-sn','-map_chapters','-1')
-    $ffArgs += @('-metadata','title=', '-metadata:s:v','title=', '-metadata:s:v','language=und')
-    if ($vf.Count -gt 0) { $ffArgs += @('-vf', ($vf -join ',')) }
-    $ffArgs += (Get-VideoArgs -Context $Context -Prof $Prof -Anim $Anim)
-    # Etiquetar la salida como SDR BT.709 (el tonemap ya convirtio el contenido).
-    if ($tonemap) { $ffArgs += @('-color_primaries','bt709','-color_trc','bt709','-colorspace','bt709','-color_range','tv') }
-    # Mapear explicitamente la PISTA DE VIDEO elegida por su indice absoluto ('0:<Index>'),
-    # no el primer stream (0:0) ni '0:v:0' (que incluiria una caratula si va antes). Con -Index
-    # congelado en el job, la deteccion y la codificacion usan SIEMPRE la misma pista. Sin -Index
-    # (jobs antiguos) se cae a '0:v:0' como antes.
-    $vmap = if ($Index -ge 0) { "0:$Index" } else { '0:v:0' }
-    # Modo pruebas: limitar la salida a los primeros TestLimit segundos (-t como opcion de salida).
-    if ($Context.TestLimit -gt 0) { $ffArgs += @('-t',"$($Context.TestLimit)") }
-    $ffArgs += @('-map',$vmap,'-f','matroska',$outTmp)
+    $ffArgs = Get-CvVideoRunArgs -Context $Context -Prof $Prof -File $File -OutTmp $outTmp -Crop $Crop -Resize $Resize -Anim $Anim -Index $Index -Hdr $Hdr
 
     # Progreso inline (% + ETA) si esta activo y sabemos la duracion; si no, ventana aparte + ✓.
     # Total = duracion del video (acotada a TestLimit en modo pruebas). Ambos caminos dejan la linea

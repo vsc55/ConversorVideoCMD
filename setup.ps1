@@ -26,7 +26,8 @@ try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch {}
 
 $Root = $PSScriptRoot
 $Lib  = Join-Path $Root 'lib'
-# setup no usa el pipeline completo (Job = patrones de limpieza de Proceso; ConfigEditor = editor de config.json)
+# setup no usa el pipeline completo (Job = patrones de limpieza de Proceso; ConfigEditor = editor de
+# config.json; Profile = catálogos de opciones que el editor lista en los menús -Get-CvEditorOptions-).
 $modules = @(
     'Log'
     'Config'
@@ -35,6 +36,7 @@ $modules = @(
     'Exec'
     'Job'
     'Tools'
+    'Profile'
     'ConfigEditor'
 )
 foreach ($m in $modules) {

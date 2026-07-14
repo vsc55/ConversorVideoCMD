@@ -60,6 +60,62 @@ function Get-CvTonemapCurves {
     )
 }
 
+# --- Catálogos de dominio de config (fuente única de los valores válidos de cada opción "enum").
+# Los consumen la validación del contexto (Resolve-CvOneOf en New-CvContext) y el editor de setup
+# (Get-CvEditorOptions), para no repetir literales. Forma común @{ Value; Text } como los demás catálogos.
+function Get-CvOutputContainers {
+    <# Contenedores de salida válidos (encode.outputExtension). #>
+    @(
+        @{ Value = 'mkv'; Text = 'Matroska (recomendado)' }
+        @{ Value = 'mp4'; Text = 'MP4 (+faststart)' }
+        @{ Value = 'mov'; Text = 'QuickTime (+faststart)' }
+    )
+}
+
+function Get-CvTonemapHdrModes {
+    <# Modos de tone-mapping HDR->SDR (encode.video.tonemapHdr). El 1o es el default de fábrica. #>
+    @(
+        @{ Value = 'auto'; Text = 'HDR->SDR solo si el origen es HDR' }
+        @{ Value = 'off';  Text = 'no aplicar tone-mapping' }
+    )
+}
+
+function Get-CvAnamorphicModes {
+    <# Tratamiento del vídeo anamórfico SAR!=1 (encode.video.anamorphic). El 1o = default de fábrica. #>
+    @(
+        @{ Value = 'square';       Text = 'cuadrar por ancho (píxeles cuadrados)' }
+        @{ Value = 'squareheight'; Text = 'cuadrar por alto' }
+        @{ Value = 'keep';         Text = 'conservar el SAR/DAR' }
+    )
+}
+
+function Get-CvQualityCheckModes {
+    <# Métricas de control de calidad de la salida vs origen (encode.video.qualityCheck). #>
+    @(
+        @{ Value = 'off';  Text = 'no medir' }
+        @{ Value = 'ssim'; Text = 'SSIM (estructural, rápido)' }
+        @{ Value = 'vmaf'; Text = 'VMAF (perceptual, requiere libvmaf; lento)' }
+    )
+}
+
+function Get-CvMaxCodecOptions {
+    <# Tope de códec del perfil Auto (encode.video.auto.maxCodec); '' = sin tope. #>
+    @(
+        @{ Value = '';     Text = 'sin tope' }
+        @{ Value = 'h264'; Text = 'no subir de H.264' }
+        @{ Value = 'h265'; Text = 'no subir de H.265' }
+        @{ Value = 'av1';  Text = 'permitir hasta AV1' }
+    )
+}
+
+function Get-CvNvencTiers {
+    <# Tier de hevc_nvenc (encode.video.tuning.tier). #>
+    @(
+        @{ Value = 'main'; Text = 'main' }
+        @{ Value = 'high'; Text = 'high' }
+    )
+}
+
 function Resolve-CvOneOf {
     <#
         Valida una opcion enum: devuelve $Value en minusculas si esta en $Valid (comparacion sin
@@ -257,8 +313,8 @@ function Get-CvConfigDefaults {
             video = [ordered]@{
                 # Codec de video por defecto (fuente unica; la hereda customProfile como semilla del builder).
                 # OJO: los perfiles de serie y de profiles[] declaran su PROPIO encoder/profile/level, asi que
-                # estos globales NO los sustituyen; solo siembran el constructor CUSTOM (opcion 0). videoLevel
-                # usa el formato del catalogo del builder ('5.0'); encode.video.auto.level guarda '5' (-level:v).
+                # estos globales NO los sustituyen; solo siembran el constructor CUSTOM (opcion 0). El nivel
+                # usa el formato '5.0' (mismo que encode.video.auto.level); ffmpeg trata '5'=='5.0' igual.
                 videoEncoder = 'hevc_nvenc'
                 videoProfile = 'main10'
                 videoLevel   = '5.0'
@@ -277,7 +333,7 @@ function Get-CvConfigDefaults {
                     crfAv1   = 30
                     qmin     = 1
                     qmax     = 23
-                    level    = '5'
+                    level    = '5.0'
                 }
                 # Tuning del encoder de video (fuente unica, la usa Get-VideoArgs): preset por familia
                 # (NVENC h264/h265 y libx264/libx265 = 'slow'; SVT-AV1 0-13; AV1 NVENC p1-p7), lookahead
@@ -491,7 +547,7 @@ function Get-CvConfigDefaults {
             convertido = ''
             logs       = ''
         }
-        # Perfiles de codificacion PROPIOS: se ANADEN a los 11 de serie en el menu USAR PERFIL
+        # Perfiles de codificacion PROPIOS: se ANADEN a los de serie en el menu USAR PERFIL
         # (no los sustituyen). Cada objeto admite: label, videoEncoder, videoProfile, videoLevel,
         # qmin, qmax, crf, detectBorder, changeSize, audioEncoder, audioCodec, audioBitrate, audioHz.
         # Ejemplo: { "label":"Anime 1080p", "videoEncoder":"libx265", "crf":18, "changeSize":"1920:-2" }
@@ -499,10 +555,10 @@ function Get-CvConfigDefaults {
     }
     # customProfile HEREDA de encode.* (fuente unica) los campos con equivalente global, en vez de
     # repetir el literal: cambiar el default global cambia tambien la semilla del builder custom.
-    # videoEncoder/videoProfile/videoLevel salen de encode.video (el level del builder usa '5.0', distinto
-    # de encode.video.auto.level='5' para -level:v). El control de tasa (qmin/qmax/crf) se toma del perfil
-    # Auto (encode.video.auto). downmixCoeffs se COPIA (nuevo [ordered]) para no compartir referencia con
-    # encode.audio.
+    # videoEncoder/videoProfile/videoLevel salen de encode.video; el nivel usa '5.0' (mismo formato que
+    # encode.video.auto.level; ffmpeg trata '5'=='5.0'). El control de tasa (qmin/qmax/crf) se toma del
+    # perfil Auto (encode.video.auto). downmixCoeffs se COPIA (nuevo [ordered]) para no compartir
+    # referencia con encode.audio.
     $cfg.customProfile.videoEncoder  = $cfg.encode.video.videoEncoder
     $cfg.customProfile.videoProfile  = $cfg.encode.video.videoProfile
     $cfg.customProfile.videoLevel    = $cfg.encode.video.videoLevel
@@ -605,6 +661,9 @@ function Get-CvConfigHelp {
         'customProfile/audioChannels'= 'Canales de salida por defecto (MAXIMO, no upmix): 2 | 6 | 8'
         'customProfile/downmixMode' = 'Downmix 5.1->estereo por defecto: default | dialogue'
         'customProfile/downmixCoeffs'= 'Pesos del downmix dialogue por defecto (center/front/surround)'
+        'customProfile/downmixCoeffs/center'  = 'Peso del canal central (dialogos) en el downmix dialogue'
+        'customProfile/downmixCoeffs/front'   = 'Peso de los frontales L/R en el downmix dialogue'
+        'customProfile/downmixCoeffs/surround'= 'Peso de los surrounds en el downmix dialogue (el LFE se descarta)'
 
         'encode/video/border'                    = 'Deteccion de bordes negros con cropdetect'
         'encode/video/border/start'              = 'Segundo del primer punto de escaneo'

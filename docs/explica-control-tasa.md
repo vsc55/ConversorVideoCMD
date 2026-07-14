@@ -49,18 +49,17 @@ Si defines **QMIN igual a QMAX**, no hay rango que ajustar: es **calidad fija** 
 
 ### "Q auto" (sin QMIN/QMAX)
 
-Si **no** defines QMIN/QMAX (vacío en el builder, o negativo = "desactivar"), NVENC usa su propio control de tasa según el `-preset` (aquí `slow`), sin cotas manuales. Es lo que hacen los perfiles de serie **10**, **11** y **12** ("Q auto").
+Si **no** defines QMIN/QMAX (vacío en el builder, o negativo = "desactivar"), NVENC usa su propio control de tasa según el `-preset` (aquí `slow`), sin cotas manuales. Es lo que hacen los perfiles de serie de **"Q auto"** (los que no fijan `qmin`/`qmax`; ver [ref-perfiles.md](ref-perfiles.md)).
 
 ## Cómo se traduce a ffmpeg (resumen)
 
-| Encoder | Campos del perfil | Argumentos ffmpeg (`Get-VideoArgs`) |
-|---|---|---|
-| `libx264` | `Crf` | `-crf <N>` (si se define) |
-| `libx265` | `Crf`, `VideoProfile`, `VideoLevel` | `-crf <N>`, `-profile:v`, `-level:v` |
-| `h264_nvenc` | `Qmin`, `Qmax` | `-qmin`/`-qmax`, o `-rc constqp -qp` si iguales |
-| `hevc_nvenc` | `Qmin`, `Qmax`, `VideoProfile`, `VideoLevel` | igual + `-profile:v`, `-level:v` (`main10` → `-pix_fmt p010le`) |
+Aquí solo el **control de tasa**; el comando completo por encoder (profile/level, pix_fmt/profundidad, preset, lookahead, multipass…) está en **[ref-comandos.md](ref-comandos.md) §8** (fuente única, no se repite aquí):
 
-(Todos añaden además `-preset slow` y, en NVENC, `-rc-lookahead:v 32`.)
+| Encoder | Control de tasa | Argumento ffmpeg |
+|---|---|---|
+| `libx264` / `libx265` (CPU) | `Crf` (0-51) | `-crf <N>` |
+| `libsvtav1` (CPU, AV1) | `Crf` (0-63) | `-crf <N>` |
+| `h264_nvenc` / `hevc_nvenc` / `av1_nvenc` (NVENC) | `Qmin`/`Qmax` | `-qmin`/`-qmax`, o `-rc constqp -qp <q>` si `qmin == qmax` |
 
 ## Cómo elegir el valor
 
@@ -71,7 +70,7 @@ Si **no** defines QMIN/QMAX (vacío en el builder, o negativo = "desactivar"), N
 
 ## Dónde se define
 
-- **Perfiles de serie** (1–11): valores fijos (ver [ref-perfiles.md](ref-perfiles.md)).
+- **Perfiles de serie** (1–13): valores fijos (ver [ref-perfiles.md](ref-perfiles.md)).
 - **Perfiles propios** de `config.json` (sección `profiles`): campos `crf`, `qmin`, `qmax` por perfil.
 - **Perfil custom interactivo:** se pregunta en el menú "Control de tasa"; el **valor por defecto** de cada pregunta sale de la sección **`customProfile`** de `config.json` (`crf`, `qmin`, `qmax`) — ENTER acepta el default. Ver [ref-configuracion.md](ref-configuracion.md).
 

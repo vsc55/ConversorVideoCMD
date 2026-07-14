@@ -45,6 +45,7 @@ $modules = @(
     'Audio'
     'Subtitle'
     'Multiplex'
+    'Render'
     'OnePass'
 )
 foreach ($m in $modules) {
@@ -203,10 +204,10 @@ try {
     $cfg['behavior']['lockCloseButton'] = $false   # no tocar el boton X de la ventana
     $cfg['behavior']['log']             = $false   # sin transcript
     if ($OnePass) {
-        # Ruta de una sola pasada (BETA): activar el flag y forzar loudnorm (peak/aacgain obligan a
-        # pasada extra y desactivarian la elegibilidad). syncAdelay ya es true por defecto.
+        # Ruta de una sola pasada (BETA): activar el flag. Se usa el volumen POR DEFECTO ('peak'), que ya
+        # es elegible (mide con volumedetect en una pasada de analisis previa y aplica 'volume=XdB' en el
+        # filtergraph); asi el E2E ejercita el camino real de serie. syncAdelay ya es true por defecto.
         $cfg['test']['betaOnePass'] = $true
-        $cfg['volume']['method']    = 'loudnorm'
     }
     Save-CvConfigFile -Path (Join-Path $tempRoot 'config.json') -Config $cfg
 

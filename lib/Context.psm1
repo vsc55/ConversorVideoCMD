@@ -121,13 +121,13 @@ function New-CvContext {
         # 2-pass de NVENC (-multipass): 'off'|'qres'|'fullres'. Solo lo usan los encoders NVENC.
         Multipass      = (Resolve-CvOneOf "$($cfg.encode.video.multipass)" @('off','qres','fullres') "$($def.encode.video.multipass)")
         # Tone-mapping HDR->SDR (BT.709): 'auto' = solo si el origen es HDR; 'off' = nunca.
-        TonemapHdr     = (Resolve-CvOneOf "$($cfg.encode.video.tonemapHdr)" @('auto','off') "$($def.encode.video.tonemapHdr)")
+        TonemapHdr     = (Resolve-CvOneOf "$($cfg.encode.video.tonemapHdr)" @(Get-CvTonemapHdrModes | ForEach-Object { $_.Value }) "$($def.encode.video.tonemapHdr)")
         # Curva de tone-mapping de libplacebo (config encode.video.tonemapCurve); si viene vacia, el
         # default de config. La consume Get-CvVideoFilterChain al construir el filtro libplacebo.
         TonemapCurve    = $(if ("$($cfg.encode.video.tonemapCurve)" -ne '') { "$($cfg.encode.video.tonemapCurve)" } else { "$($def.encode.video.tonemapCurve)" })
         # Video anamorfico (SAR!=1): 'keep' = conserva SAR; 'square'/'squareheight' = cuadra a pixeles
         # cuadrados (fijando ancho/alto). Lo consume Get-CvResize al decidir el reescalado.
-        Anamorphic     = (Resolve-CvOneOf "$($cfg.encode.video.anamorphic)" @('keep','square','squareheight') "$($def.encode.video.anamorphic)")
+        Anamorphic     = (Resolve-CvOneOf "$($cfg.encode.video.anamorphic)" @(Get-CvAnamorphicModes | ForEach-Object { $_.Value }) "$($def.encode.video.anamorphic)")
         # Tuning del encoder de video (fuente unica encode.video.tuning; lo consume Get-VideoArgs):
         # preset por familia, rc-lookahead (NVENC), refs (x264/x265) y tier (hevc_nvenc).
         PresetNvenc    = "$($cfg.encode.video.tuning.presetNvenc)"
@@ -225,7 +225,7 @@ function New-CvContext {
         # Filtros del perfil Auto (opcion A de USAR PERFIL). AutoGpuOnly: Auto solo considera encoders
         # GPU. AutoMaxCodec: tope de codec ('' sin tope | h264 | h265 | av1). Los consume New-CvAutoProfile.
         AutoGpuOnly    = [bool]$cfg.encode.video.auto.gpuOnly
-        AutoMaxCodec   = (Resolve-CvOneOf "$($cfg.encode.video.auto.maxCodec)" @('', 'h264', 'h265', 'av1') '')
+        AutoMaxCodec   = (Resolve-CvOneOf "$($cfg.encode.video.auto.maxCodec)" @(Get-CvMaxCodecOptions | ForEach-Object { $_.Value }) '')
         # Control de tasa del perfil Auto (fuente unica en config.json encode.auto; lo consume
         # Get-CvAutoRate): CRF para CPU (H.26x / AV1), Qmin/Qmax + level para NVENC.
         AutoCrf        = [int]$cfg.encode.video.auto.crf
@@ -235,7 +235,7 @@ function New-CvContext {
         AutoLevel      = "$($cfg.encode.video.auto.level)"
         # Control de calidad de la salida vs origen tras codificar: off | ssim | vmaf. Lo consume el
         # worker (Measure-CvQuality) tras un encode con exito (no en 'copy').
-        QualityCheck   = (Resolve-CvOneOf "$($cfg.encode.video.qualityCheck)" @('off', 'ssim', 'vmaf') 'off')
+        QualityCheck   = (Resolve-CvOneOf "$($cfg.encode.video.qualityCheck)" @(Get-CvQualityCheckModes | ForEach-Object { $_.Value }) 'off')
         # Umbral (seg) para detectar audio adelantado (acaba antes que el video); 0 = off. Lo usa
         # Invoke-AudioAsk para avisar/preguntar el retardo. Ver encode.audioSyncThreshold.
         AudioSyncThreshold = [double]([Math]::Max(0.0, [double]$cfg.encode.audio.syncThreshold))
