@@ -439,12 +439,13 @@ function Get-CvConfigDefaults {
         #   start = segundo donde empieza (0 = desde el principio). seconds = duracion de la muestra
         #   (0 = SIN limite: reproduce hasta el final o hasta que el usuario cierre con q/ESC). El
         #   comando 'P N <seg>' de los menus fuerza el inicio en ese segundo puntual.
-        #   syncSeconds = duracion de cada clip de la comparacion A/B de sincronia de audio (que se
-        #   CODIFICA, asi que necesita ser finita; por eso no usa 'seconds', que admite 0 = sin limite).
+        #   syncSeconds = tope de duracion (seg) de cada preview de la comparacion A/B de sincronia de
+        #   audio; 0 = SIN limite (por defecto: reproduce la fuente directa hasta el final o hasta q/ESC).
+        #   Se puede acotar (> 0) si se prefiere una muestra corta.
         preview   = [ordered]@{
             start       = 0
             seconds     = 0
-            syncSeconds = 20
+            syncSeconds = 0
         }
         # Postproceso del MKV final:
         #  - stripTags: limpiar con mkvpropedit las etiquetas DURATION por pista que anade el
@@ -679,7 +680,7 @@ function Get-CvConfigHelp {
         'preview'         = 'Previsualizacion con ffplay en PREPARAR'
         'preview/start'   = 'Segundo en que empieza la muestra (0 = desde el principio)'
         'preview/seconds' = 'Duracion de la muestra en seg (0 = sin limite, todo el video)'
-        'preview/syncSeconds' = 'Duracion (seg) de cada clip de la comparacion A/B de sincronia de audio'
+        'preview/syncSeconds' = 'Tope (seg) del preview A/B de sincronia de audio (0 = sin limite, hasta el final o q/ESC)'
 
         'encode/audio/volume'             = 'Normalizacion de volumen del audio'
         'encode/audio/volume/method'      = ('Metodo: {0}' -f ((Get-CvVolumeMethods) -join ' | '))

@@ -174,7 +174,7 @@ Assert-Eq 'encode/audio/codec def'   'aac'       (Get-CvConfigDefaultValue 'enco
 Assert-Eq 'encode/audio/bitrate def' '192k'      (Get-CvConfigDefaultValue 'encode/audio/bitrate')
 Assert-Eq 'encode/video/tonemapCurve def' 'bt.2390' (Get-CvConfigDefaultValue 'encode/video/tonemapCurve')
 Assert-True 'help encode/video/tonemapCurve' ((Get-CvConfigHelp).Contains('encode/video/tonemapCurve'))
-Assert-Eq 'preview/syncSeconds def 20' 20 (Get-CvConfigDefaultValue 'preview/syncSeconds')
+Assert-Eq 'preview/syncSeconds def 0' 0 (Get-CvConfigDefaultValue 'preview/syncSeconds')
 Assert-True 'help encode/audio/codec' ((Get-CvConfigHelp).Contains('encode/audio/codec'))
 # customProfile hereda la salida de audio de encode.audio.* (fuente unica).
 $cpDef = (Get-CvConfigDefaults).customProfile
@@ -289,7 +289,7 @@ Assert-Eq   'all sin duplicados'       $all.Count ($all | Select-Object -Unique)
 # ================================================================================================
 Write-Host "`nFuentes unicas (Context / Profile)" -ForegroundColor Cyan
 Assert-Eq 'Get-CvAppName' 'ConvertVideo' (Get-CvAppName)
-Assert-Eq 'Get-CvVersion' '4.5.0'        (Get-CvVersion)
+Assert-Eq 'Get-CvVersion' '4.5.1'        (Get-CvVersion)
 Assert-Eq 'perfiles de serie = 13' 13 ((Get-CvProfiles | ForEach-Object { $_.Profiles } | Measure-Object).Count)
 
 # ================================================================================================

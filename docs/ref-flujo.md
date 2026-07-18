@@ -117,6 +117,10 @@ Con **0** solo se prepara y se **sale** sin codificar: los `.job.json` quedan li
 
 Si el nombre del archivo empieza por `_`, se **fuerza** la detección de bordes aunque el perfil (o la respuesta) diga "sin bordes". Pensado para marcar archivos con bordes que hay que limpiar sí o sí.
 
+### Regla del prefijo `TEST_`
+
+Si el nombre del archivo empieza por `TEST_` (sin distinguir mayúsculas), al **arrancar en PREPARAR** se **elimina su `.job.json`** si ya existe, para que **siempre se re-prepare desde cero**. Pensado para iterar sobre una misma muestra cambiando opciones sin tener que borrar el job a mano. **Excepción:** en modo **`-WorkerOnly`** (ventana worker que lanza otra instancia) **no** se toca ningún job — el worker necesita el job ya creado para codificar; borrarlo lo dejaría sin trabajo.
+
 ## Fase WORKER
 
 Bucle que recorre los archivos preparados y codifica el siguiente libre, reclamándolo con un lock.

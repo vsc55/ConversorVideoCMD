@@ -152,7 +152,11 @@ function Select-SubtitlesKeep {
             $c = $cues[[int]$s.index]; $ctxt = if ($c -ge 0) { "$c cues" } else { '? cues' }
             $lines += ("[{0}] idioma={1} codec={2} ({3}) {4}" -f $s.index, (Get-Tag $s 'language'), $s.codec_name, $ctxt, $tt)
         }
-        Show-Menu -Title 'SUBTITULOS (ninguno del idioma preferido) - elige cuales conservar:' -Lines ($lines + @('', "Indices separados por espacio (ej '3 5') / 'P N'=reproducir / 'V N'=ver texto / T=todos / ENTER=ninguno")) -Indent 3
+        Show-Menu -Title 'SUBTITULOS (ninguno del idioma preferido) - elige cuales conservar:' -Lines ($lines + @(
+            '',
+            "Indices separados por espacio (ej '3 5'). Marca el FORZADO con * (ej '*3 5' = conservar 3 y 5,",
+            "  forzado = 3); sin *, el forzado se detecta del origen (flag/titulo).",
+            "'P N'=reproducir / 'V N'=ver texto / T=todos / ENTER=ninguno")) -Indent 3
         $a = (Read-CvMenuLine '   [SUB] - Opcion' $to).Trim()
         if ($a -eq '') { Write-Host ''; return @() }
         # 'V N' = ver el contenido del subtitulo N (extrae a .srt y abre con el editor asociado).
@@ -171,14 +175,24 @@ function Select-SubtitlesKeep {
             else { Write-Host '   Indice no valido.' -ForegroundColor Yellow }
             continue
         }
+        # Tokens: 'N' conserva; '*N' ademas marca ese subtitulo como FORZADO (override). 'T' = todos.
+        $forcedSet = @{}
         if ($a -match '^[Tt]$') { $chosen = $streams }
         else {
-            $idx = @($a -split '[,\s]+' | Where-Object { $_ -match '^\d+$' } | ForEach-Object { [int]$_ })
+            $idx = @(); $bad = $false
+            foreach ($tok in @($a -split '[,\s]+' | Where-Object { $_ -ne '' })) {
+                $m = [regex]::Match($tok, '^(\*?)(\d+)$')
+                if (-not $m.Success) { $bad = $true; break }
+                $n = [int]$m.Groups[2].Value
+                if ($idx -notcontains $n) { $idx += $n }
+                if ($m.Groups[1].Value -eq '*') { $forcedSet[$n] = $true }
+            }
             $chosen = @($streams | Where-Object { $idx -contains [int]$_.index })
-            if ($chosen.Count -eq 0) { Write-Host '   Indices no validos.' -ForegroundColor Yellow; continue }
+            if ($bad -or $chosen.Count -eq 0) { Write-Host '   Indices no validos.' -ForegroundColor Yellow; continue }
         }
         Write-Host ''
-        $sel = @($chosen | ForEach-Object { ConvertTo-SubSel $_ })   # conserva forced/default originales
+        # -Forced $true si el usuario lo marco con '*'; si no ($null), se detecta del origen (Test-SubForced).
+        $sel = @($chosen | ForEach-Object { ConvertTo-SubSel $_ -Forced $(if ($forcedSet.ContainsKey([int]$_.index)) { $true } else { $null }) })
         return @(@($sel | Where-Object { $_.Forced }) + @($sel | Where-Object { -not $_.Forced }))
     }
 }

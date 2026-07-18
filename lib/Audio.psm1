@@ -151,10 +151,13 @@ function Get-CvStreamEndPts {
     <#
         pts_time del ULTIMO paquete de un stream, leyendo solo cerca del final (barato, por indice).
         $Stream = especificador ffprobe ('v:0' o el indice absoluto '1'). $Duration = duracion del
-        contenedor (para saber desde donde leer). Devuelve 0 si no se puede leer.
+        contenedor (para saber desde donde leer). $What = etiqueta para el mensaje de consola (que se
+        esta analizando). Devuelve 0 si no se puede leer. Avisa en consola porque tarda un poco (abre
+        el archivo por indice cerca del final) y muestra [OK] con el fin detectado al terminar.
     #>
-    param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)][string]$File, [Parameter(Mandatory)][string]$Stream, [double]$Duration = 0)
+    param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)][string]$File, [Parameter(Mandatory)][string]$Stream, [double]$Duration = 0, [string]$What = 'pista')
     $from = [int][Math]::Max(0, $Duration - 40)
+    Write-CvLog 'AUDIO' ("[SYNC] - Analizando fin de {0} (leyendo la cola del archivo)..." -f $What) -Indent 3
     $r = Invoke-ToolCapture -Exe $Context.FFprobe -Arguments @(
         '-v', 'error'
         '-select_streams', $Stream
@@ -164,7 +167,12 @@ function Get-CvStreamEndPts {
         $File
     ) -Context $Context
     $vals = @("$($r.StdOut)" -split "`r?`n" | ForEach-Object { ConvertTo-InvDouble ($_.Trim()) } | Where-Object { $null -ne $_ })
-    if ($vals.Count) { return ($vals | Measure-Object -Maximum).Maximum }
+    if ($vals.Count) {
+        $max = ($vals | Measure-Object -Maximum).Maximum
+        Write-CvLog 'AUDIO' ("[SYNC] - Fin de {0}: {1}s [OK]" -f $What, (Format-CvNumber $max)) -Indent 3
+        return $max
+    }
+    Write-CvLog 'AUDIO' ("[SYNC] - Fin de {0}: sin datos (no se pudo leer la cola)" -f $What) -Indent 3
     return 0.0
 }
 
@@ -184,51 +192,33 @@ function Resolve-CvAudioAhead {
 
 function Show-CvSyncPreview {
     <#
-        Previsualiza el desfase de audio A/B: genera dos clips cortos alrededor de $At y los reproduce
-        con ffplay: (1) ORIGINAL (audio tal cual, se ve el desfase) y (2) CORREGIDO (audio retrasado
-        $Delay s, sincronizado). El clip corregido toma el video desde $At y el audio desde $At-$Delay
-        (porque el audio va $Delay adelantado). Fail-soft: si algo falla, avisa y sigue. $Index = indice
-        absoluto de la pista de audio en el fichero.
+        Previsualiza el desfase de audio reproduciendo la FUENTE directamente con ffplay (no recodifica
+        ningun clip ni limita la duracion por defecto: reproduce desde $At hasta el final o hasta que se
+        cierra con q/ESC). (1) ORIGINAL: la pista tal cual (se oye el desfase). (2) CORREGIDO (solo si
+        $Delay > 0): el MISMO punto con el audio retrasado $Delay s via el filtro 'adelay' -exactamente
+        lo que aplica el worker-, de modo que video(W) suena con audio(W-$Delay); los primeros ~$Delay s
+        de audio son silencio (la cola previa no forma parte del retardo). Con $Delay = 0 solo se
+        reproduce el clip "sin retardo" (util para confirmar un falso positivo). Fail-soft. Un tope de
+        duracion opcional sale de -Seconds (>0) o de preview.syncSeconds (0 = sin limite, por defecto).
+        $Index = indice absoluto de la pista de audio en el fichero.
     #>
     param([Parameter(Mandatory)]$Context, [Parameter(Mandatory)][string]$File, [int]$Index, [double]$Delay, [double]$At = 0, [int]$Seconds = 0)
-    $ff = "$($Context.FFmpeg)"
-    if ([string]::IsNullOrWhiteSpace($ff) -or -not (Test-Path -LiteralPath $ff)) { Write-CvLog 'AUDIO' '[SYNC] - No se puede previsualizar (ffmpeg no disponible).' -Indent 3; return }
-    # Largo del clip A/B: config preview.syncSeconds (Context.PreviewSyncSeconds; clave dedicada porque
-    # el clip se CODIFICA y necesita duracion finita, a diferencia de preview.seconds que admite 0). El
-    # parametro -Seconds (>0) lo puede forzar puntualmente.
-    $secs = if ($Seconds -gt 0) { $Seconds } else { [int]$Context.PreviewSyncSeconds }
-    $tmp  = [System.IO.Path]::GetTempPath()
-    $tag  = [guid]::NewGuid().ToString('N').Substring(0, 8)
-    $orig = Join-Path $tmp ("cv-syncprev-orig-{0}.mkv" -f $tag)
-    $corr = Join-Path $tmp ("cv-syncprev-corr-{0}.mkv" -f $tag)
-    $audioAt = [Math]::Max(0.0, $At - $Delay)
-    try {
-        # Clip ORIGINAL (video + su audio, tal cual = desfasado).
-        [void](Invoke-ToolCapture -Exe $ff -Arguments @(
-            '-hide_banner', '-y', '-ss', (Format-CvNumber $At), '-t', "$secs", '-i', $File,
-            '-map', '0:v:0', '-map', "0:$Index", '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23',
-            '-c:a', 'aac', '-b:a', '128k', $orig
-        ) -Context $Context)
-        # Clip CORREGIDO: video desde $At, audio desde $At-$Delay (dos entradas del mismo fichero).
-        [void](Invoke-ToolCapture -Exe $ff -Arguments @(
-            '-hide_banner', '-y',
-            '-ss', (Format-CvNumber $At), '-t', "$secs", '-i', $File,
-            '-ss', (Format-CvNumber $audioAt), '-t', "$secs", '-i', $File,
-            '-map', '0:v:0', '-map', "1:$Index", '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23',
-            '-c:a', 'aac', '-b:a', '128k', $corr
-        ) -Context $Context)
-        if (Test-Path -LiteralPath $orig) {
-            Write-CvLog 'AUDIO' ("[SYNC] - Preview 1/2: ORIGINAL (desde {0}s; el audio va adelantado)" -f [int]$At) -Indent 3
-            Invoke-CvPreview -Context $Context -File $orig -Label 'SYNC original'
-        }
-        if (Test-Path -LiteralPath $corr) {
-            Write-CvLog 'AUDIO' ("[SYNC] - Preview 2/2: CORREGIDO (audio retrasado {0}s)" -f (Format-CvNumber $Delay)) -Indent 3
-            Invoke-CvPreview -Context $Context -File $corr -Label 'SYNC corregido'
-        }
-    } catch {
-        Write-CvLog 'AUDIO' ("[SYNC] - No se pudo previsualizar: {0}" -f $_.Exception.Message) -Indent 3
-    } finally {
-        foreach ($c in @($orig, $corr)) { if (Test-Path -LiteralPath $c) { Remove-Item -LiteralPath $c -Force -ErrorAction SilentlyContinue } }
+    $fp = "$($Context.FFplay)"
+    if ([string]::IsNullOrWhiteSpace($fp) -or -not (Test-Path -LiteralPath $fp)) { Write-CvLog 'AUDIO' '[SYNC] - No se puede previsualizar (ffplay no disponible).' -Indent 3; return }
+    # Tope de duracion: por defecto SIN limite (preview.syncSeconds = 0); -Seconds (>0) o la config lo
+    # pueden acotar puntualmente. 0 => Invoke-CvPreview no pone -t (reproduce hasta el final o hasta q/ESC).
+    $secs   = if ($Seconds -gt 0) { $Seconds } else { [int]$Context.PreviewSyncSeconds }
+    $start  = [int][Math]::Floor([Math]::Max(0.0, $At))
+    $astSel = @('-ast', "$Index")   # selecciona la pista de audio por su indice absoluto
+    if ($Delay -gt 0) {
+        Write-CvLog 'AUDIO' ("[SYNC] - Preview 1/2: ORIGINAL (desde {0}s; el audio va adelantado). Cierra con q/ESC." -f $start) -Indent 3
+        Invoke-CvPreview -Context $Context -File $File -ExtraArgs $astSel -Label 'SYNC original' -Start $start -Seconds $secs
+        $ms = [int][Math]::Round($Delay * 1000)
+        Write-CvLog 'AUDIO' ("[SYNC] - Preview 2/2: CORREGIDO (audio retrasado {0}s; los primeros ~{0}s en silencio). Cierra con q/ESC." -f (Format-CvNumber $Delay)) -Indent 3
+        Invoke-CvPreview -Context $Context -File $File -ExtraArgs ($astSel + @('-af', ("adelay={0}:all=1" -f $ms))) -Label 'SYNC corregido' -Start $start -Seconds $secs
+    } else {
+        Write-CvLog 'AUDIO' ("[SYNC] - Preview: SIN RETARDO (audio tal cual, desde {0}s). Cierra con q/ESC." -f $start) -Indent 3
+        Invoke-CvPreview -Context $Context -File $File -ExtraArgs $astSel -Label 'SYNC sin retardo' -Start $start -Seconds $secs
     }
 }
 
@@ -563,7 +553,7 @@ function Invoke-AudioAsk {
     # video con inicios alineados). Solo si esta activa la deteccion (encode.audioSyncThreshold > 0).
     $videoEnd = 0.0
     if (-not $isCopy -and $Context.AudioSyncThreshold -gt 0) {
-        $videoEnd = Get-CvStreamEndPts -Context $Context -File $file -Stream 'v:0' -Duration $adur
+        $videoEnd = Get-CvStreamEndPts -Context $Context -File $file -Stream 'v:0' -Duration $adur -What 'video'
     }
     $tracks = @()
     foreach ($s in $sels) {
@@ -584,19 +574,38 @@ function Invoke-AudioAsk {
             else {
                 # CASO 2: el audio ACABA antes que el video (inicios alineados) -> parece ADELANTADO; se
                 # sugiere retrasarlo esa diferencia. Se PREGUNTA (default = detectado, con preview A/B).
-                $audioEnd = if ($videoEnd -gt 0) { Get-CvStreamEndPts -Context $Context -File $file -Stream "$($s.Index)" -Duration $adur } else { 0.0 }
+                $audioEnd = if ($videoEnd -gt 0) { Get-CvStreamEndPts -Context $Context -File $file -Stream "$($s.Index)" -Duration $adur -What ("audio pista {0}" -f $s.Index) } else { 0.0 }
                 $ahead = Resolve-CvAudioAhead -VideoEnd $videoEnd -AudioEnd $audioEnd -Threshold $Context.AudioSyncThreshold
                 if ($ahead -gt 0) {
-                    Write-CvLog 'AUDIO' ("[SYNC] - El audio acaba {0}s antes que el video{1}: parece ADELANTADO ~{0}s (verificar con preview)." -f $ahead, $lbl) -Indent 3
-                    $prevAt = [Math]::Max($ahead + 5, [Math]::Min($adur * 0.15, [Math]::Max(0, $adur - 60)))
+                    Write-CvLog 'AUDIO' ("[SYNC] - El audio acaba {0}s antes que el video{1}: parece ADELANTADO ~{0}s." -f $ahead, $lbl) -Indent 3
+                    # Flujo: (1) preguntar el retardo -> ENTER/timeout usa el detectado (o el ultimo tecleado);
+                    # (2) PREVIEW FORZOSO del valor definido en (1) -> nunca se acepta sin haberlo visto/oido;
+                    # (3) confirmar -> aceptar sigue; rechazar (N) vuelve a (1) a definir otro. El punto de
+                    # muestreo del preview se recalcula segun el valor (At >= valor -> audio de origen valido).
+                    $timeout = Get-CvPromptTimeout $Context 'audioSync'
+                    $cur = $ahead
+                    $prevOf = { param($d) Show-CvSyncPreview -Context $Context -File $file -Index ([int]$s.Index) -Delay $d -At ([Math]::Max($d + 5, [Math]::Min($adur * 0.15, [Math]::Max(0, $adur - 60)))) }
+                    $res.Manual = $true
                     $decided = $false
                     while (-not $decided) {
-                        $ans = (Read-CvLine -Prompt ("   [AUDIO] [SYNC] - Retardo a anadir al audio en seg [{0}] (ENTER=usar / 0=ninguno / P=previsualizar)" -f $ahead) -TimeoutSec (Get-CvPromptTimeout $Context 'audioSync')).Trim()
-                        $res.Manual = $true
-                        if ($ans -match '^[Pp]$') { Show-CvSyncPreview -Context $Context -File $file -Index ([int]$s.Index) -Delay $ahead -At $prevAt; continue }
-                        if ($ans -eq '') { $sync = $ahead; $decided = $true }
-                        elseif ($ans -eq '0') { $sync = 0.0; $decided = $true }
-                        else { $v = ConvertTo-InvDouble $ans; if ($null -ne $v) { $sync = $v; $decided = $true } }
+                        # PASO 1: retardo a usar (ENTER/timeout = detectado o ultimo). CUALQUIER valor -incluido
+                        # 0 (ninguno)- pasa por preview + confirmacion: no hay atajo que salga del loop sin validar.
+                        $ans = (Read-CvLine -Prompt ("   [AUDIO] [SYNC] - Retardo a anadir al audio en seg [{0}] (ENTER=usar {0} / 0=ninguno / <seg>=otro)" -f (Format-CvNumber $cur)) -TimeoutSec $timeout).Trim()
+                        if ($ans -ne '') { $v = ConvertTo-InvDouble $ans; if ($null -eq $v) { continue }; $cur = $v }
+                        # PASO 2: preview forzoso del valor definido (con 0 = "sin retardo", tal cual).
+                        & $prevOf $cur
+                        # PASO 3: confirmar. SIN timeout (lectura bloqueante): el loop NO sale hasta que se
+                        # confirma explicitamente que suena bien -> el preview puede durar mas que el timeout
+                        # y no debe auto-aceptar mientras se escucha. ENTER/S = aceptar; N = volver a definir;
+                        # P = repetir preview.
+                        $confirmed = $false
+                        while (-not $confirmed) {
+                            $ok = (Read-CvLine -Prompt ("   [AUDIO] [SYNC] - Suena bien? Aceptar retardo de {0}s? (ENTER/S=aceptar / N=definir otro / P=repetir preview)" -f (Format-CvNumber $cur))).Trim()
+                            if ($ok -match '^[Pp]$') { & $prevOf $cur; continue }
+                            if ($ok -match '^[Nn]$') { $confirmed = $true }                     # vuelve al paso 2
+                            elseif ($ok -eq '' -or $ok -match '^[Ss]$') { $sync = $cur; $decided = $true; $confirmed = $true }   # aceptar
+                            # cualquier otra tecla: re-pregunta (no acepta a ciegas)
+                        }
                     }
                     Write-Host ''
                 }

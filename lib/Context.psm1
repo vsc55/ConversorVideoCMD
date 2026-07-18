@@ -5,7 +5,7 @@
 
 function Get-CvVersion {
     <# Version del proyecto (fuente unica; la usan Convert.ps1 y setup.ps1). #>
-    '4.5.0'
+    '4.5.1'
 }
 
 function Get-CvAppName {
@@ -170,9 +170,9 @@ function New-CvContext {
         # Previsualizacion ffplay: inicio (0 = principio) y duracion de la muestra (0 = sin limite).
         PreviewStart   = [Math]::Max(0, [int]$cfg.preview.start)
         PreviewSeconds = [Math]::Max(0, [int]$cfg.preview.seconds)
-        # Largo (seg) de cada clip de la comparacion A/B de sincronia (Show-CvSyncPreview); minimo 1
-        # (el clip se codifica, no puede ser 0/ilimitado como preview.seconds).
-        PreviewSyncSeconds = [Math]::Max(1, [int]$cfg.preview.syncSeconds)
+        # Tope (seg) de cada preview de la comparacion A/B de sincronia (Show-CvSyncPreview); 0 = SIN
+        # limite (reproduce la fuente directa hasta el final o hasta q/ESC), como preview.seconds.
+        PreviewSyncSeconds = [Math]::Max(0, [int]$cfg.preview.syncSeconds)
         AudioLangs     = @($cfg.languages.audio)
         SubLangs       = @($cfg.languages.subtitle)
         # debug: desde config.json (seccion 'debug') o creando el marcador 'debug_on' (cualquiera lo

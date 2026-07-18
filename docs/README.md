@@ -7,7 +7,7 @@ Documentación técnica y detallada del conversor. Para la visión general y la 
 | Documento | Contenido |
 |---|---|
 | [ref-arquitectura.md](ref-arquitectura.md) | Estructura de ficheros, módulos, el contexto (`$ctx`), y las "fuentes únicas de verdad". |
-| [ref-flujo.md](ref-flujo.md) | Cómo trabaja: clasificar → preparar → worker. Diagramas, locks, paralelismo, regla del prefijo `_`. |
+| [ref-flujo.md](ref-flujo.md) | Cómo trabaja: clasificar → preparar → worker. Diagramas, locks, paralelismo, reglas de los prefijos `_` y `TEST_`. |
 | [ref-comandos.md](ref-comandos.md) | **Los comandos exactos** de ffmpeg/ffprobe/ffplay/aacgain que se lanzan en cada fase. |
 | [ref-ffmpeg.md](ref-ffmpeg.md) | **Glosario de todas las opciones y filtros** de ffmpeg/ffprobe/ffplay que usamos: qué hace cada una (doc oficial) y cómo la usamos. Complementa a `ref-comandos.md`. |
 | [ref-perfiles.md](ref-perfiles.md) | Perfiles de codificación de serie, los propios de `config.json` (sección `profiles`), el perfil custom y las preguntas por archivo (vídeo/audio/subs/bordes). |

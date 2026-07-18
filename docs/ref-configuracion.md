@@ -40,7 +40,7 @@ Esquema completo (tras la fusión con los defaults):
                    "audio": { "hz": 44100, "channels": 2, "encoder": "aac_coder", "codec": "aac", "bitrate": "192k", "downmixMode": "default", "downmixCoeffs": { "center": 0.5, "front": 0.35, "surround": 0.15 }, "syncAdelay": true, "multiAudio": true, "keepTitle": false, "syncThreshold": 2.0, "aacCoder": "twoloop",
                               "volume": { "method": "peak", "peakTarget": 0, "loudnorm": { "I": -16, "TP": -1.5, "LRA": 11 } } } },
   "customProfile": { "videoEncoder": "hevc_nvenc", "videoProfile": "main10", "videoLevel": "5.0", "qmin": 1, "qmax": 23, "crf": 21, "multipass": "off", "audioCodec": "aac", "audioBitrate": "192k" },
-  "preview":     { "start": 0, "seconds": 0, "syncSeconds": 20 },
+  "preview":     { "start": 0, "seconds": 0, "syncSeconds": 0 },
   "postprocess": { "stripTags": true, "mkvpropedit": "", "attachments": { "keep": false, "fonts": true, "covers": false, "other": false } },
   "behavior":    { "cleanTemps": true, "separateWindow": true, "lockCloseButton": true, "log": true, "workers": 2, "retries": 2, "progress": true, "promptTimeout": { "default": 0, "sync": 5, "border": 10, "animation": 10, "anamorphic": 10, "audioSync": 15, "video": -1, "audio": -1, "subtitle": -1 }, "promptTimeoutStopOnType": true },
   "debug":       { "enabled": false, "pausePerCommand": true },
@@ -134,7 +134,7 @@ Las claves de vídeo van bajo **`encode.video`** y las de audio bajo **`encode.a
 | `audio.syncAdelay` | `true` | Método del **silencio de sincronía** audio/vídeo. `true` (por defecto) = filtro `adelay` en **una sola pasada** (sin WAV intermedio). `false` = método **clásico** (WAV `silencio + pista`). Ambos dan el mismo resultado audible; `adelay` cuantiza a **ms enteros** (ver [ref-gotchas.md](ref-gotchas.md)). Detalle en [explica-audio.md](explica-audio.md). |
 | `audio.multiAudio` | `true` | Con **2+ pistas del idioma preferido**, permite **conservar varias** y elegir la **predeterminada**. `false` = **monopista** (elige una). Con 0-1 pistas del idioma preferido no cambia nada. Detalle en [explica-audio.md](explica-audio.md). |
 | `audio.keepTitle` | `false` | Si `true`, la(s) pista(s) de audio de salida **conservan el título** del origen (útil para distinguir varias del mismo idioma). `false` (por defecto) = **título en blanco**. |
-| `audio.syncThreshold` | `2.0` | **Detección de audio adelantado**: si el audio **acaba** N s (este umbral) **antes** que el vídeo con inicios alineados, PREPARAR **avisa y pregunta** cuánto retardo aplicar (por defecto el detectado; auto-acepta a los `promptTimeout.audioSync` s; `P`=previsualizar). `0` = desactiva. El retardo se aplica con `adelay`. **Ojo:** un audio con **cola legítimamente más corta** puede dar un falso positivo → por eso pregunta (y ofrece preview). |
+| `audio.syncThreshold` | `2.0` | **Detección de audio adelantado**: si el audio **acaba** N s (este umbral) **antes** que el vídeo con inicios alineados, PREPARAR **avisa**, hace un **preview forzoso** y **pide confirmación** del retardo (por defecto el detectado; teclear otro / `0` = ninguno; ver [explica-audio.md](explica-audio.md) · Caso 2). `0` = desactiva. El retardo se aplica con `adelay`. **Ojo:** un audio con **cola legítimamente más corta** puede dar un falso positivo → por eso pregunta y previsualiza antes de aplicar. |
 | `audio.aacCoder` | `"twoloop"` | Coder del encoder **AAC nativo** (`-aac_coder`): `twoloop` (por defecto, mayor calidad) u otros que soporte ffmpeg. Solo aplica al codec `aac`. |
 
 Sobre `threads` (uso de CPU):
@@ -190,7 +190,7 @@ Reproducción con ffplay en PREPARAR (previews de **pista de audio**, **pista de
 |---|---|---|
 | `start` | `0` | Segundo donde **empieza** la muestra. `0` = **desde el principio**. Si el vídeo es **más corto** que el valor, el inicio se ajusta solo a ~10% de su duración (no se queda fuera). |
 | `seconds` | `0` | **Duración** (s) de la muestra. `0` = **sin límite**: reproduce hasta el final (o hasta que cierres con `q`/ESC). `> 0` = una muestra de esos segundos. |
-| `syncSeconds` | `20` | **Duración** (s) de **cada clip** de la comparación **A/B** de sincronía de audio (original vs corregido). Clave aparte de `seconds` porque esos clips se **codifican** y deben ser **finitos** (no admiten `0` = sin límite). Mínimo 1. |
+| `syncSeconds` | `0` | **Tope** (s) de **cada preview** de la comparación **A/B** de sincronía de audio (original vs corregido). Como ahora se reproduce la **fuente directa** con ffplay (no se codifica ningún clip), admite **`0` = sin límite** (reproduce hasta el final o hasta cerrar con `q`/ESC), igual que `seconds`. Ponlo `> 0` si prefieres una muestra corta. |
 
 > Por defecto (`0`/`0`) la preview reproduce **todo el vídeo desde el principio** y la cierra el usuario. Sube `seconds` si prefieres una muestra corta. En los menús de selección de pista se puede indicar un **segundo de inicio puntual**: `P N <seg>` (p. ej. `A 2 300` reproduce la pista 2 solo-audio desde el segundo 300).
 
@@ -244,7 +244,7 @@ El timeout es configurable **por tipo de pregunta**, con un genérico de reserva
 | `border` | `10` | Preguntas de detección de bordes: reintentar/confirmar recorte **y** las de nº de muestras / inicio / duración del escaneo. `-1` = hereda de `default`. |
 | `animation` | `10` | Pregunta «¿es un vídeo de animación?». `-1` = hereda de `default`. |
 | `anamorphic` | `10` | Pregunta de **vídeo anamórfico** (mantener SAR / cuadrar por ancho / por alto). Al expirar toma el modo configurado en `encode.video.anamorphic`. `-1` = hereda de `default`. |
-| `audioSync` | `15` | Pregunta de **audio adelantado** (`encode.audio.syncThreshold`). Al expirar aplica el **retardo detectado**. `-1` = hereda de `default`. |
+| `audioSync` | `15` | Timeout del **paso 1** de la pregunta de **audio adelantado** (`encode.audio.syncThreshold`): al expirar **preselecciona el retardo detectado** (que aún pasa por **preview forzoso + confirmación**, esta **sin timeout**). `-1` = hereda de `default`. |
 | `video` | `-1` | Menú de selección de **pista de vídeo** (2+ pistas). Al expirar toma la preseleccionada (`*`). `-1` = hereda de `default` (por defecto `0` = off, para no auto-elegir pista sin querer). |
 | `audio` | `-1` | Menús de selección de **pista de audio** (varias del idioma preferido, o fallback sin idioma). Al expirar toma la preseleccionada. `-1` = hereda de `default`. |
 | `subtitle` | `-1` | Menú de **subtítulos fallback** (ninguno del idioma preferido). Al expirar **no conserva ninguno**. `-1` = hereda de `default`. |

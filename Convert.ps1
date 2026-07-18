@@ -215,6 +215,20 @@ if ($files.Count -eq 0) {
     exit 0
 }
 
+# Archivos de prueba (nombre "TEST_..."): al arrancar en PREPARAR se ELIMINA su job si ya existe, para
+# que SIEMPRE se re-preparen desde cero (util al iterar la misma muestra cambiando opciones sin tener
+# que borrar el .job.json a mano). NO se hace en modo -WorkerOnly: una ventana worker que lanza otra
+# instancia necesita el job ya creado para codificar (borrarlo la dejaria sin trabajo).
+if (-not $WorkerOnly) {
+    foreach ($f in $files) {
+        $tn = $f.BaseName
+        if ($tn.StartsWith('TEST_', [System.StringComparison]::OrdinalIgnoreCase) -and (Test-CvJob -Context $ctx -Name $tn)) {
+            Remove-CvJob -Context $ctx -Name $tn
+            Write-CvLog 'GLOBAL' ("[PREPARAR] - Archivo de prueba: job eliminado para reinicio limpio -> {0}.job.json" -f $tn)
+        }
+    }
+}
+
 # Bloquear el boton X de la ventana para no cerrarla por error a mitad de proceso.
 # El trap garantiza reactivarlo si algo falla; tambien se reactiva al terminar bien.
 if ($ctx.LockClose) { Set-CvCloseButton -Enabled $false }

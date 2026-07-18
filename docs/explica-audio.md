@@ -128,9 +128,23 @@ El valor elegido se **congela** en el job (`audio.sync`); que haya habido pregun
 
 Hay un segundo desfase que **no** tiene retardo inicial (audio y vídeo empiezan en `pts 0`) pero el audio va **adelantado de forma constante**: el sonido llega antes que la imagen. Se "esconde" porque los `start_time` son 0; la pista es que el **audio ACABA varios segundos antes que el vídeo** (el vídeo trae ~N s de más al inicio —logo/intro— que el audio no incluye, así que todo el audio queda N s adelantado).
 
-- **Detección** (`Resolve-CvAudioAhead`): compara el último `pts` del vídeo con el de la pista de audio (leídos baratos por índice cerca del final, `Get-CvStreamEndPts`). Si `fin_vídeo − fin_audio ≥ encode.audio.syncThreshold` (por defecto **2 s**), se sugiere retrasar el audio esa diferencia.
-- **Pregunta** (fase PREPARAR): `[SYNC] - El audio acaba N s antes que el vídeo: parece ADELANTADO ~N s`. Default = `N`; `0` = nada; **`P` = previsualizar** dos clips cortos (`Show-CvSyncPreview`): el **original** (se oye el desfase) y el **corregido** (audio retrasado `N` s; el clip corregido toma el vídeo desde `T` y el audio desde `T−N`). Auto-acepta el valor detectado a los `promptTimeout.audioSync` s (15).
+- **Detección** (`Resolve-CvAudioAhead`): compara el último `pts` del vídeo con el de la pista de audio (leídos baratos por índice cerca del final, `Get-CvStreamEndPts`). Si `fin_vídeo − fin_audio ≥ encode.audio.syncThreshold` (por defecto **2 s**), se sugiere retrasar el audio esa diferencia. Como esa lectura de la cola (un `ffprobe` por índice) **tarda un poco**, avisa en consola: `[SYNC] - Analizando fin de video/audio pista N...` y `[OK]` con el fin detectado al terminar.
+- **Pregunta + preview forzoso** (fase PREPARAR), en tres pasos:
+    1. **Preguntar el retardo**: `[SYNC] - Retardo a anadir al audio en seg [N] (ENTER=usar N / 0=ninguno / <seg>=otro)`. **ENTER o timeout** (`promptTimeout.audioSync`, 15 s) → el **detectado `N`** (o el último tecleado); `0` → ninguno; teclear otro número → lo fija. **Cualquier** valor —**incluido `0`**— pasa por los pasos 2 y 3 (no hay atajo que salga del loop sin validar).
+    2. **Preview forzoso** del valor elegido en el paso 1 (`Show-CvSyncPreview`): **siempre se muestra antes de aceptar**, así nunca se aplica un valor sin haberlo visto/oído. Se reproduce la **fuente directa** con ffplay (no se codifica ningún clip) desde `T` (≈15 % del audio) y **sin límite de tiempo** por defecto — hasta el final o hasta cerrar con `q`/ESC (topable con `preview.syncSeconds > 0`). Con un retardo `> 0`, **dos pases**: el **original** (se oye el desfase) y el **corregido** (mismo punto con el audio retrasado ese valor vía `adelay`, tal cual lo aplica el worker: `vídeo(W)` suena con `audio(W−valor)`; los primeros ~`valor` s de audio son silencio). Con `0`, **un solo pase** "sin retardo" (audio tal cual) para confirmar que ya suena bien (falso positivo).
+    3. **Confirmar** (**sin timeout** — espera confirmación explícita): `Suena bien? Aceptar retardo de N s? (ENTER/S=aceptar / N=definir otro / P=repetir preview)`. **ENTER o `S`** → acepta; **`N`** → vuelve al paso 1 a definir otro; **`P`** → repite el preview. **No auto-acepta por timeout**: como el preview puede durar más que el timeout, el loop **no sale** hasta confirmar de oído/vista que suena bien (así no se cuela un valor sin escucharlo).
 - **Aplicación**: el retardo elegido va a `audio.sync` y el worker lo aplica con `adelay` (igual que el caso 1).
+
+```mermaid
+flowchart TD
+    D["Detección (Resolve-CvAudioAhead):<br/>fin_vídeo − fin_audio ≥ umbral → sugiere ~N s"] --> P2["PASO 1 · Preguntar retardo [N]<br/>ENTER/timeout = N (detectado) · nº = otro · 0 = ninguno"]
+    P2 -- "cualquier valor (N · nº · 0)" --> P3["PASO 2 · PREVIEW FORZOSO del valor elegido<br/>(>0: original vs corregido · 0: sin retardo · Show-CvSyncPreview)"]
+    P3 --> P4{"PASO 3 · ¿Suena bien? (sin timeout)"}
+    P4 -- "N (definir otro)" --> P2
+    P4 -- "P (repetir preview)" --> P3
+    P4 -- "ENTER/S (aceptar)" --> A["sync = valor elegido (puede ser 0)"]
+    A --> F["Congelar audio.sync en el .job.json"]
+```
 
 > **Ojo con los falsos positivos:** un audio con **cola legítimamente más corta** (créditos con música que acaba antes, etc.) también "acaba antes" sin estar desfasado. Por eso NO se aplica a ciegas: se **pregunta** y se ofrece el **preview** para confirmar de oído/vista. Sube `audioSyncThreshold` (o ponlo a `0`) si te da falsos positivos.
 
