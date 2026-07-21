@@ -563,13 +563,25 @@ function Invoke-AudioAsk {
             $delay = Get-AudioInitDelay -Context $Context -File $file -Index $s.Index
             $lbl = if ($sels.Count -gt 1) { (" (pista {0}, {1})" -f $s.Index, $lang) } else { '' }
             if ($delay -gt 0) {
-                # CASO 1: el audio EMPIEZA mas tarde -> silencio inicial (indentado bajo el archivo).
-                Write-CvLog 'AUDIO' ("[SYNC] - El audio empieza {0}s mas tarde que el video{1}" -f $delay, $lbl) -Indent 3
-                $ans = (Read-CvLine -Prompt ("   [AUDIO] [SYNC] - Silencio a anadir al inicio en seg [{0}] (ENTER=usar / 0=ninguno)" -f $delay) -TimeoutSec (Get-CvPromptTimeout $Context 'sync')).Trim()
-                $res.Manual = $true   # se pregunto por el silencio de sincronia
-                if ($ans -eq '') { $sync = $delay }
-                else { $v = ConvertTo-InvDouble $ans; if ($null -ne $v) { $sync = $v } }
-                Write-Host ''
+                # CASO 1: el audio EMPIEZA mas tarde (start_time > 0). NO es una desincronia: los timestamps
+                # del origen ya estan alineados (solo no hay sonido en ese primer tramo). Compensarlo con
+                # silencio SOLO hace falta si la ruta PIERDE los timestamps al procesar la pista: eso ocurre
+                # unicamente en el modo WAV clasico (syncAdelay = false), porque el WAV no guarda marcas de
+                # tiempo. Con syncAdelay = true (por defecto, y obligatorio en una-pasada) ffmpeg CONSERVA el
+                # offset -tanto en el filter_complex de una-pasada como en el temporal .m4a/.mka de etapas-,
+                # asi que anadir el silencio lo DUPLICARIA y dejaria el audio $delay s tarde (desincronia real
+                # en la salida, con la fuente correcta). Verificado con ffprobe/silencedetect.
+                if ($Context.SyncAdelay) {
+                    Write-CvLog 'AUDIO' ("[SYNC] - El audio empieza {0}s mas tarde que el video{1}: offset ya conservado por ffmpeg, no se compensa." -f $delay, $lbl) -Indent 3
+                }
+                else {
+                    Write-CvLog 'AUDIO' ("[SYNC] - El audio empieza {0}s mas tarde que el video{1} (modo WAV clasico: hay que compensarlo)" -f $delay, $lbl) -Indent 3
+                    $ans = (Read-CvLine -Prompt ("   [AUDIO] [SYNC] - Silencio a anadir al inicio en seg [{0}] (ENTER=usar / 0=ninguno)" -f $delay) -TimeoutSec (Get-CvPromptTimeout $Context 'sync')).Trim()
+                    $res.Manual = $true   # se pregunto por el silencio de sincronia
+                    if ($ans -eq '') { $sync = $delay }
+                    else { $v = ConvertTo-InvDouble $ans; if ($null -ne $v) { $sync = $v } }
+                    Write-Host ''
+                }
             }
             else {
                 # CASO 2: el audio ACABA antes que el video (inicios alineados) -> parece ADELANTADO; se

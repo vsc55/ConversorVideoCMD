@@ -72,7 +72,7 @@ Todo es configurable en `config.json` (detalle en [ref-configuracion.md](docs/re
 | **Canales / downmix** | Estéreo / 5.1 / 7.1 como **máximo** (no hace upmix); downmix 5.1→estéreo estándar o con voz reforzada (coeficientes) |
 | **Frecuencia** | Hz de salida (Opus fuerza 48000) |
 | **Normalización de volumen** | Pico (`peak`) · `loudnorm` (EBU R128) · `aacgain` |
-| **Sincronía A/V** | Silencio inicial con `adelay` (1 pasada) o WAV clásico; detección de audio **adelantado** con aviso y preview |
+| **Sincronía A/V** | Corrección con `adelay` (1 pasada) o WAV clásico; el desfase inicial solo se compensa si la ruta pierde los timestamps; detección de audio **adelantado** con aviso y preview forzoso |
 | **Multipista** | Conservar varias pistas del idioma preferido y elegir la predeterminada |
 | **Selección por idioma** | Idioma preferido con *fallback* + preview; conservar (o no) el título de la pista |
 

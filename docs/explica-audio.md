@@ -96,16 +96,33 @@ Los parámetros de cada método (`encode.audio.volume.peakTarget`, `encode.audio
 
 Algunos contenedores traen la pista de audio con un **desfase inicial**: su primer frame no está en el segundo 0, sino en `pts_time = d` (el audio "empieza más tarde" que el vídeo). En el archivo original eso está bien porque los timestamps lo colocan en su sitio.
 
-El conflicto aparece porque el conversor **recodifica el audio por separado** (a un temporal `.m4a`/`.mka`) y luego lo multiplexa con el vídeo: al procesar la pista aislada, ese desfase inicial no se conserva y el audio acabaría **`d` segundos adelantado** respecto al vídeo.
+El conflicto aparece **solo si la ruta de procesado PIERDE ese timestamp**. La solución es **anteponer `d` segundos de silencio** a la pista, para que vuelva a empezar en `d` y quede alineada.
 
-La solución del conversor: **anteponer `d` segundos de silencio** a la pista antes de recodificar, para que vuelva a empezar en `d` y quede alineada. (El código solo mide el desfase y compensa con silencio; el "por qué" del desfase depende del contenedor de origen.)
+> **Importante — hoy eso solo pasa en el modo WAV clásico.** Medido con `ffprobe`/`silencedetect` (ffmpeg 7.1.1):
+>
+> | Ruta | ¿Conserva el offset? | ¿Compensar? |
+> |---|---|---|
+> | Una-pasada (`filter_complex`) | **Sí** | **No** |
+> | Etapas · temporal `.m4a` | **Sí** | **No** |
+> | Etapas · temporal `.mka` | **Sí** | **No** |
+> | Etapas · **WAV clásico** (`encode.audio.syncAdelay = false`) | **No** (el WAV no guarda marcas de tiempo) | **Sí** |
+>
+> Por eso la compensación **solo se aplica con `syncAdelay = false`**. Con `syncAdelay = true` (por defecto, y obligatorio en una-pasada) ffmpeg ya conserva el offset: añadir el silencio lo **duplicaría** y dejaría el audio `d` s **tarde** en la salida —una desincronía **real**, con la fuente correcta—.
+
+Ojo al mecanismo: compensar **AÑADE silencio** (`adelay` / `aevalsrc`+`concat`); **no mueve** los timestamps. Por eso se **suma** al `start_time` en vez de sustituirlo:
 
 ```
-  tiempo →   0    d                    fin
-  vídeo:     |====|====================|
-  audio ok:       [==== audio ====]           empieza en d   -> correcto
-  sin fix:   [==== audio ====]                empieza en 0   -> adelantado d
-  con sil:   [sil][==== audio ====]           silencio 0..d  -> alineado
+  tiempo →   0    d        2d           fin
+  vídeo:     |====|=========================|
+  ORIGEN:         [==== audio ====]           start_time = d   -> correcto
+
+  Ruta que CONSERVA el timestamp (adelay / una-pasada):
+   sin tocar:     [==== audio ====]           sigue en d       -> correcto   OK
+   + silencio:    [sil][==== audio ====]      d + d = 2d       -> AUDIO TARDE   BUG
+
+  Ruta que PIERDE el timestamp (WAV clásico):
+   sin tocar: [==== audio ====]                empieza en 0    -> adelantado d  MAL
+   + silencio:[sil][==== audio ====]           silencio 0..d   -> alineado   OK
 ```
 
 ### Detección (fase PREPARAR)
@@ -116,11 +133,13 @@ La solución del conversor: **anteponer `d` segundos de silencio** a la pista an
 ffmpeg -hide_banner -i <file> -map 0:<i> -af ashowinfo -f alaw -frames:a 1 -y NUL
 ```
 
-Si `pts_time = d > 0`, se avisa (`[SYNC] - El audio empieza d s más tarde que el vídeo`) y se **pregunta** cuánto silencio añadir, con `d` como valor por defecto:
+Si `pts_time = d > 0`, el comportamiento depende del modo de sincronía (ver la tabla de arriba):
 
-- `[ENTER]` → usar `d` (el detectado).
-- teclear un número → usar ese (ajuste manual).
-- `0` → no añadir silencio.
+- **`syncAdelay = true`** (por defecto, y siempre en una-pasada): **no se compensa** y **no se pregunta** — ffmpeg ya conserva el offset. Solo se informa: `[SYNC] - El audio empieza d s más tarde que el vídeo: offset ya conservado por ffmpeg, no se compensa.` → `sync = 0`.
+- **`syncAdelay = false`** (WAV clásico, que sí pierde los timestamps): se avisa y se **pregunta** cuánto silencio añadir, con `d` por defecto:
+  - `[ENTER]` → usar `d` (el detectado).
+  - teclear un número → usar ese (ajuste manual).
+  - `0` → no añadir silencio.
 
 El valor elegido se **congela** en el job (`audio.sync`); que haya habido pregunta marca el archivo como *selección manual* (`[AVISO]`).
 
@@ -156,9 +175,12 @@ En `Invoke-AudioRun`, si `sync > 0` **no** se recodifica la pista directamente: 
 flowchart TD
     P["PREPARAR: Get-AudioInitDelay<br/>(pts_time del 1er frame = d)"] --> Q{"d &gt; 0?"}
     Q -- "no" --> N["sync = 0 (sin desfase)"]
-    Q -- "sí" --> R["Preguntar silencio [d]<br/>ENTER=d · nº=manual · 0=ninguno"]
+    Q -- "sí" --> S{"¿syncAdelay?"}
+    S -- "true (por defecto):<br/>ffmpeg conserva el offset" --> N2["sync = 0 (no se compensa;<br/>compensarlo lo duplicaría)"]
+    S -- "false (WAV clásico:<br/>pierde los timestamps)" --> R["Preguntar silencio [d]<br/>ENTER=d · nº=manual · 0=ninguno"]
     R --> F["Congelar audio.sync en el .job.json"]
     N --> F
+    N2 --> F
     F --> W{"WORKER:<br/>sync &gt; 0?"}
     W -- "no" --> E1["Codificar la pista directamente → .m4a/.mka"]
     W -- "sí" --> G["Generar WAV: aevalsrc(silencio d) + pista<br/>(concat=n=2)"]
